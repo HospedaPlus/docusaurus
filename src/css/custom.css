@@ -1,30 +1,287 @@
 /**
- * Any CSS included here will be global. The classic template
- * bundles Infima by default. Infima is a CSS framework designed to
- * work well for content-centric websites.
+ * HospedaPlus theme for Docusaurus (Infima overrides).
  */
 
-/* You can override the default Infima variables here. */
 :root {
-  --ifm-color-primary: #2e8555;
-  --ifm-color-primary-dark: #29784c;
-  --ifm-color-primary-darker: #277148;
-  --ifm-color-primary-darkest: #205d3b;
-  --ifm-color-primary-light: #33925d;
-  --ifm-color-primary-lighter: #359962;
-  --ifm-color-primary-lightest: #3cad6e;
+  --hp-navy: #1b2241;
+  --hp-ink: #141a33;
+  --hp-ink-soft: #3a4160;
+  --hp-muted: #5d6482;
+  --hp-border: #e4e7f2;
+  --hp-card-bg: #f8f9fd;
+  --hp-purple: #5b45e0;
+  --hp-indigo: #4a4bd8;
+  --hp-blue: #3f5ce8;
+  --hp-active-bg: #ece8fe;
+  --hp-sidebar-bg: #f8f9fd;
+
+  --ifm-color-primary: #5b45e0;
+  --ifm-color-primary-dark: #4c35d9;
+  --ifm-color-primary-darker: #472fd0;
+  --ifm-color-primary-darkest: #3b27ab;
+  --ifm-color-primary-light: #6e5ae4;
+  --ifm-color-primary-lighter: #7764e6;
+  --ifm-color-primary-lightest: #9485ec;
+
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ifm-heading-font-family: var(--ifm-font-family-base);
+  --ifm-font-color-base: var(--hp-ink-soft);
+  --ifm-heading-color: var(--hp-ink);
+  --ifm-heading-font-weight: 700;
+  --ifm-h1-font-size: 2rem;
+  --ifm-line-height-base: 1.7;
   --ifm-code-font-size: 95%;
+  --ifm-background-color: #ffffff;
+
+  --ifm-navbar-background-color: var(--hp-navy);
+  --ifm-navbar-height: 3.75rem;
+  --ifm-navbar-link-color: #e7e9f5;
+  --ifm-navbar-link-hover-color: #ffffff;
+  --ifm-navbar-shadow: none;
+
+  --ifm-menu-color: var(--hp-ink-soft);
+  --ifm-menu-color-active: var(--hp-purple);
+  --ifm-menu-color-background-active: var(--hp-active-bg);
+  --ifm-menu-color-background-hover: #f0f1f9;
+  --doc-sidebar-width: 290px !important;
+
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 }
 
-/* For readability concerns, you should choose a lighter palette in dark mode. */
-[data-theme='dark'] {
-  --ifm-color-primary: #25c2a0;
-  --ifm-color-primary-dark: #21af90;
-  --ifm-color-primary-darker: #1fa588;
-  --ifm-color-primary-darkest: #1a8870;
-  --ifm-color-primary-light: #29d5b0;
-  --ifm-color-primary-lighter: #32d8b4;
-  --ifm-color-primary-lightest: #4fddbf;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Navbar ---------- */
+
+.navbar {
+  background: var(--hp-navy);
+}
+
+.navbar__brand {
+  margin-right: 0;
+}
+
+.navbar__logo {
+  height: 1.9rem;
+}
+
+.navbar__title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+/* Centered search box. */
+.navbar__items--right {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.navbar__inner {
+  position: relative;
+}
+
+.navbar__items--right > [class*='navbarSearchContainer'] {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(40vw, 480px);
+}
+
+.navbar__search {
+  width: 100%;
+  margin: 0;
+}
+
+.navbar__search input {
+  width: 100%;
+  height: 2.3rem;
+  padding-left: 2.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  font-size: 0.88rem;
+}
+
+.navbar__search input::placeholder {
+  color: #b9bdd3;
+}
+
+.navbar__search input:focus {
+  width: 100%;
+  border-color: rgba(167, 151, 255, 0.6);
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.navbar__search kbd {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #c7cbe0;
+}
+
+.navbar-github-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.navbar-github-link::before {
+  content: '';
+  width: 22px;
+  height: 22px;
+  background-color: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.2.8.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.navbar-github-link svg {
+  display: none;
+}
+
+.navbar__toggle {
+  color: #ffffff;
+}
+
+@media (max-width: 996px) {
+  .navbar__items--right > [class*='navbarSearchContainer'] {
+    position: static;
+    transform: none;
+    width: auto;
+  }
+
+  .navbar__search input {
+    width: 2.3rem;
+    padding-left: 2.2rem;
+  }
+}
+
+/* ---------- Sidebar ---------- */
+
+.theme-doc-sidebar-container {
+  background: var(--hp-sidebar-bg);
+  border-right: 1px solid var(--hp-border) !important;
+}
+
+.theme-doc-sidebar-menu {
+  font-size: 0.86rem;
+}
+
+.menu {
+  padding: 1.25rem 0.9rem !important;
+}
+
+.menu__link {
+  gap: 0.75rem;
+  padding: 0.42rem 0.75rem;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+/* Small page icon in front of each doc link. */
+.theme-doc-sidebar-item-link-level-1 .menu__link::before {
+  content: '';
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  opacity: 0.7;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6M8 13h8M8 17h5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.menu__link--active {
+  font-weight: 600;
+}
+
+.menu__link--active::before {
+  opacity: 1 !important;
+}
+
+.sidebar-home .menu__link {
+  font-weight: 600;
+  color: var(--hp-ink);
+}
+
+.sidebar-home .menu__link::before {
+  width: 18px !important;
+  height: 18px !important;
+  opacity: 1 !important;
+  background-color: var(--hp-purple) !important;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.5 1.6 11.4c-.6.5-.2 1.6.6 1.6H4v8a1.5 1.5 0 0 0 1.5 1.5H10v-6h4v6h4.5A1.5 1.5 0 0 0 20 21v-8h1.8c.8 0 1.2-1.1.6-1.6z'/%3E%3C/svg%3E") center / contain no-repeat !important;
+}
+
+/* The external-link arrow is not wanted on the Home link. */
+.sidebar-home svg {
+  display: none;
+}
+
+.sidebar-section-title {
+  margin: 1.4rem 0 0.4rem;
+  padding: 0 0.75rem !important;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--hp-muted);
+}
+
+/* "Built with Docusaurus" badge at the bottom of the sidebar. */
+.theme-doc-sidebar-container > div > div::after {
+  content: 'Built with Docusaurus';
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.7rem 1.25rem;
+  font-size: 0.75rem;
+  color: var(--hp-muted);
+}
+
+/* ---------- Content ---------- */
+
+.theme-doc-markdown h1 {
+  --ifm-h1-font-size: 2.2rem;
+  margin-bottom: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.theme-doc-markdown h2 {
+  margin-top: 2.5rem;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+}
+
+.theme-doc-markdown > p,
+.theme-doc-markdown > header + p {
+  max-width: 46rem;
+}
+
+.lead {
+  font-size: 1.12rem;
+  color: var(--hp-ink);
+}
+
+/* Breadcrumbs: "Home > Page" in plain text. */
+.breadcrumbs {
+  font-size: 0.82rem;
+}
+
+.breadcrumbs__link {
+  padding: 0;
+  background: none !important;
+  color: var(--hp-muted);
+}
+
+.breadcrumbs__item--active .breadcrumbs__link {
+  color: var(--hp-ink-soft);
+}
+
+.breadcrumbs__item:not(:last-child)::after {
+  margin: 0 0.6rem;
+}
+
+.pagination-nav__link {
+  border-color: var(--hp-border);
+  border-radius: 12px;
 }

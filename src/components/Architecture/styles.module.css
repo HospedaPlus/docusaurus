@@ -1,0 +1,284 @@
+.figure {
+  margin: 1.75rem 0 2rem;
+}
+
+.flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+
+.stage {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1.5px solid var(--stage-border);
+  border-radius: 10px;
+  background: var(--stage-bg);
+}
+
+.stageTitle {
+  padding: 0.55rem 0.4rem;
+  background: var(--stage-head);
+  color: var(--stage-color);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.stageBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+  gap: 0.9rem;
+  padding: 0.9rem 0.6rem 1rem;
+}
+
+.blue {
+  --stage-border: #d7e4fb;
+  --stage-bg: #fbfcff;
+  --stage-head: #eef4ff;
+  --stage-color: #2f5fd0;
+}
+
+.purple {
+  --stage-border: #e1daf9;
+  --stage-bg: #fcfbff;
+  --stage-head: #f3effe;
+  --stage-color: #5b45e0;
+}
+
+.green {
+  --stage-border: #ccecdf;
+  --stage-bg: #f7fdfa;
+  --stage-head: #eaf8f1;
+  --stage-color: #128a5c;
+}
+
+.sky {
+  --stage-border: #d4e6fa;
+  --stage-bg: #fafcff;
+  --stage-head: #edf5fe;
+  --stage-color: #2b6fc4;
+}
+
+.violet {
+  --stage-border: #e5dcf9;
+  --stage-bg: #fbf9ff;
+  --stage-head: #f4effe;
+  --stage-color: #7a45d8;
+}
+
+.arrow {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: #3d7be6;
+}
+
+.arrowDown {
+  transform: rotate(90deg);
+  color: #5b45e0;
+}
+
+.tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.tool > svg,
+.tool > span:first-child {
+  margin-bottom: 0.35rem;
+}
+
+.toolLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--hp-ink);
+}
+
+.toolCaption {
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--hp-muted);
+}
+
+.usersLabel {
+  color: #4a4bd8;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0 0.3rem;
+  line-height: 1.3;
+}
+
+.rowLogo {
+  display: inline-flex;
+  flex: none;
+}
+
+.rowLabel {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--hp-ink);
+}
+
+.chip {
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  background: #efecfd;
+  color: #4b3bd1;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.iconPurple {
+  color: #5a48e0;
+}
+
+.iconIndigo {
+  color: #4a4bd8;
+}
+
+.iconBlue {
+  color: #3d5be6;
+}
+
+.iconSky {
+  color: #2a8ff0;
+}
+
+.iconTeal {
+  color: #13a88a;
+}
+
+/* ---------- Detailed AWS view ---------- */
+
+.aws {
+  position: relative;
+  padding: 0 0.9rem 0.9rem;
+  border: 2px solid #b9d3f5;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.awsHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: -2px 0 0 -0.9rem;
+}
+
+.awsTab {
+  display: inline-flex;
+  padding: 0.35rem 1rem 0.35rem 0.75rem;
+  border-radius: 10px 0 14px 0;
+  background: var(--hp-navy);
+}
+
+.region {
+  font-size: 0.78rem;
+  color: var(--hp-ink-soft);
+}
+
+.vpc {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0.5rem 30%;
+  font-size: 0.75rem;
+  color: var(--hp-ink-soft);
+}
+
+.flowCompact .stageBody {
+  gap: 0.7rem;
+}
+
+.infra {
+  margin-top: 0.8rem;
+  padding: 0 0.9rem 1rem;
+  border: 1px solid #dfe6f5;
+  border-radius: 10px;
+  background: #f8faff;
+}
+
+.infraTitle {
+  display: inline-block;
+  margin-bottom: 0.9rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0 0 10px 0;
+  margin-left: -0.9rem;
+  background: #edf2fd;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #2b4fa8;
+}
+
+.infraItems {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.9rem 1rem;
+}
+
+.infraItem {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  line-height: 1.3;
+}
+
+.infraItem svg {
+  flex: none;
+}
+
+/* ---------- Responsive: stack the stages vertically ---------- */
+
+@media (max-width: 1100px) {
+  .flow {
+    flex-direction: column;
+  }
+
+  .stage {
+    flex: none;
+  }
+
+  .stageBody {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem 1.5rem;
+  }
+
+  .row {
+    width: auto;
+  }
+
+  .arrow:not(.arrowDown) {
+    transform: rotate(90deg);
+    padding: 0.15rem 0;
+  }
+
+  .arrowDown {
+    transform: none;
+  }
+
+  .vpc {
+    margin-left: 0;
+  }
+}

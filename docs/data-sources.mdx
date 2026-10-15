@@ -1,0 +1,50 @@
+---
+sidebar_position: 3
+sidebar_label: Data Sources
+title: Data Sources
+hide_table_of_contents: true
+---
+
+import {CardGrid, SourceCard, Note} from '@site/src/components/Overview';
+
+# Data Sources
+
+HospedaPlus integrates data from multiple sources to get a complete view of the business. Below are the main sources we use:
+
+<CardGrid columns={4}>
+<SourceCard icon="bed" tone="purple" title="Property Management System (PMS)">
+
+- Reservations
+- Occupancy
+- Room rates
+- Guest details
+
+</SourceCard>
+<SourceCard icon="network" tone="blue" title="Channel Manager">
+
+- Booking platforms
+- Availability
+- Rates
+- Cancellations
+
+</SourceCard>
+<SourceCard icon="pos" tone="teal" title="Point of Sale (POS)">
+
+- Food & beverage
+- Additional services
+- Spending patterns
+
+</SourceCard>
+<SourceCard icon="cloud" tone="sky" title="External Data">
+
+- Weather
+- Events & holidays
+- Competitor rates
+- Reviews & sentiment
+
+</SourceCard>
+</CardGrid>
+
+<Note>
+  These sources provide the raw data that is later transformed and unified in our data platform for analysis and visualization.
+</Note>

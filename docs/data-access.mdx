@@ -1,0 +1,31 @@
+---
+sidebar_position: 4
+sidebar_label: Data Access
+title: Where are the sources and how to access them?
+hide_table_of_contents: true
+---
+
+import {AccessTable, SourceName, AccessNote} from '@site/src/components/Overview';
+
+# Where are the sources and how to access them?
+
+The data sources are located in different systems and can be accessed through secure connections and APIs. Below is a summary of where they are and how to connect.
+
+<AccessTable>
+
+| Source | Location | Access Method |
+| --- | --- | --- |
+| <SourceName icon="bed" tone="purple">PMS</SourceName> | Hotel's on-premise system / Cloud | Database connection (SQL) |
+| <SourceName icon="network" tone="blue">Channel Manager</SourceName> | Cloud (vendor platform) | API (REST) |
+| <SourceName icon="pos" tone="blue">POS</SourceName> | Cloud (vendor platform) | API (REST) |
+| <SourceName icon="cloud" tone="sky">External Data</SourceName> | Public APIs / Data providers | API / Web scraping (when applicable) |
+
+</AccessTable>
+
+<AccessNote title="Access considerations">
+
+- All connections are managed securely using credentials and environment variables.
+- Data access is restricted based on roles and permissions.
+- We use encrypted connections (SSL/TLS) when available.
+
+</AccessNote>
