@@ -1,0 +1,52 @@
+---
+sidebar_position: 1
+sidebar_label: F1 · Hotel booking demand
+title: F1 · Hotel booking demand
+---
+
+import {AccessTable, AccessNote} from '@site/src/components/Overview';
+
+# F1 · Hotel booking demand
+
+Public dataset with the booking history of one urban hotel and one vacation hotel in Portugal. In HospedaPlus it is used as the history of two hotels of the chain.
+
+<AccessTable>
+
+| Property | Value |
+| --- | --- |
+| Type | Real data, Kaggle CSV |
+| Location | [kaggle.com/datasets/jessemostipak/hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand) |
+| Access method | CSV download, one-time historical load |
+| Frequency | One-time historical load |
+| Volume | ~119,000 bookings |
+
+</AccessTable>
+
+## How to access it
+
+Download the dataset from the Kaggle page, or with the Kaggle CLI using a personal API token:
+
+```bash
+kaggle datasets download -d jessemostipak/hotel-booking-demand --unzip
+```
+
+The download contains one CSV file, `hotel_bookings.csv`. The Kaggle API token is a personal credential, so it stays out of the repository.
+
+## What it contains
+
+Each row is a booking, with its arrival date, lead time, distribution channel, market segment, ADR, cancellation flag and deposit type. The main columns are:
+
+- `hotel`: `City Hotel` or `Resort Hotel`.
+- `is_canceled`, `lead_time`, `deposit_type`.
+- `arrival_date_year`, `arrival_date_month`, `arrival_date_day_of_month`, `stays_in_weekend_nights`, `stays_in_week_nights`.
+- `adults`, `children`, `babies`.
+- `market_segment`, `distribution_channel`, `customer_type`, `agent`, `company`.
+- `reserved_room_type`, `assigned_room_type`, `adr`, `reservation_status`, `reservation_status_date`.
+
+<AccessNote icon="alert" title="Known data quality issues">
+
+- `agent` and `company` contain the text `"NULL"` instead of empty values.
+- `adr` has negative and extreme values that must be treated.
+- Some bookings have zero adults, zero children and zero babies.
+
+</AccessNote>

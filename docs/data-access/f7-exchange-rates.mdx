@@ -1,0 +1,31 @@
+---
+sidebar_position: 7
+sidebar_label: F7 · Exchange rates
+title: F7 · Exchange rates
+---
+
+import {AccessTable} from '@site/src/components/Overview';
+
+# F7 · Exchange rates
+
+Daily exchange rates for 5 currencies, taken from a public API.
+
+<AccessTable>
+
+| Property | Value |
+| --- | --- |
+| Type | Real data, public API |
+| Location | [Frankfurter](https://frankfurter.dev) public API |
+| Access method | REST API |
+| Frequency | Daily |
+| Volume | 5 currencies |
+
+</AccessTable>
+
+## How to access it
+
+The Frankfurter API needs no key. For example, the latest rates with the euro as base currency:
+
+```bash
+curl "https://api.frankfurter.dev/v1/latest?base=EUR"
+```

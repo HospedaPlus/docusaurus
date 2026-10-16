@@ -1,0 +1,39 @@
+---
+sidebar_position: 4
+sidebar_label: F4 · Traditional agency files
+title: F4 · Traditional agency files
+---
+
+import {AccessTable, AccessNote} from '@site/src/components/Overview';
+
+# F4 · Traditional agency files
+
+Simulated weekly files with the bookings sold by traditional travel agencies.
+
+<AccessTable>
+
+| Property | Value |
+| --- | --- |
+| Type | Simulated files |
+| Location | Weekly files from each agency |
+| Access method | CSV / Excel files |
+| Frequency | Weekly |
+| Volume | ~15 agencies |
+
+</AccessTable>
+
+## How to access it
+
+Each agency delivers one CSV or Excel file per week, and the platform loads the files in batch.
+
+## What it contains
+
+Bookings sold by each agency. Every agency uses its own file format.
+
+<AccessNote icon="alert" title="Known data quality issues">
+
+- Agencies use different formats.
+- Some files do not indicate the currency.
+- Some bookings already exist through another channel, with slight differences in the guest's name. When the same guest, hotel and dates (±1 day) appear in two channels, the booking is flagged and the one from the channel with the lowest commission prevails.
+
+</AccessNote>

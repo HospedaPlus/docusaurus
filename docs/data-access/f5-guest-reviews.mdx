@@ -1,0 +1,41 @@
+---
+sidebar_position: 5
+sidebar_label: F5 · Guest reviews
+title: F5 · Guest reviews
+---
+
+import {AccessTable, AccessNote} from '@site/src/components/Overview';
+
+# F5 · Guest reviews
+
+Simulated API with the reviews guests leave on review platforms. It feeds the reputation indicators of each hotel.
+
+<AccessTable>
+
+| Property | Value |
+| --- | --- |
+| Type | Simulated API |
+| Location | Reviews API built by the team |
+| Access method | Paginated REST API |
+| Frequency | Daily |
+| Volume | ~300 reviews/day |
+
+</AccessTable>
+
+## How to access it
+
+The platform reads the reviews once a day through the paginated REST API. Reviews are synthetic: real reviews are not extracted from any platform.
+
+## What it contains
+
+Each review has a rating, text, date, hotel and platform. Reviews are written in Spanish, English and Portuguese.
+
+## How it is used
+
+The reputation rating of each hotel is the weighted average of its reviews from the last 90 days, where reviews from the last 30 days count double.
+
+<AccessNote icon="alert" title="Known data quality issues">
+
+- Some reviews are duplicated across platforms.
+
+</AccessNote>
