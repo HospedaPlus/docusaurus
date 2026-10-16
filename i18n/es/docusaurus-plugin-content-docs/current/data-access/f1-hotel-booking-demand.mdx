@@ -1,0 +1,52 @@
+---
+sidebar_position: 1
+sidebar_label: F1 · Hotel booking demand
+title: F1 · Hotel booking demand
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="file" tone="purple" />F1 · Hotel booking demand <SourceType>CSV</SourceType>
+
+Dataset público con el histórico de reservas de un hotel urbano y uno vacacional en Portugal. En HospedaPlus se usa como histórico de dos hoteles de la cadena.
+
+<AccessTable>
+
+| Propiedad | Valor |
+| --- | --- |
+| Tipo | Datos reales, CSV de Kaggle |
+| Ubicación | [kaggle.com/datasets/jessemostipak/hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand) |
+| Método de acceso | Descarga de CSV, carga histórica única |
+| Frecuencia | Carga histórica única |
+| Volumen | ~119.000 reservas |
+
+</AccessTable>
+
+## Cómo acceder
+
+Descarga el dataset desde la página de Kaggle, o con la CLI de Kaggle usando un token personal de la API:
+
+```bash
+kaggle datasets download -d jessemostipak/hotel-booking-demand --unzip
+```
+
+La descarga contiene un archivo CSV, `hotel_bookings.csv`. El token de la API de Kaggle es una credencial personal, así que se queda fuera del repositorio.
+
+## Qué contiene
+
+Cada fila es una reserva, con su fecha de llegada, anticipación (lead time), canal de distribución, segmento de mercado, ADR, indicador de cancelación y tipo de depósito. Las columnas principales son:
+
+- `hotel`: `City Hotel` o `Resort Hotel`.
+- `is_canceled`, `lead_time`, `deposit_type`.
+- `arrival_date_year`, `arrival_date_month`, `arrival_date_day_of_month`, `stays_in_weekend_nights`, `stays_in_week_nights`.
+- `adults`, `children`, `babies`.
+- `market_segment`, `distribution_channel`, `customer_type`, `agent`, `company`.
+- `reserved_room_type`, `assigned_room_type`, `adr`, `reservation_status`, `reservation_status_date`.
+
+<AccessNote icon="alert" title="Problemas de calidad de datos conocidos">
+
+- `agent` y `company` contienen el texto `"NULL"` en lugar de valores vacíos.
+- `adr` tiene valores negativos y extremos que deben tratarse.
+- Algunas reservas tienen cero adultos, cero niños y cero bebés.
+
+</AccessNote>

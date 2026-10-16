@@ -1,0 +1,126 @@
+---
+sidebar_position: 3
+sidebar_label: Fontes de dados
+title: Fontes de dados
+hide_table_of_contents: true
+---
+
+import {CardGrid, DataSourceCard, Note, AccessNote} from '@site/src/components/Overview';
+
+# Fontes de dados
+
+O HospedaPlus Revenue integra sete fontes de dados, de F1 a F7. F1, F6 e F7 são dados públicos reais. F2 a F5 são **simuladas**: a equipe as constrói seguindo a especificação do projeto, e o desenho interno delas é uma decisão da equipe.
+
+<CardGrid columns={3}>
+  <DataSourceCard
+    id="F1"
+    icon="file"
+    tone="purple"
+    title="Hotel booking demand"
+    type="CSV do Kaggle"
+    meta={[
+      {label: 'Acesso', value: 'kaggle.com/datasets/jessemostipak/hotel-booking-demand'},
+      {label: 'Frequência', value: 'Carga histórica única'},
+      {label: 'Volume', value: '~119.000 reservas'},
+    ]}>
+    Reservas de um hotel urbano e de um hotel de férias em Portugal, com data de chegada, antecedência, canal, segmento, ADR, cancelamento e tipo de depósito. É usado como histórico de dois hotéis da rede.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F2"
+    icon="stream"
+    tone="blue"
+    title="Eventos do channel manager"
+    type="Stream"
+    simulated
+    meta={[
+      {label: 'Acesso', value: 'Mensagens JSON: reserva criada, modificada, cancelada, no-show, check-in, check-out'},
+      {label: 'Frequência', value: 'Contínua'},
+      {label: 'Volume', value: '≥ 10 eventos/segundo no pico'},
+    ]}>
+    Reservas de OTAs com várias modificações, cancelamentos tardios e no-shows. Os eventos chegam ocasionalmente fora de ordem.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F3"
+    icon="database"
+    tone="teal"
+    title="Motor de reservas próprio"
+    type="Banco de dados"
+    simulated
+    meta={[
+      {label: 'Acesso', value: 'PostgreSQL: hotéis, tipos de quarto, inventário, tarifas e reservas diretas, populado por seed'},
+      {label: 'Frequência', value: 'Contínua'},
+      {label: 'Volume', value: '28 hotéis, ~4.000 quartos'},
+    ]}>
+    Inventário por hotel, tipo de quarto e data, e tarifas por temporada.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F4"
+    icon="file"
+    tone="sky"
+    title="Arquivos de agências tradicionais"
+    type="Arquivo"
+    simulated
+    meta={[
+      {label: 'Acesso', value: 'Arquivo CSV / Excel semanal por agência'},
+      {label: 'Frequência', value: 'Semanal'},
+      {label: 'Volume', value: '~15 agências'},
+    ]}>
+    Cada agência usa um formato diferente, e algumas reservas já existem por outro canal (duplicadas entre canais).
+  </DataSourceCard>
+  <DataSourceCard
+    id="F5"
+    icon="message"
+    tone="purple"
+    title="Avaliações de hóspedes"
+    type="API"
+    simulated
+    meta={[
+      {label: 'Acesso', value: 'API REST paginada: nota, texto, data, hotel, plataforma'},
+      {label: 'Frequência', value: 'Diária'},
+      {label: 'Volume', value: '~300 avaliações/dia'},
+    ]}>
+    Avaliações em espanhol, inglês e português, algumas duplicadas entre plataformas. As avaliações são sintéticas: não se extraem avaliações reais das plataformas.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F6"
+    icon="calendar"
+    tone="blue"
+    title="Feriados e eventos"
+    type="API pública + arquivo"
+    meta={[
+      {label: 'Acesso', value: 'API Nager.Date + CSV de eventos locais (congressos, shows)'},
+      {label: 'Frequência', value: 'Anual / semanal'},
+      {label: 'Volume', value: '< 1.000 linhas/ano'},
+    ]}>
+    Inclui os feriados do país de cada hotel.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F7"
+    icon="currency"
+    tone="teal"
+    title="Taxas de câmbio"
+    type="API pública"
+    meta={[
+      {label: 'Acesso', value: 'API Frankfurter'},
+      {label: 'Frequência', value: 'Diária'},
+      {label: 'Volume', value: '5 moedas'},
+    ]}
+  />
+</CardGrid>
+
+<Note>
+  **Seed de dados.** Todos os dados dos bancos de dados simulados são gerados por um seed versionado no repositório. O seed usa uma semente fixa para que os dados sejam reproduzíveis, é idempotente, permite escolher o volume (modo de desenvolvimento pequeno ou modo completo), mantém a integridade referencial com as APIs e os eventos simulados, injeta os problemas de qualidade de dados conhecidos com uma taxa configurável e roda tanto localmente quanto no banco de dados na AWS.
+</Note>
+
+<AccessNote icon="alert" title="Problemas de qualidade de dados conhecidos">
+
+Os dados chegam com os seguintes defeitos, e as fontes simuladas os injetam de propósito:
+
+- F1 tem `"NULL"` como texto nos campos de agente e empresa, e valores de ADR negativos ou extremos.
+- Reservas com zero adultos, zero crianças e zero bebês.
+- Datas de saída anteriores à data de chegada.
+- Moedas não indicadas nos arquivos das agências.
+- Reservas duplicadas entre canais com pequenas diferenças no nome do hóspede.
+- Eventos de modificação que chegam antes do evento de criação.
+
+</AccessNote>

@@ -1,0 +1,126 @@
+---
+sidebar_position: 3
+sidebar_label: Datenquellen
+title: Datenquellen
+hide_table_of_contents: true
+---
+
+import {CardGrid, DataSourceCard, Note, AccessNote} from '@site/src/components/Overview';
+
+# Datenquellen
+
+HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7 sind echte öffentliche Daten. F2 bis F5 sind **simuliert**: Das Team erstellt sie gemäß der Projektspezifikation, und ihr internes Design liegt in der Verantwortung des Teams.
+
+<CardGrid columns={3}>
+  <DataSourceCard
+    id="F1"
+    icon="file"
+    tone="purple"
+    title="Hotel booking demand"
+    type="Kaggle-CSV"
+    meta={[
+      {label: 'Zugriff', value: 'kaggle.com/datasets/jessemostipak/hotel-booking-demand'},
+      {label: 'Frequenz', value: 'Einmaliger historischer Import'},
+      {label: 'Volumen', value: '~119.000 Buchungen'},
+    ]}>
+    Buchungen eines Stadthotels und eines Ferienhotels in Portugal, mit Anreisedatum, Vorlaufzeit, Kanal, Segment, ADR, Stornierung und Anzahlungsart. Dient als Buchungshistorie zweier Hotels der Kette.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F2"
+    icon="stream"
+    tone="blue"
+    title="Channel-Manager-Events"
+    type="Stream"
+    simulated
+    meta={[
+      {label: 'Zugriff', value: 'JSON-Nachrichten: Buchung erstellt, geändert, storniert, No-Show, Check-in, Check-out'},
+      {label: 'Frequenz', value: 'Kontinuierlich'},
+      {label: 'Volumen', value: '≥ 10 Events/Sekunde zu Spitzenzeiten'},
+    ]}>
+    OTA-Buchungen mit mehrfachen Änderungen, kurzfristigen Stornierungen und No-Shows. Events treffen gelegentlich in falscher Reihenfolge ein.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F3"
+    icon="database"
+    tone="teal"
+    title="Eigene Buchungsmaschine"
+    type="Datenbank"
+    simulated
+    meta={[
+      {label: 'Zugriff', value: 'PostgreSQL: Hotels, Zimmertypen, Bestand, Raten und Direktbuchungen, befüllt per Seed'},
+      {label: 'Frequenz', value: 'Kontinuierlich'},
+      {label: 'Volumen', value: '28 Hotels, ~4.000 Zimmer'},
+    ]}>
+    Bestand nach Hotel, Zimmertyp und Datum sowie Raten nach Saison.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F4"
+    icon="file"
+    tone="sky"
+    title="Dateien klassischer Reisebüros"
+    type="Datei"
+    simulated
+    meta={[
+      {label: 'Zugriff', value: 'Wöchentliche CSV- / Excel-Datei je Reisebüro'},
+      {label: 'Frequenz', value: 'Wöchentlich'},
+      {label: 'Volumen', value: '~15 Reisebüros'},
+    ]}>
+    Jedes Reisebüro nutzt ein anderes Format, und einige Buchungen existieren bereits über einen anderen Kanal (kanalübergreifende Duplikate).
+  </DataSourceCard>
+  <DataSourceCard
+    id="F5"
+    icon="message"
+    tone="purple"
+    title="Gästebewertungen"
+    type="API"
+    simulated
+    meta={[
+      {label: 'Zugriff', value: 'Paginierte REST-API: Bewertung, Text, Datum, Hotel, Plattform'},
+      {label: 'Frequenz', value: 'Täglich'},
+      {label: 'Volumen', value: '~300 Bewertungen/Tag'},
+    ]}>
+    Bewertungen auf Spanisch, Englisch und Portugiesisch, teils plattformübergreifend doppelt vorhanden. Die Bewertungen sind synthetisch: Es werden keine echten Bewertungen von Plattformen extrahiert.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F6"
+    icon="calendar"
+    tone="blue"
+    title="Feiertage und Veranstaltungen"
+    type="Öffentliche API + Datei"
+    meta={[
+      {label: 'Zugriff', value: 'Nager.Date-API + CSV mit lokalen Veranstaltungen (Kongresse, Konzerte)'},
+      {label: 'Frequenz', value: 'Jährlich / wöchentlich'},
+      {label: 'Volumen', value: '< 1.000 Zeilen/Jahr'},
+    ]}>
+    Enthält die gesetzlichen Feiertage im Land des jeweiligen Hotels.
+  </DataSourceCard>
+  <DataSourceCard
+    id="F7"
+    icon="currency"
+    tone="teal"
+    title="Wechselkurse"
+    type="Öffentliche API"
+    meta={[
+      {label: 'Zugriff', value: 'Frankfurter-API'},
+      {label: 'Frequenz', value: 'Täglich'},
+      {label: 'Volumen', value: '5 Währungen'},
+    ]}
+  />
+</CardGrid>
+
+<Note>
+  **Daten-Seed.** Alle Daten in den simulierten Datenbanken werden von einem im Repository versionierten Seed erzeugt. Der Seed verwendet einen festen Zufalls-Seed, damit die Daten reproduzierbar sind, ist idempotent, erlaubt die Wahl des Volumens (kleiner Entwicklungsmodus oder Vollmodus), wahrt die referenzielle Integrität mit den simulierten APIs und Events, fügt die bekannten Datenqualitätsprobleme mit einer konfigurierbaren Rate ein und läuft sowohl lokal als auch gegen die Datenbank in AWS.
+</Note>
+
+<AccessNote icon="alert" title="Bekannte Datenqualitätsprobleme">
+
+Die Daten weisen die folgenden Mängel auf, die von den simulierten Quellen gezielt eingefügt werden:
+
+- F1 enthält `"NULL"` als Text in den Feldern für Agent und Firma sowie negative oder extreme ADR-Werte.
+- Buchungen mit null Erwachsenen, null Kindern und null Babys.
+- Abreisedaten, die vor dem Anreisedatum liegen.
+- Fehlende Währungsangaben in Reisebürodateien.
+- Kanalübergreifend doppelte Buchungen mit leichten Abweichungen im Gästenamen.
+- Änderungs-Events, die vor dem Erstellungs-Event eintreffen.
+
+</AccessNote>

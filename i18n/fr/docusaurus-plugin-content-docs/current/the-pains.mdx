@@ -1,0 +1,33 @@
+---
+sidebar_position: 2
+sidebar_label: Les points de friction
+title: Les points de friction
+hide_table_of_contents: true
+---
+
+import {CardGrid, InfoCard} from '@site/src/components/Overview';
+
+# Les points de friction
+
+HospedaPlus ne dispose d'aucune vue unique de son inventaire de chambres ni du rythme des réservations pour chaque date de séjour, si bien que les prix sont ajustés trop tard. Voici les principaux points de friction que la plateforme doit résoudre.
+
+<CardGrid columns={3}>
+  <InfoCard icon="x-circle" title="Taux d'annulation élevé">
+    37 % des réservations sont annulées, et il n'existe aucune politique d'annulation différenciée par canal.
+  </InfoCard>
+  <InfoCard icon="alert" title="Surréservation non maîtrisée">
+    Les hôtels pratiquent la surréservation sans contrôle, si bien que des clients doivent être délogés, à un coût élevé et avec de mauvais avis à la clé.
+  </InfoCard>
+  <InfoCard icon="clock" title="Tarification manuelle et tardive">
+    Les prix sont ajustés à la main avec une semaine de retard.
+  </InfoCard>
+  <InfoCard icon="percent" title="Commissions non déduites">
+    Les commissions des canaux ne sont pas déduites lors de la mesure du chiffre d'affaires, si bien que le revenu réel par canal est inconnu.
+  </InfoCard>
+  <InfoCard icon="message" title="Avis négatifs non analysés">
+    Les avis négatifs ne sont pas analysés de manière systématique.
+  </InfoCard>
+  <InfoCard icon="database" title="Aucune vue unique des réservations">
+    Les réservations proviennent d'un channel manager, de fichiers d'agences et du moteur de réservation propre, sans vue unifiée de l'inventaire ni du pickup.
+  </InfoCard>
+</CardGrid>

@@ -1,0 +1,35 @@
+---
+sidebar_label: Acesso aos dados
+slug: /data-access
+title: Onde estão as fontes e como acessá-las?
+hide_table_of_contents: true
+---
+
+import {AccessTable, SourceName, AccessNote} from '@site/src/components/Overview';
+
+# Onde estão as fontes e como acessá-las?
+
+As fontes de dados ficam em plataformas públicas e em sistemas simulados pela equipe. Este é um resumo de onde cada uma está e de como nos conectamos a ela. Abra cada fonte para ver os detalhes.
+
+<AccessTable>
+
+| Fonte | Localização | Método de acesso |
+| --- | --- | --- |
+| <SourceName icon="file" tone="purple">[F1 · Hotel booking demand](./f1-hotel-booking-demand.mdx)</SourceName> | Kaggle ([hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand)) | Download do CSV, carga histórica única |
+| <SourceName icon="stream" tone="blue">[F2 · Eventos do channel manager](./f2-channel-manager-events.mdx)</SourceName> | Stream de eventos simulado | Mensagens JSON, contínuo |
+| <SourceName icon="database" tone="teal">[F3 · Motor de reservas próprio](./f3-own-booking-engine.mdx)</SourceName> | Banco de dados PostgreSQL simulado, populado por seed | Conexão com o banco de dados (SQL) |
+| <SourceName icon="file" tone="sky">[F4 · Arquivos de agências tradicionais](./f4-traditional-agency-files.mdx)</SourceName> | Arquivos semanais simulados de ~15 agências | Arquivos CSV / Excel |
+| <SourceName icon="message" tone="purple">[F5 · Avaliações de hóspedes](./f5-guest-reviews.mdx)</SourceName> | API de avaliações simulada | API REST paginada, diária |
+| <SourceName icon="calendar" tone="blue">[F6 · Feriados e eventos](./f6-holidays-and-events.mdx)</SourceName> | API pública [Nager.Date](https://date.nager.at) + CSV de eventos locais | API REST + arquivo CSV |
+| <SourceName icon="currency" tone="teal">[F7 · Taxas de câmbio](./f7-exchange-rates.mdx)</SourceName> | API pública [Frankfurter](https://frankfurter.dev) | API REST, diária |
+
+</AccessTable>
+
+<AccessNote title="Considerações de acesso">
+
+- Nenhuma credencial, chave ou senha é guardada no repositório ou nas imagens de contêiner.
+- Os dados pessoais dos hóspedes (nome, e-mail, telefone) são pseudonimizados antes de chegar à camada analítica.
+- Os dados dos hóspedes são criptografados.
+- As avaliações são sintéticas: não extraímos avaliações reais das plataformas de avaliação.
+
+</AccessNote>

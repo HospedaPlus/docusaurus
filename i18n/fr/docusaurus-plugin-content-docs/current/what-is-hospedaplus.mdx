@@ -1,0 +1,75 @@
+---
+sidebar_position: 1
+sidebar_label: Qu'est-ce que HospedaPlus ?
+title: Qu'est-ce que HospedaPlus ?
+hide_table_of_contents: true
+---
+
+import {Hero, CardGrid, FeatureCard, InfoCard, StatGrid, Stat} from '@site/src/components/Overview';
+
+# Qu'est-ce que HospedaPlus ?
+
+<Hero>
+
+HospedaPlus est une plateforme fondée sur les données, conçue pour aider les acteurs de l'hôtellerie à prendre de meilleures décisions grâce à l'analytique et à l'automatisation.
+
+Nous collectons, transformons et analysons des données issues de multiples sources afin de fournir des informations exploitables sur le taux d'occupation, le chiffre d'affaires, le comportement des clients et la performance opérationnelle. Notre objectif est de simplifier l'accès aux données, d'améliorer l'efficacité et de soutenir la croissance dans le secteur hôtelier.
+
+</Hero>
+
+<CardGrid columns={4}>
+  <FeatureCard icon="bar-chart">Des décisions fondées sur les données</FeatureCard>
+  <FeatureCard icon="zap">Efficacité opérationnelle</FeatureCard>
+  <FeatureCard icon="users">De meilleures expériences client</FeatureCard>
+  <FeatureCard icon="trending-up">Croissance de l'activité</FeatureCard>
+</CardGrid>
+
+## Contexte métier
+
+HospedaPlus Revenue est la plateforme de données de **HospedaPlus Hotels**, une chaîne (fictive) de 28 hôtels urbains et de vacances. La chaîne vend ses chambres via son propre site web, des agences de voyages en ligne (OTA), des agences de voyages traditionnelles et des accords d'entreprise. Chaque canal applique une commission différente et possède sa propre politique d'annulation.
+
+La direction commerciale a besoin d'une plateforme unique pour consolider les réservations de tous les canaux, encadrer la surréservation par des règles, calculer les indicateurs de revenue (ADR et RevPAR), appliquer une tarification par saison et par événement, et mesurer l'e-réputation.
+
+## La chaîne aujourd'hui
+
+<StatGrid>
+  <Stat value="28">hôtels urbains et de vacances</Stat>
+  <Stat value="~4 000">chambres dans toute la chaîne</Stat>
+  <Stat value="37 %">taux d'annulation des réservations</Stat>
+  <Stat value="68 %">taux d'occupation moyen</Stat>
+</StatGrid>
+
+Certains hôtels pratiquent la surréservation sans aucun contrôle. Lorsque plus de clients arrivent qu'il n'y a de chambres, ils doivent être délogés vers d'autres hôtels, ce qui coûte cher et entraîne de mauvais avis. De plus, les réservations arrivent par un channel manager qui émet des événements, par des fichiers envoyés par les agences et par le moteur de réservation propre de la chaîne. Il n'existe aucune vue unique de l'inventaire des chambres ni du **pickup** (le rythme des réservations) pour chaque date de séjour, si bien que les prix sont ajustés trop tard.
+
+## Ce que fait la plateforme
+
+HospedaPlus Revenue intègre les réservations et les annulations, applique des règles de tarification, de surréservation et d'annulation, calcule des indicateurs de revenue et de réputation, et publie les disponibilités et les tarifs sur les canaux de vente.
+
+## Objectifs métier
+
+<CardGrid columns={4}>
+  <FeatureCard icon="trending-up" wide>Augmenter le RevPAR de 8 %</FeatureCard>
+  <FeatureCard icon="shield" wide>Maintenir les délogements dus à la surréservation sous 0,5 % des arrivées</FeatureCard>
+  <FeatureCard icon="zap" wide>Ajuster les prix automatiquement chaque jour, selon des règles</FeatureCard>
+  <FeatureCard icon="percent" wide>Mesurer le revenu net de commissions par canal</FeatureCard>
+</CardGrid>
+
+## Qui l'utilise
+
+<CardGrid columns={3}>
+  <InfoCard icon="line-chart" title="Revenue manager">
+    Pickup, taux d'occupation prévisionnel, prix suggérés et limites de surréservation.
+  </InfoCard>
+  <InfoCard icon="network" title="Channel manager (système)">
+    Disponibilités et tarifs en vigueur par hôtel, type de chambre et date.
+  </InfoCard>
+  <InfoCard icon="building" title="Directeur d'hôtel">
+    Taux d'occupation, ADR, RevPAR, délogements et réputation de son hôtel.
+  </InfoCard>
+  <InfoCard icon="message" title="Équipe réputation">
+    Avis par hôtel, thèmes récurrents et notes.
+  </InfoCard>
+  <InfoCard icon="user" title="Client">
+    Sa réservation et la pénalité applicable en cas d'annulation.
+  </InfoCard>
+</CardGrid>

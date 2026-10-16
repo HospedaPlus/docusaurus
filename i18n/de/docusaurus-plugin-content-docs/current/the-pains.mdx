@@ -1,0 +1,33 @@
+---
+sidebar_position: 2
+sidebar_label: Die Problemfelder
+title: Die Problemfelder
+hide_table_of_contents: true
+---
+
+import {CardGrid, InfoCard} from '@site/src/components/Overview';
+
+# Die Problemfelder
+
+HospedaPlus hat keine einheitliche Sicht auf seinen Zimmerbestand oder auf das Buchungstempo je Aufenthaltsdatum, weshalb Preise zu spät angepasst werden. Dies sind die wichtigsten Probleme, die die Plattform lösen muss.
+
+<CardGrid columns={3}>
+  <InfoCard icon="x-circle" title="Hohe Stornoquote">
+    37 % der Buchungen werden storniert, und es gibt keine nach Kanal differenzierten Stornobedingungen.
+  </InfoCard>
+  <InfoCard icon="alert" title="Unkontrollierte Überbuchung">
+    Hotels überbuchen unkontrolliert, sodass Gäste umquartiert werden müssen – mit hohen Kosten und schlechten Bewertungen.
+  </InfoCard>
+  <InfoCard icon="clock" title="Späte, manuelle Preisgestaltung">
+    Preise werden von Hand und mit einer Woche Verzögerung angepasst.
+  </InfoCard>
+  <InfoCard icon="percent" title="Provisionen nicht abgezogen">
+    Bei der Umsatzmessung werden die Provisionen der Kanäle nicht abgezogen, daher ist der tatsächliche Umsatz je Kanal unbekannt.
+  </InfoCard>
+  <InfoCard icon="message" title="Negative Bewertungen nicht analysiert">
+    Negative Bewertungen werden nicht systematisch ausgewertet.
+  </InfoCard>
+  <InfoCard icon="database" title="Keine einheitliche Buchungssicht">
+    Buchungen kommen aus einem Channel Manager, aus Reisebürodateien und aus der eigenen Buchungsmaschine, ohne einheitliche Sicht auf Bestand oder Pickup.
+  </InfoCard>
+</CardGrid>

@@ -1,0 +1,38 @@
+---
+sidebar_position: 6
+sidebar_label: F6 · Feiertage und Veranstaltungen
+title: F6 · Feiertage und Veranstaltungen
+---
+
+import {AccessTable, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="calendar" tone="blue" />F6 · Feiertage und Veranstaltungen <SourceType>REST-API + CSV</SourceType>
+
+Gesetzliche Feiertage im Land des jeweiligen Hotels sowie eine Datei mit lokalen Veranstaltungen wie Kongressen und Konzerten.
+
+<AccessTable>
+
+| Eigenschaft | Wert |
+| --- | --- |
+| Typ | Echte Daten, öffentliche API + Datei |
+| Speicherort | Öffentliche API [Nager.Date](https://date.nager.at) + CSV mit lokalen Veranstaltungen |
+| Zugriffsmethode | REST-API + CSV-Datei |
+| Frequenz | Jährlich (Feiertage) / wöchentlich (Veranstaltungen) |
+| Volumen | < 1.000 Zeilen/Jahr |
+
+</AccessTable>
+
+## Zugriff
+
+Die gesetzlichen Feiertage stammen aus der Nager.Date-API, abgefragt nach Jahr und Ländercode. Zum Beispiel die Feiertage in Portugal im Jahr 2026:
+
+```bash
+curl https://date.nager.at/api/v3/PublicHolidays/2026/PT
+```
+
+Die lokalen Veranstaltungen stammen aus einer CSV-Datei, die wöchentlich aktualisiert wird.
+
+## Verwendung
+
+- Ein Feiertag oder eine lokale Veranstaltung an einem Datum fügt einen zusätzlichen Preismultiplikator von 1,15 hinzu.
+- An Daten mit einer Veranstaltung der Kategorie „hoch“ ist Überbuchung niemals zulässig.

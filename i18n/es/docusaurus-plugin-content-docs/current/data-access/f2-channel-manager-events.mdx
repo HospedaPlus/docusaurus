@@ -1,0 +1,44 @@
+---
+sidebar_position: 2
+sidebar_label: F2 · Eventos del channel manager
+title: F2 · Eventos del channel manager
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="stream" tone="blue" />F2 · Eventos del channel manager <SourceType>Stream JSON</SourceType>
+
+Stream simulado de eventos de reservas que vienen del channel manager, que recoge las reservas de las OTA. El equipo construye este simulador siguiendo la especificación del proyecto.
+
+<AccessTable>
+
+| Propiedad | Valor |
+| --- | --- |
+| Tipo | Stream simulado |
+| Ubicación | Simulador de eventos construido por el equipo |
+| Método de acceso | Mensajes JSON |
+| Frecuencia | Continua |
+| Volumen | ≥ 10 eventos/segundo en el pico |
+
+</AccessTable>
+
+## Cómo acceder
+
+El simulador publica un mensaje JSON por evento, y la plataforma los consume de forma asíncrona. No se puede perder ningún evento del channel manager.
+
+## Qué contiene
+
+Eventos de reservas de estos tipos:
+
+- Reserva creada, modificada y cancelada.
+- No-show.
+- Check-in y check-out.
+
+Las reservas de OTA llegan con múltiples modificaciones, cancelaciones tardías y no-shows.
+
+<AccessNote icon="alert" title="Problemas de calidad de datos conocidos">
+
+- Los eventos llegan ocasionalmente fuera de orden.
+- Un evento de modificación puede llegar antes del evento de creación, y debe procesarse correctamente cuando llegue la creación.
+
+</AccessNote>

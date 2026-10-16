@@ -1,0 +1,14 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.docsSidebar.category.Data Access": {
+    "message": "Datenzugriff",
+    "description": "The label for category 'Data Access' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.link.Home": {
+    "message": "Startseite",
+    "description": "The label for link 'Home' in sidebar 'docsSidebar', linking to '/'"
+  }
+}

@@ -1,0 +1,52 @@
+---
+sidebar_position: 1
+sidebar_label: F1 · Hotel booking demand
+title: F1 · Hotel booking demand
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="file" tone="purple" />F1 · Hotel booking demand <SourceType>CSV</SourceType>
+
+Öffentlicher Datensatz mit der Buchungshistorie eines Stadthotels und eines Ferienhotels in Portugal. Bei HospedaPlus dient er als Buchungshistorie zweier Hotels der Kette.
+
+<AccessTable>
+
+| Eigenschaft | Wert |
+| --- | --- |
+| Typ | Echte Daten, Kaggle-CSV |
+| Speicherort | [kaggle.com/datasets/jessemostipak/hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand) |
+| Zugriffsmethode | CSV-Download, einmaliger historischer Import |
+| Frequenz | Einmaliger historischer Import |
+| Volumen | ~119.000 Buchungen |
+
+</AccessTable>
+
+## Zugriff
+
+Laden Sie den Datensatz von der Kaggle-Seite herunter oder nutzen Sie die Kaggle-CLI mit einem persönlichen API-Token:
+
+```bash
+kaggle datasets download -d jessemostipak/hotel-booking-demand --unzip
+```
+
+Der Download enthält eine CSV-Datei, `hotel_bookings.csv`. Das Kaggle-API-Token ist ein persönliches Zugangsdatum und gehört daher nicht ins Repository.
+
+## Inhalt
+
+Jede Zeile ist eine Buchung mit Anreisedatum, Vorlaufzeit (Lead Time), Vertriebskanal, Marktsegment, ADR, Storno-Kennzeichen und Anzahlungsart. Die wichtigsten Spalten sind:
+
+- `hotel`: `City Hotel` oder `Resort Hotel`.
+- `is_canceled`, `lead_time`, `deposit_type`.
+- `arrival_date_year`, `arrival_date_month`, `arrival_date_day_of_month`, `stays_in_weekend_nights`, `stays_in_week_nights`.
+- `adults`, `children`, `babies`.
+- `market_segment`, `distribution_channel`, `customer_type`, `agent`, `company`.
+- `reserved_room_type`, `assigned_room_type`, `adr`, `reservation_status`, `reservation_status_date`.
+
+<AccessNote icon="alert" title="Bekannte Datenqualitätsprobleme">
+
+- `agent` und `company` enthalten den Text `"NULL"` statt leerer Werte.
+- `adr` weist negative und extreme Werte auf, die bereinigt werden müssen.
+- Einige Buchungen haben null Erwachsene, null Kinder und null Babys.
+
+</AccessNote>

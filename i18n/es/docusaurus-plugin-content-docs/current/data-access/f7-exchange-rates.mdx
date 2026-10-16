@@ -1,0 +1,31 @@
+---
+sidebar_position: 7
+sidebar_label: F7 · Tasas de cambio
+title: F7 · Tasas de cambio
+---
+
+import {AccessTable, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="currency" tone="teal" />F7 · Tasas de cambio <SourceType>API REST</SourceType>
+
+Tasas de cambio diarias de 5 monedas, tomadas de una API pública.
+
+<AccessTable>
+
+| Propiedad | Valor |
+| --- | --- |
+| Tipo | Datos reales, API pública |
+| Ubicación | API pública [Frankfurter](https://frankfurter.dev) |
+| Método de acceso | API REST |
+| Frecuencia | Diaria |
+| Volumen | 5 monedas |
+
+</AccessTable>
+
+## Cómo acceder
+
+La API de Frankfurter no necesita llave. Por ejemplo, las tasas más recientes con el euro como moneda base:
+
+```bash
+curl "https://api.frankfurter.dev/v1/latest?base=EUR"
+```

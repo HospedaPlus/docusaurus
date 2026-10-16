@@ -1,0 +1,52 @@
+---
+sidebar_position: 1
+sidebar_label: F1 · Hotel booking demand
+title: F1 · Hotel booking demand
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="file" tone="purple" />F1 · Hotel booking demand <SourceType>CSV</SourceType>
+
+Dataset público com o histórico de reservas de um hotel urbano e de um hotel de férias em Portugal. No HospedaPlus, é usado como histórico de dois hotéis da rede.
+
+<AccessTable>
+
+| Propriedade | Valor |
+| --- | --- |
+| Tipo | Dados reais, CSV do Kaggle |
+| Localização | [kaggle.com/datasets/jessemostipak/hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand) |
+| Método de acesso | Download do CSV, carga histórica única |
+| Frequência | Carga histórica única |
+| Volume | ~119.000 reservas |
+
+</AccessTable>
+
+## Como acessar
+
+Baixe o dataset pela página do Kaggle, ou pela CLI do Kaggle usando um token pessoal da API:
+
+```bash
+kaggle datasets download -d jessemostipak/hotel-booking-demand --unzip
+```
+
+O download contém um arquivo CSV, `hotel_bookings.csv`. O token da API do Kaggle é uma credencial pessoal, então fica fora do repositório.
+
+## O que contém
+
+Cada linha é uma reserva, com data de chegada, antecedência (lead time), canal de distribuição, segmento de mercado, ADR, indicador de cancelamento e tipo de depósito. As principais colunas são:
+
+- `hotel`: `City Hotel` ou `Resort Hotel`.
+- `is_canceled`, `lead_time`, `deposit_type`.
+- `arrival_date_year`, `arrival_date_month`, `arrival_date_day_of_month`, `stays_in_weekend_nights`, `stays_in_week_nights`.
+- `adults`, `children`, `babies`.
+- `market_segment`, `distribution_channel`, `customer_type`, `agent`, `company`.
+- `reserved_room_type`, `assigned_room_type`, `adr`, `reservation_status`, `reservation_status_date`.
+
+<AccessNote icon="alert" title="Problemas de qualidade de dados conhecidos">
+
+- `agent` e `company` contêm o texto `"NULL"` em vez de valores vazios.
+- `adr` tem valores negativos e extremos que precisam ser tratados.
+- Algumas reservas têm zero adultos, zero crianças e zero bebês.
+
+</AccessNote>

@@ -1,0 +1,41 @@
+---
+sidebar_position: 5
+sidebar_label: F5 · Avaliações de hóspedes
+title: F5 · Avaliações de hóspedes
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="message" tone="purple" />F5 · Avaliações de hóspedes <SourceType>API REST</SourceType>
+
+API simulada com as avaliações que os hóspedes deixam em plataformas de avaliação. Alimenta os indicadores de reputação de cada hotel.
+
+<AccessTable>
+
+| Propriedade | Valor |
+| --- | --- |
+| Tipo | API simulada |
+| Localização | API de avaliações construída pela equipe |
+| Método de acesso | API REST paginada |
+| Frequência | Diária |
+| Volume | ~300 avaliações/dia |
+
+</AccessTable>
+
+## Como acessar
+
+A plataforma lê as avaliações uma vez por dia pela API REST paginada. As avaliações são sintéticas: nenhuma avaliação real é extraída de nenhuma plataforma.
+
+## O que contém
+
+Cada avaliação tem uma nota, um texto, uma data, um hotel e uma plataforma. As avaliações estão escritas em espanhol, inglês e português.
+
+## Como é usada
+
+A nota de reputação de cada hotel é a média ponderada das avaliações dos últimos 90 dias, em que as avaliações dos últimos 30 dias contam em dobro.
+
+<AccessNote icon="alert" title="Problemas de qualidade de dados conhecidos">
+
+- Algumas avaliações estão duplicadas entre plataformas.
+
+</AccessNote>

@@ -1,0 +1,75 @@
+---
+sidebar_position: 1
+sidebar_label: ¿Qué es HospedaPlus?
+title: ¿Qué es HospedaPlus?
+hide_table_of_contents: true
+---
+
+import {Hero, CardGrid, FeatureCard, InfoCard, StatGrid, Stat} from '@site/src/components/Overview';
+
+# ¿Qué es HospedaPlus?
+
+<Hero>
+
+HospedaPlus es una plataforma basada en datos, diseñada para ayudar a los negocios de hotelería a tomar mejores decisiones mediante analítica y automatización.
+
+Recolectamos, transformamos y analizamos datos de múltiples fuentes para entregar información accionable sobre ocupación, ingresos, comportamiento de los clientes y desempeño operativo. Nuestro objetivo es simplificar el acceso a los datos, mejorar la eficiencia e impulsar el crecimiento en la industria hotelera.
+
+</Hero>
+
+<CardGrid columns={4}>
+  <FeatureCard icon="bar-chart">Decisiones basadas en datos</FeatureCard>
+  <FeatureCard icon="zap">Eficiencia operativa</FeatureCard>
+  <FeatureCard icon="users">Mejores experiencias para los huéspedes</FeatureCard>
+  <FeatureCard icon="trending-up">Crecimiento del negocio</FeatureCard>
+</CardGrid>
+
+## Contexto del negocio
+
+HospedaPlus Revenue es la plataforma de datos de **HospedaPlus Hoteles**, una cadena (ficticia) de 28 hoteles urbanos y vacacionales. La cadena vende habitaciones por su propio sitio web, por agencias de viaje en línea (OTA), por agencias de viaje tradicionales y por convenios corporativos. Cada canal cobra una comisión distinta y tiene su propia política de cancelación.
+
+La dirección comercial necesita una sola plataforma que consolide las reservas de todos los canales, controle la sobreventa con reglas, calcule los indicadores de revenue (ADR y RevPAR), aplique precios por temporada y eventos, y mida la reputación en línea.
+
+## La cadena hoy
+
+<StatGrid>
+  <Stat value="28">hoteles urbanos y vacacionales</Stat>
+  <Stat value="~4.000">habitaciones en toda la cadena</Stat>
+  <Stat value="37 %">tasa de cancelación de reservas</Stat>
+  <Stat value="68 %">ocupación promedio</Stat>
+</StatGrid>
+
+Algunos hoteles practican sobreventa sin ningún control. Cuando llegan más huéspedes que habitaciones disponibles, hay que reubicarlos en otros hoteles, lo que resulta costoso y genera malas reseñas. Además, las reservas llegan por un channel manager que emite eventos, por archivos que envían las agencias y por el motor de reservas propio de la cadena. No existe una vista única del inventario de habitaciones ni del **pickup** (el ritmo de reservas) por fecha de estadía, así que los precios se ajustan tarde.
+
+## Qué hace la plataforma
+
+HospedaPlus Revenue integra reservas y cancelaciones, aplica reglas de precios, sobreventa y cancelación, calcula indicadores de revenue y reputación, y publica la disponibilidad y las tarifas en los canales de venta.
+
+## Objetivos del negocio
+
+<CardGrid columns={4}>
+  <FeatureCard icon="trending-up" wide>Aumentar el RevPAR en 8 %</FeatureCard>
+  <FeatureCard icon="shield" wide>Mantener las reubicaciones por sobreventa por debajo del 0,5 % de las llegadas</FeatureCard>
+  <FeatureCard icon="zap" wide>Ajustar los precios automáticamente cada día, según reglas</FeatureCard>
+  <FeatureCard icon="percent" wide>Medir el ingreso neto de comisiones por canal</FeatureCard>
+</CardGrid>
+
+## Quién la usa
+
+<CardGrid columns={3}>
+  <InfoCard icon="line-chart" title="Revenue manager">
+    Pickup, ocupación proyectada, precios sugeridos y límites de sobreventa.
+  </InfoCard>
+  <InfoCard icon="network" title="Channel manager (sistema)">
+    Disponibilidad y tarifas vigentes por hotel, tipo de habitación y fecha.
+  </InfoCard>
+  <InfoCard icon="building" title="Gerente de hotel">
+    Ocupación, ADR, RevPAR, reubicaciones y reputación de su hotel.
+  </InfoCard>
+  <InfoCard icon="message" title="Área de reputación">
+    Reseñas por hotel, temas recurrentes y calificaciones.
+  </InfoCard>
+  <InfoCard icon="user" title="Huésped">
+    Su reserva y la penalidad que aplica si cancela.
+  </InfoCard>
+</CardGrid>

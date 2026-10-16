@@ -1,6 +1,7 @@
 import type {ReactNode} from 'react';
 import clsx from 'clsx';
 import useBaseUrl from '@docusaurus/useBaseUrl';
+import {translate} from '@docusaurus/Translate';
 import Icon, {type IconName} from '@site/src/components/Icon';
 import styles from './styles.module.css';
 
@@ -16,7 +17,7 @@ export function Hero({children}: {children: ReactNode}): ReactNode {
           <img src={useBaseUrl('/img/logo.svg')} alt="" />
           <span>HospedaPlus</span>
         </div>
-        <p className={styles.slogan}>More data. Better stays.</p>
+        <p className={styles.slogan}>{translate({message: 'More data. Better stays.'})}</p>
       </div>
     </div>
   );
@@ -247,7 +248,7 @@ export function DataSourceCard({
       <div className={styles.tags}>
         <span className={styles.tag}>{type}</span>
         <span className={clsx(styles.tag, simulated ? styles.tagSimulated : styles.tagReal)}>
-          {simulated ? 'Simulated' : 'Real data'}
+          {simulated ? translate({message: 'Simulated'}) : translate({message: 'Real data'})}
         </span>
       </div>
       <dl className={styles.meta}>
@@ -261,4 +262,20 @@ export function DataSourceCard({
       {children && <div className={styles.dataSourceText}>{children}</div>}
     </div>
   );
+}
+
+/* ---------- Data source page titles ---------- */
+
+/** Source icon shown at the start of a data source page title. */
+export function SourceTitleIcon({icon, tone = 'purple'}: {icon: IconName; tone?: Tone}): ReactNode {
+  return (
+    <span className={clsx(styles.titleIcon, styles[tone])}>
+      <Icon name={icon} size={30} strokeWidth={2} />
+    </span>
+  );
+}
+
+/** Badge with the kind of source (API, JSON stream, CSV...) shown in the page title. */
+export function SourceType({children}: {children: ReactNode}): ReactNode {
+  return <span className={styles.titleType}>{children}</span>;
 }
