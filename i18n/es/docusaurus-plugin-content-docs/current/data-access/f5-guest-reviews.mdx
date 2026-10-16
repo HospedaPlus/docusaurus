@@ -4,38 +4,250 @@ sidebar_label: F5 · Reseñas de huéspedes
 title: F5 · Reseñas de huéspedes
 ---
 
-import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import {AccessTable, AccessNote, Note, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
 
 # <SourceTitleIcon icon="message" tone="purple" />F5 · Reseñas de huéspedes <SourceType>API REST</SourceType>
 
-API simulada con las reseñas que los huéspedes dejan en plataformas de reseñas. Alimenta los indicadores de reputación de cada hotel.
+API simulada con las reseñas que los huéspedes dejan en plataformas de reseñas (Booking, Google, Tripadvisor y Expedia). Alimenta los indicadores de reputación de cada hotel. El equipo la construyó con FastAPI y PostgreSQL, y está desplegada en AWS.
 
 <AccessTable>
 
 | Propiedad | Valor |
 | --- | --- |
-| Tipo | API simulada |
-| Ubicación | API de reseñas construida por el equipo |
-| Método de acceso | API REST paginada |
+| Tipo | API simulada, construida por el equipo |
+| Ubicación | [api-reviews-buenavista.coderhivex.com/docs](https://api-reviews-buenavista.coderhivex.com/docs) · código fuente en [HospedaPlus/api-reviews](https://github.com/HospedaPlus/api-reviews) |
+| Método de acceso | API REST paginada (JSON), sin autenticación |
 | Frecuencia | Diaria |
-| Volumen | ~300 reseñas/día |
+| Volumen | ~300 reseñas/día (~115.000 reseñas al año) |
 
 </AccessTable>
 
+<StatGrid>
+  <Stat value="28">hoteles en el catálogo</Stat>
+  <Stat value="4">plataformas de reseñas</Stat>
+  <Stat value="3">idiomas: es, en, pt</Stat>
+  <Stat value="~300">reseñas por día</Stat>
+</StatGrid>
+
 ## Cómo acceder
 
-La plataforma lee las reseñas una vez al día a través de la API REST paginada. Las reseñas son sintéticas: no se extraen reseñas reales de ninguna plataforma.
+La API es pública y no necesita token. Su documentación interactiva (Swagger UI) está en [`/docs`](https://api-reviews-buenavista.coderhivex.com/docs), y el contrato OpenAPI está en [`/openapi.json`](https://api-reviews-buenavista.coderhivex.com/openapi.json).
+
+- **URL base:** `https://api-reviews-buenavista.coderhivex.com`
+- **Prefijo de la API:** `/api/v1`
+- **Fechas y horas:** siempre en UTC, en formato ISO 8601.
+
+### Endpoints
+
+| Método | Ruta | Qué hace | Códigos de respuesta |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/reviews` | Lista paginada de reseñas, con filtros | 200, 422 |
+| `GET` | `/api/v1/reviews/{review_id}` | Una reseña por su id | 200, 404 |
+| `POST` | `/api/v1/reviews` | Crea una reseña | 201, 409, 422 |
+| `PATCH` | `/api/v1/reviews/{review_id}` | Actualiza parcialmente una reseña (`rating`, `title`, `text`, `language`) | 200, 404, 422 |
+| `DELETE` | `/api/v1/reviews/{review_id}` | Elimina una reseña | 204, 404 |
+| `GET` | `/api/v1/hotels` | Catálogo de los 28 hoteles que usan las reseñas | 200 |
+| `GET` | `/health` | Verificación de vida, usada por el balanceador de carga | 200 |
+| `GET` | `/health/ready` | Verificación de disponibilidad, comprueba la conexión a la base de datos | 200, 503 |
+
+La plataforma de datos solo lee: usa `GET /api/v1/reviews` y `GET /api/v1/hotels`. Los endpoints de escritura existen para que el equipo pruebe casos límite, como una reseña editada o eliminada.
+
+### Filtros y paginación
+
+`GET /api/v1/reviews` acepta estos parámetros de consulta, y todos son opcionales:
+
+| Parámetro | Tipo | Descripción |
+| --- | --- | --- |
+| `page` | entero ≥ 1 | Número de página. Por defecto `1`. |
+| `page_size` | entero 1–100 | Reseñas por página. Por defecto `50`, máximo `100`. |
+| `hotel_id` | texto | Código del hotel, por ejemplo `HP-CO-001`. Los códigos vienen de `/api/v1/hotels`. |
+| `platform` | `booking`, `google`, `tripadvisor`, `expedia` | Plataforma donde se publicó la reseña. |
+| `language` | `es`, `en`, `pt` | Idioma de la reseña. |
+| `min_rating`, `max_rating` | entero 1–5 | Rango de calificación, ambos extremos incluidos. |
+| `published_from`, `published_to` | fecha `YYYY-MM-DD` | Rango de fechas de publicación en UTC, ambos extremos incluidos. |
+| `order` | `asc`, `desc` | Orden por `published_at` y luego por `id`. Por defecto `asc`. |
+
+Los resultados siempre se ordenan por `published_at` y luego por `id`, así que las páginas nunca se solapan ni se saltan reseñas mientras los datos no cambien.
+
+### Ingesta diaria
+
+Para cargar un día, llama a la lista con `published_from` y `published_to` iguales a ese día, y recorre las páginas mientras `pagination.has_next` sea `true`.
+
+<Tabs groupId="f5-client">
+<TabItem value="curl" label="curl" default>
+
+```bash
+curl "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews?published_from=2026-09-30&published_to=2026-09-30&page=1&page_size=100"
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+import requests
+
+BASE_URL = "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews"
+
+
+def load_day(day: str) -> list[dict]:
+    """Return every review published on one UTC day (YYYY-MM-DD)."""
+    reviews, page = [], 1
+    while True:
+        response = requests.get(
+            BASE_URL,
+            params={"published_from": day, "published_to": day, "page": page, "page_size": 100},
+            timeout=30,
+        )
+        response.raise_for_status()
+        body = response.json()
+        reviews.extend(body["items"])
+        if not body["pagination"]["has_next"]:
+            return reviews
+        page += 1
+
+
+reviews = load_day("2026-09-30")
+```
+
+</TabItem>
+</Tabs>
+
+### Respuesta
+
+Cada página devuelve las reseñas en `items` y la información de la página en `pagination`:
+
+```json
+{
+  "items": [
+    {
+      "id": 355,
+      "external_id": "GG-e0de4b967aad530c",
+      "platform": "google",
+      "hotel_id": "HP-CO-001",
+      "language": "es",
+      "rating": 3,
+      "title": "Podría mejorar",
+      "text": "Estadía correcta. La habitación no estaba limpia al llegar.",
+      "reviewer_name": "Valentina Hernández",
+      "reviewer_country": "PE",
+      "stay_date": "2026-08-31",
+      "published_at": "2026-09-18T10:32:58Z",
+      "created_at": "2026-09-18T10:32:58Z",
+      "updated_at": "2026-09-18T10:32:58Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "page_size": 50,
+    "total_items": 7,
+    "total_pages": 1,
+    "has_next": false,
+    "has_previous": false
+  }
+}
+```
+
+### Errores
+
+Los errores causados por una regla de negocio comparten una misma forma, con un código en `error` y un mensaje en `detail`:
+
+```json
+{ "error": "not_found", "detail": "Review 99999 not found" }
+```
+
+| Código | `error` | Cuándo ocurre |
+| --- | --- | --- |
+| 404 | `not_found` | El id de la reseña no existe. |
+| 409 | `conflict` | Ya existe una reseña con la misma `platform` y el mismo `external_id`. |
+| 422 | `business_rule_violation` | Se rompe una regla: `published_from` es posterior a `published_to`, `min_rating` es mayor que `max_rating`, el hotel no existe, `published_at` está en el futuro o `stay_date` es posterior a `published_at`. |
+| 422 | (formato de FastAPI) | Un parámetro o campo tiene un tipo incorrecto o está fuera de rango. |
+| 500 | `internal_error` | Error inesperado en el servidor. |
 
 ## Qué contiene
 
-Cada reseña tiene una calificación, un texto, una fecha, un hotel y una plataforma. Las reseñas están escritas en español, inglés y portugués.
+Cada reseña tiene estos campos:
+
+| Campo | Tipo | Descripción |
+| --- | --- | --- |
+| `id` | entero | Id interno de la reseña en la API. |
+| `external_id` | texto | Id de la reseña en su plataforma. Empieza con el prefijo de la plataforma: `BK-`, `GG-`, `TA-` o `EX-`. |
+| `platform` | texto | `booking`, `google`, `tripadvisor` o `expedia`. |
+| `hotel_id` | texto | Código del hotel en el catálogo compartido, por ejemplo `HP-CO-001`. |
+| `language` | texto | `es`, `en` o `pt`. |
+| `rating` | entero | Calificación normalizada en una escala de 1 a 5. |
+| `title` | texto, opcional | Título corto de la reseña, hasta 150 caracteres. |
+| `text` | texto | Cuerpo de la reseña, hasta 5.000 caracteres. |
+| `reviewer_name` | texto | Nombre del huésped. Es un dato personal. |
+| `reviewer_country` | texto, opcional | País del huésped, como código ISO de 2 letras. |
+| `stay_date` | fecha, opcional | Fecha de la estadía. Nunca es posterior a la fecha de publicación. |
+| `published_at` | fecha y hora (UTC) | Cuándo se publicó la reseña en la plataforma. |
+| `created_at`, `updated_at` | fecha y hora (UTC) | Cuándo se creó la reseña y cuándo cambió por última vez en la API. |
+
+El par `platform` + `external_id` es único: una plataforma nunca repite su propio id de reseña.
+
+### Plataformas e idiomas
+
+Las reseñas se reparten entre plataformas con estas proporciones:
+
+| Plataforma | Proporción | Prefijo de `external_id` |
+| --- | --- | --- |
+| Booking | 40% | `BK-` |
+| Google | 30% | `GG-` |
+| Tripadvisor | 20% | `TA-` |
+| Expedia | 10% | `EX-` |
+
+El idioma depende del país del hotel. Por ejemplo, los hoteles de Colombia, México y España reciben sobre todo reseñas en español, y los hoteles de Brasil y Portugal reciben sobre todo reseñas en portugués. Aproximadamente una de cada cinco reseñas está en inglés.
+
+### Calificaciones y textos
+
+Cada hotel tiene su propia calidad promedio, entre 3,2 y 4,6 estrellas, así que unos hoteles están mejor calificados que otros. Los hoteles más grandes, con más habitaciones, reciben más reseñas.
+
+Los textos se arman con frases sobre temas recurrentes, para que el análisis de reputación pueda encontrar patrones: limpieza, personal, ubicación, desayuno, ruido, wifi, check-in, relación calidad-precio, la piscina (solo en hoteles resort) y la reubicación en otro hotel. Una reseña de 4 o 5 estrellas usa frases positivas, una de 1 o 2 estrellas usa frases negativas, y una de 3 estrellas mezcla ambas.
+
+### Catálogo de hoteles
+
+`GET /api/v1/hotels` devuelve los 28 hoteles de la cadena, con `hotel_id`, `name`, `city`, `country`, `timezone`, `type` (`urban` o `resort`) y `rooms`. Hay hoteles en Colombia (10), México (6), Brasil (6), Portugal (3) y España (3). `HP-PT-001` y `HP-PT-002` son los dos hoteles del [histórico F1](./f1-hotel-booking-demand.mdx). Las demás fuentes simuladas reutilizan los mismos códigos.
+
+## Cómo se generan los datos
+
+Las reseñas son sintéticas: no se extraen de ninguna plataforma real. Un script de semilla las genera con estas propiedades:
+
+- **Reproducible.** Cada día se genera a partir de una semilla fija, así que al ejecutarlo de nuevo produce exactamente las mismas reseñas.
+- **Idempotente.** Las reseñas se insertan solo si todavía no existen, así que al ejecutarlo dos veces la segunda no inserta nada.
+- **Volumen configurable.** El modo `dev` genera 30 días con unas 20 reseñas por día. El modo `full` genera 365 días con unas 300 reseñas por día, con una variación diaria de ±15%.
+- **Defectos configurables.** La proporción de reseñas duplicadas es un parámetro, 5% por defecto.
+
+La semilla también se ejecuta para un solo día, que es como el lote diario agrega reseñas nuevas: `python -m src.seed --date 2026-10-01`.
 
 ## Cómo se usa
 
-La calificación reputacional de cada hotel es el promedio ponderado de sus reseñas de los últimos 90 días, donde las reseñas de los últimos 30 días cuentan doble.
+- **Calificación reputacional.** La calificación reputacional de cada hotel es el promedio ponderado de sus reseñas de los últimos 90 días, donde las reseñas de los últimos 30 días cuentan doble.
+- **Página de reputación en Power BI.** Las reseñas alimentan la página de reputación del tablero, donde también se pueden analizar los temas recurrentes de los textos.
+- **Datos personales.** `reviewer_name` es un dato personal. La capa de ingesta debe seudonimizarlo antes de que llegue a la capa analítica.
 
 <AccessNote icon="alert" title="Problemas de calidad de datos conocidos">
 
-- Algunas reseñas están duplicadas entre plataformas.
+- Cerca del 5% de las reseñas están duplicadas en una segunda plataforma. La copia tiene el mismo hotel, la misma calificación y el mismo texto, pero otro `external_id`, un nombre de huésped un poco distinto (sin tildes, en minúsculas o mayúsculas, o solo con la inicial del apellido), una hora de publicación anterior y a veces sin el punto final. La ingesta debe detectar estos duplicados.
+- Una reseña puede cambiar o desaparecer después de cargada, mediante `PATCH` o `DELETE`. `updated_at` indica cuándo cambió una reseña por última vez.
 
 </AccessNote>
+
+## Ejecutarla localmente
+
+Con Docker instalado, clona el repositorio y levanta la API, la base de datos y la semilla con un solo comando:
+
+```bash
+git clone https://github.com/HospedaPlus/api-reviews.git
+cd api-reviews
+docker compose up --build
+```
+
+La API queda en `http://localhost:8000/docs` con 30 días de reseñas de ejemplo. Para cargar un año completo, ejecuta `docker compose run --rm seed python -m src.seed --mode full`.
+
+<Note>
+
+La API está construida con Python 3.12, FastAPI, SQLModel, Alembic y PostgreSQL 16. Cada merge a `main` ejecuta las pruebas y despliega una imagen nueva en AWS ECS Fargate.
+
+</Note>
