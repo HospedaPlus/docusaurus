@@ -88,9 +88,18 @@ export function CardGrid({
 }
 
 /** Small centered card with an icon and a short label. */
-export function FeatureCard({icon, children}: {icon: IconName; children: ReactNode}): ReactNode {
+export function FeatureCard({
+  icon,
+  wide = false,
+  children,
+}: {
+  icon: IconName;
+  /** Allows longer labels to use more of the card width. */
+  wide?: boolean;
+  children: ReactNode;
+}): ReactNode {
   return (
-    <div className={clsx(styles.card, styles.feature)}>
+    <div className={clsx(styles.card, styles.feature, wide && styles.featureWide)}>
       <Icon name={icon} size={30} className={styles.featureIcon} />
       <div className={styles.featureLabel}>{children}</div>
     </div>

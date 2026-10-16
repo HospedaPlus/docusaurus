@@ -89,7 +89,7 @@
 }
 
 .featureLabel {
-  max-width: 12rem;
+  max-width: 8rem;
   font-size: 0.92rem;
   font-weight: 600;
   line-height: 1.5;
@@ -115,6 +115,10 @@
   font-size: 0.82rem;
   line-height: 1.6;
   color: var(--hp-muted);
+}
+
+.featureWide .featureLabel {
+  max-width: 12rem;
 }
 
 .infoText p {
