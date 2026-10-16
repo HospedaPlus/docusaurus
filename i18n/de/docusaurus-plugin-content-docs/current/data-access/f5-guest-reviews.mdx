@@ -1,0 +1,41 @@
+---
+sidebar_position: 5
+sidebar_label: F5 · Gästebewertungen
+title: F5 · Gästebewertungen
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="message" tone="purple" />F5 · Gästebewertungen <SourceType>REST-API</SourceType>
+
+Simulierte API mit den Bewertungen, die Gäste auf Bewertungsplattformen hinterlassen. Sie speist die Reputationskennzahlen jedes Hotels.
+
+<AccessTable>
+
+| Eigenschaft | Wert |
+| --- | --- |
+| Typ | Simulierte API |
+| Speicherort | Vom Team entwickelte Bewertungs-API |
+| Zugriffsmethode | Paginierte REST-API |
+| Frequenz | Täglich |
+| Volumen | ~300 Bewertungen/Tag |
+
+</AccessTable>
+
+## Zugriff
+
+Die Plattform liest die Bewertungen einmal täglich über die paginierte REST-API ein. Die Bewertungen sind synthetisch: Es werden keine echten Bewertungen von irgendeiner Plattform extrahiert.
+
+## Inhalt
+
+Jede Bewertung enthält eine Bewertungsnote, einen Text, ein Datum, ein Hotel und eine Plattform. Die Bewertungen sind auf Spanisch, Englisch und Portugiesisch verfasst.
+
+## Verwendung
+
+Die Reputationsnote jedes Hotels ist der gewichtete Durchschnitt seiner Bewertungen der letzten 90 Tage, wobei Bewertungen der letzten 30 Tage doppelt zählen.
+
+<AccessNote icon="alert" title="Bekannte Datenqualitätsprobleme">
+
+- Einige Bewertungen sind plattformübergreifend doppelt vorhanden.
+
+</AccessNote>

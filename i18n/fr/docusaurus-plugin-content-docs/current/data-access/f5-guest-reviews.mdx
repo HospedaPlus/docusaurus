@@ -1,0 +1,41 @@
+---
+sidebar_position: 5
+sidebar_label: F5 · Avis clients
+title: F5 · Avis clients
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="message" tone="purple" />F5 · Avis clients <SourceType>API REST</SourceType>
+
+API simulée contenant les avis que les clients laissent sur les plateformes d'avis. Elle alimente les indicateurs de réputation de chaque hôtel.
+
+<AccessTable>
+
+| Propriété | Valeur |
+| --- | --- |
+| Type | API simulée |
+| Emplacement | API d'avis construite par l'équipe |
+| Méthode d'accès | API REST paginée |
+| Fréquence | Quotidienne |
+| Volume | ~300 avis/jour |
+
+</AccessTable>
+
+## Comment y accéder
+
+La plateforme lit les avis une fois par jour via l'API REST paginée. Les avis sont synthétiques : aucun avis réel n'est extrait d'une quelconque plateforme.
+
+## Contenu
+
+Chaque avis comporte une note, un texte, une date, un hôtel et une plateforme. Les avis sont rédigés en espagnol, en anglais et en portugais.
+
+## Utilisation
+
+La note de réputation de chaque hôtel est la moyenne pondérée de ses avis des 90 derniers jours, les avis des 30 derniers jours comptant double.
+
+<AccessNote icon="alert" title="Problèmes de qualité de données connus">
+
+- Certains avis sont dupliqués entre plateformes.
+
+</AccessNote>

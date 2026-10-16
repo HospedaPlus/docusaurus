@@ -1,0 +1,39 @@
+---
+sidebar_position: 4
+sidebar_label: F4 · Archivos de agencias tradicionales
+title: F4 · Archivos de agencias tradicionales
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="file" tone="sky" />F4 · Archivos de agencias tradicionales <SourceType>Archivos CSV / Excel</SourceType>
+
+Archivos semanales simulados con las reservas que venden las agencias de viaje tradicionales.
+
+<AccessTable>
+
+| Propiedad | Valor |
+| --- | --- |
+| Tipo | Archivos simulados |
+| Ubicación | Archivos semanales de cada agencia |
+| Método de acceso | Archivos CSV / Excel |
+| Frecuencia | Semanal |
+| Volumen | ~15 agencias |
+
+</AccessTable>
+
+## Cómo acceder
+
+Cada agencia entrega un archivo CSV o Excel por semana, y la plataforma carga los archivos en batch.
+
+## Qué contiene
+
+Las reservas vendidas por cada agencia. Cada agencia usa su propio formato de archivo.
+
+<AccessNote icon="alert" title="Problemas de calidad de datos conocidos">
+
+- Las agencias usan formatos distintos.
+- Algunos archivos no indican la moneda.
+- Algunas reservas ya existen por otro canal, con leves diferencias en el nombre del huésped. Cuando el mismo huésped, hotel y fechas (±1 día) aparecen en dos canales, la reserva se marca y prevalece la del canal con menor comisión.
+
+</AccessNote>

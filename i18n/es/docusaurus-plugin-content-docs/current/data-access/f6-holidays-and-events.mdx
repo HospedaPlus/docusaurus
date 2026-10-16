@@ -1,0 +1,38 @@
+---
+sidebar_position: 6
+sidebar_label: F6 · Festivos y eventos
+title: F6 · Festivos y eventos
+---
+
+import {AccessTable, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="calendar" tone="blue" />F6 · Festivos y eventos <SourceType>API REST + CSV</SourceType>
+
+Festivos del país de cada hotel, más un archivo de eventos locales como congresos y conciertos.
+
+<AccessTable>
+
+| Propiedad | Valor |
+| --- | --- |
+| Tipo | Datos reales, API pública + archivo |
+| Ubicación | API pública [Nager.Date](https://date.nager.at) + CSV de eventos locales |
+| Método de acceso | API REST + archivo CSV |
+| Frecuencia | Anual (festivos) / semanal (eventos) |
+| Volumen | < 1.000 filas/año |
+
+</AccessTable>
+
+## Cómo acceder
+
+Los festivos vienen de la API de Nager.Date, por año y código de país. Por ejemplo, los festivos de Portugal en 2026:
+
+```bash
+curl https://date.nager.at/api/v3/PublicHolidays/2026/PT
+```
+
+Los eventos locales vienen de un archivo CSV que se actualiza cada semana.
+
+## Cómo se usa
+
+- Un festivo o evento local en una fecha agrega un multiplicador de precio adicional de 1,15.
+- Nunca se permite sobreventa en fechas con un evento de categoría "alta".

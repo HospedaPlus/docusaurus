@@ -1,0 +1,52 @@
+---
+sidebar_position: 3
+sidebar_label: F3 · Motor de reservas próprio
+title: F3 · Motor de reservas próprio
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="database" tone="teal" />F3 · Motor de reservas próprio <SourceType>Banco de dados PostgreSQL</SourceType>
+
+Banco de dados PostgreSQL simulado do motor de reservas próprio da rede. Contém o catálogo de hotéis, o inventário de quartos, as tarifas e as reservas diretas.
+
+<AccessTable>
+
+| Propriedade | Valor |
+| --- | --- |
+| Tipo | Banco de dados simulado |
+| Localização | Banco de dados PostgreSQL, populado por seed |
+| Método de acesso | Conexão com o banco de dados (SQL) |
+| Frequência | Contínua |
+| Volume | 28 hotéis, ~4.000 quartos |
+
+</AccessTable>
+
+## Como acessar
+
+Conecte-se ao banco de dados PostgreSQL com SQL. As credenciais de conexão vêm de variáveis de ambiente e nunca são guardadas no repositório nem nas imagens de contêiner.
+
+## O que contém
+
+- Hotéis e tipos de quarto.
+- Inventário por hotel, tipo de quarto e data.
+- Tarifas por temporada.
+- Reservas diretas.
+
+## Seed de dados
+
+Todos os dados deste banco são gerados por um seed versionado no repositório, nunca carregados à mão nem a partir de um dump. O seed:
+
+- Usa uma semente fixa, então os dados são reproduzíveis.
+- É idempotente: rodá-lo várias vezes não duplica dados.
+- Permite escolher o volume (modo de desenvolvimento pequeno ou modo completo).
+- Mantém a integridade referencial e um catálogo coerente com as APIs e os eventos simulados.
+- Injeta os problemas de qualidade de dados conhecidos com uma taxa configurável.
+- Roda tanto localmente quanto no banco de dados na AWS.
+
+<AccessNote icon="alert" title="Problemas de qualidade de dados conhecidos">
+
+- Reservas com zero adultos, zero crianças e zero bebês.
+- Datas de saída anteriores à data de chegada.
+
+</AccessNote>

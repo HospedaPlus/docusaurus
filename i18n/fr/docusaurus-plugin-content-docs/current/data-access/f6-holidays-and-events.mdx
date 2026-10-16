@@ -1,0 +1,38 @@
+---
+sidebar_position: 6
+sidebar_label: F6 · Jours fériés et événements
+title: F6 · Jours fériés et événements
+---
+
+import {AccessTable, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="calendar" tone="blue" />F6 · Jours fériés et événements <SourceType>API REST + CSV</SourceType>
+
+Les jours fériés du pays de chaque hôtel, ainsi qu'un fichier d'événements locaux tels que des congrès et des concerts.
+
+<AccessTable>
+
+| Propriété | Valeur |
+| --- | --- |
+| Type | Données réelles, API publique + fichier |
+| Emplacement | API publique [Nager.Date](https://date.nager.at) + CSV des événements locaux |
+| Méthode d'accès | API REST + fichier CSV |
+| Fréquence | Annuelle (jours fériés) / hebdomadaire (événements) |
+| Volume | < 1 000 lignes/an |
+
+</AccessTable>
+
+## Comment y accéder
+
+Les jours fériés proviennent de l'API Nager.Date, par année et par code pays. Par exemple, les jours fériés du Portugal en 2026 :
+
+```bash
+curl https://date.nager.at/api/v3/PublicHolidays/2026/PT
+```
+
+Les événements locaux proviennent d'un fichier CSV mis à jour chaque semaine.
+
+## Utilisation
+
+- Un jour férié ou un événement local à une date donnée ajoute un multiplicateur de prix supplémentaire de 1,15.
+- La surréservation n'est jamais autorisée aux dates comportant un événement de catégorie « haute ».

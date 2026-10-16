@@ -1,0 +1,52 @@
+---
+sidebar_position: 3
+sidebar_label: F3 · Moteur de réservation propre
+title: F3 · Moteur de réservation propre
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="database" tone="teal" />F3 · Moteur de réservation propre <SourceType>Base de données PostgreSQL</SourceType>
+
+Base de données PostgreSQL simulée du moteur de réservation propre de la chaîne. Elle contient le catalogue des hôtels, l'inventaire des chambres, les tarifs et les réservations directes.
+
+<AccessTable>
+
+| Propriété | Valeur |
+| --- | --- |
+| Type | Base de données simulée |
+| Emplacement | Base de données PostgreSQL, alimentée par un seed |
+| Méthode d'accès | Connexion à la base de données (SQL) |
+| Fréquence | Continue |
+| Volume | 28 hôtels, ~4 000 chambres |
+
+</AccessTable>
+
+## Comment y accéder
+
+Connectez-vous à la base de données PostgreSQL en SQL. Les identifiants de connexion proviennent de variables d'environnement et ne sont jamais stockés dans le dépôt ni dans les images de conteneurs.
+
+## Contenu
+
+- Hôtels et types de chambre.
+- Inventaire par hôtel, type de chambre et date.
+- Tarifs par saison.
+- Réservations directes.
+
+## Seed de données
+
+Toutes les données de cette base sont générées par un seed versionné dans le dépôt, jamais chargées à la main ni à partir d'un dump. Le seed :
+
+- Utilise une graine aléatoire fixe, de sorte que les données sont reproductibles.
+- Est idempotent : l'exécuter plusieurs fois ne duplique pas les données.
+- Permet de choisir le volume (petit mode de développement ou mode complet).
+- Préserve l'intégrité référentielle et un catalogue cohérent avec les API et les événements simulés.
+- Injecte les problèmes de qualité de données connus selon un taux configurable.
+- S'exécute aussi bien en local que sur la base de données dans AWS.
+
+<AccessNote icon="alert" title="Problèmes de qualité de données connus">
+
+- Des réservations avec zéro adulte, zéro enfant et zéro bébé.
+- Des dates de départ antérieures à la date d'arrivée.
+
+</AccessNote>

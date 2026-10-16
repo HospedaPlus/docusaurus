@@ -1,0 +1,39 @@
+---
+sidebar_position: 4
+sidebar_label: F4 · Dateien klassischer Reisebüros
+title: F4 · Dateien klassischer Reisebüros
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="file" tone="sky" />F4 · Dateien klassischer Reisebüros <SourceType>CSV- / Excel-Dateien</SourceType>
+
+Simulierte wöchentliche Dateien mit den Buchungen, die klassische Reisebüros verkaufen.
+
+<AccessTable>
+
+| Eigenschaft | Wert |
+| --- | --- |
+| Typ | Simulierte Dateien |
+| Speicherort | Wöchentliche Dateien jedes Reisebüros |
+| Zugriffsmethode | CSV- / Excel-Dateien |
+| Frequenz | Wöchentlich |
+| Volumen | ~15 Reisebüros |
+
+</AccessTable>
+
+## Zugriff
+
+Jedes Reisebüro liefert pro Woche eine CSV- oder Excel-Datei, und die Plattform lädt die Dateien im Batch.
+
+## Inhalt
+
+Die von jedem Reisebüro verkauften Buchungen. Jedes Reisebüro verwendet ein eigenes Dateiformat.
+
+<AccessNote icon="alert" title="Bekannte Datenqualitätsprobleme">
+
+- Die Reisebüros verwenden unterschiedliche Formate.
+- Einige Dateien enthalten keine Währungsangabe.
+- Einige Buchungen existieren bereits über einen anderen Kanal, mit leichten Abweichungen im Gästenamen. Erscheinen derselbe Gast, dasselbe Hotel und dieselben Daten (±1 Tag) in zwei Kanälen, wird die Buchung markiert, und es gilt die Buchung aus dem Kanal mit der niedrigsten Provision.
+
+</AccessNote>

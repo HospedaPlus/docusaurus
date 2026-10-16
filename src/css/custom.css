@@ -257,6 +257,31 @@ body {
   color: var(--hp-muted);
 }
 
+html[lang='es'] .theme-doc-sidebar-container > div > div::after {
+  content: 'Hecho con Docusaurus';
+}
+
+html[lang='pt'] .theme-doc-sidebar-container > div > div::after {
+  content: 'Feito com Docusaurus';
+}
+
+html[lang='fr'] .theme-doc-sidebar-container > div > div::after {
+  content: 'Réalisé avec Docusaurus';
+}
+
+html[lang='de'] .theme-doc-sidebar-container > div > div::after {
+  content: 'Erstellt mit Docusaurus';
+}
+
+/* Language dropdown in the navbar. */
+.navbar .dropdown > .navbar__link {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
 /* ---------- Content ---------- */
 
 .theme-doc-markdown h1 {

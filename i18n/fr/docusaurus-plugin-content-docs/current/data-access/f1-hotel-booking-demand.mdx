@@ -1,0 +1,52 @@
+---
+sidebar_position: 1
+sidebar_label: F1 · Hotel booking demand
+title: F1 · Hotel booking demand
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="file" tone="purple" />F1 · Hotel booking demand <SourceType>CSV</SourceType>
+
+Jeu de données public contenant l'historique des réservations d'un hôtel urbain et d'un hôtel de vacances au Portugal. Dans HospedaPlus, il sert d'historique pour deux hôtels de la chaîne.
+
+<AccessTable>
+
+| Propriété | Valeur |
+| --- | --- |
+| Type | Données réelles, CSV Kaggle |
+| Emplacement | [kaggle.com/datasets/jessemostipak/hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand) |
+| Méthode d'accès | Téléchargement CSV, chargement historique unique |
+| Fréquence | Chargement historique unique |
+| Volume | ~119 000 réservations |
+
+</AccessTable>
+
+## Comment y accéder
+
+Téléchargez le jeu de données depuis la page Kaggle, ou avec la CLI Kaggle à l'aide d'un jeton d'API personnel :
+
+```bash
+kaggle datasets download -d jessemostipak/hotel-booking-demand --unzip
+```
+
+Le téléchargement contient un seul fichier CSV, `hotel_bookings.csv`. Le jeton d'API Kaggle est un identifiant personnel : il reste donc en dehors du dépôt.
+
+## Contenu
+
+Chaque ligne correspond à une réservation, avec sa date d'arrivée, son délai de réservation (lead time), son canal de distribution, son segment de marché, son ADR, son indicateur d'annulation et son type d'acompte. Les principales colonnes sont :
+
+- `hotel` : `City Hotel` ou `Resort Hotel`.
+- `is_canceled`, `lead_time`, `deposit_type`.
+- `arrival_date_year`, `arrival_date_month`, `arrival_date_day_of_month`, `stays_in_weekend_nights`, `stays_in_week_nights`.
+- `adults`, `children`, `babies`.
+- `market_segment`, `distribution_channel`, `customer_type`, `agent`, `company`.
+- `reserved_room_type`, `assigned_room_type`, `adr`, `reservation_status`, `reservation_status_date`.
+
+<AccessNote icon="alert" title="Problèmes de qualité de données connus">
+
+- `agent` et `company` contiennent le texte `"NULL"` au lieu de valeurs vides.
+- `adr` présente des valeurs négatives et extrêmes qui doivent être traitées.
+- Certaines réservations comptent zéro adulte, zéro enfant et zéro bébé.
+
+</AccessNote>

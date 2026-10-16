@@ -1,5 +1,6 @@
 import type {ReactNode} from 'react';
 import clsx from 'clsx';
+import {translate} from '@docusaurus/Translate';
 import Icon from '@site/src/components/Icon';
 import {
   AirflowLogo,
@@ -67,9 +68,9 @@ function SourceRows(): ReactNode {
   return (
     <>
       <Row logo={<Icon name="bed" size={26} className={styles.iconPurple} />} label="PMS" />
-      <Row logo={<Icon name="network" size={26} className={styles.iconIndigo} />} label="Channel Manager" />
+      <Row logo={<Icon name="network" size={26} className={styles.iconIndigo} />} label={translate({message: 'Channel Manager'})} />
       <Row logo={<Icon name="pos" size={26} className={styles.iconBlue} />} label="POS" />
-      <Row logo={<Icon name="cloud" size={26} className={styles.iconSky} />} label="External Data" />
+      <Row logo={<Icon name="cloud" size={26} className={styles.iconSky} />} label={translate({message: 'External Data'})} />
     </>
   );
 }
@@ -77,13 +78,13 @@ function SourceRows(): ReactNode {
 /** High-level architecture: from the sources to the business users. */
 export function ArchitectureOverview(): ReactNode {
   return (
-    <figure className={styles.figure} aria-label="HospedaPlus architecture overview">
+    <figure className={styles.figure} aria-label={translate({message: 'HospedaPlus architecture overview'})}>
       <div className={styles.flow}>
-        <Stage title="Data Sources" tone="blue">
+        <Stage title={translate({message: 'Data Sources'})} tone="blue">
           <SourceRows />
         </Stage>
         <Arrow />
-        <Stage title="Ingestion & Processing" tone="purple">
+        <Stage title={translate({message: 'Ingestion & Processing'})} tone="purple">
           <Tool logo={<AirflowLogo />} />
           <Arrow vertical />
           <Tool logo={<SparkLogo />} />
@@ -94,24 +95,22 @@ export function ArchitectureOverview(): ReactNode {
           </div>
         </Stage>
         <Arrow />
-        <Stage title="Data Lake & Warehouse" tone="green">
-          <Tool logo={<S3Logo />} label="S3" caption="(Raw / Bronze / Gold)" />
-          <Tool logo={<PostgresLogo />} label="PostgreSQL" caption="(Metadata / Catalog)" />
+        <Stage title={translate({message: 'Data Lake & Warehouse'})} tone="green">
+          <Tool logo={<S3Logo />} label="S3" caption={translate({message: '(Raw / Bronze / Gold)'})} />
+          <Tool logo={<PostgresLogo />} label="PostgreSQL" caption={translate({message: '(Metadata / Catalog)'})} />
         </Stage>
         <Arrow />
-        <Stage title="Analytics & BI" tone="sky">
-          <Tool logo={<PowerBiLogo />} label="Power BI" caption="(Dashboards & Reports)" />
-          <Tool logo={<MetabaseLogo />} label="Metabase" caption="(Exploration & Reporting)" />
+        <Stage title={translate({message: 'Analytics & BI'})} tone="sky">
+          <Tool logo={<PowerBiLogo />} label="Power BI" caption={translate({message: '(Dashboards & Reports)'})} />
+          <Tool logo={<MetabaseLogo />} label="Metabase" caption={translate({message: '(Exploration & Reporting)'})} />
         </Stage>
         <Arrow />
-        <Stage title="Users" tone="violet">
+        <Stage title={translate({message: 'Users'})} tone="violet">
           <Tool
             logo={<Icon name="user" size={40} className={styles.iconBlue} />}
             label={
               <span className={styles.usersLabel}>
-                Business Teams
-                <br />
-                &amp; Stakeholders
+                {translate({message: 'Business Teams & Stakeholders'})}
               </span>
             }
           />
@@ -121,92 +120,94 @@ export function ArchitectureOverview(): ReactNode {
   );
 }
 
-const infrastructure: {name: string; caption: string; badge: ReactNode}[] = [
+function getInfrastructure(): {name: string; caption: string; badge: ReactNode}[] {
+  return [
   {
     name: 'EC2',
-    caption: '(bastion / services)',
+    caption: translate({message: '(bastion / services)'}),
     badge: <AwsBadge color="#f58534" glyph={<rect x="11" y="11" width="10" height="10" rx="1.5" />} />,
   },
   {
     name: 'ECR',
-    caption: '(containers)',
+    caption: translate({message: '(containers)'}),
     badge: <AwsBadge color="#f58534" glyph={<path d="M10 12h12v8H10zM13 12v-2h6v2" />} />,
   },
   {
     name: 'EKS',
-    caption: '(Kubernetes)',
+    caption: translate({message: '(Kubernetes)'}),
     badge: <AwsBadge color="#7b5cf0" shape="hexagon" glyph={<circle cx="16" cy="16" r="5" />} />,
   },
   {
     name: 'IAM',
-    caption: '(permissions)',
+    caption: translate({message: '(permissions)'}),
     badge: <AwsBadge color="#dd344c" glyph={<><circle cx="16" cy="13" r="3" /><path d="M16 16v6M16 19h3" /></>} />,
   },
   {
     name: 'CloudWatch',
-    caption: '(monitoring)',
+    caption: translate({message: '(monitoring)'}),
     badge: <AwsBadge color="#d6338a" shape="circle" glyph={<path d="m9 18 4-5 3 3 6-7" />} />,
   },
   {
     name: 'CloudTrail',
-    caption: '(logs)',
+    caption: translate({message: '(logs)'}),
     badge: <AwsBadge color="#e7157b" shape="square" glyph={<path d="M9 22 16 10l7 12ZM12 18h8" />} />,
   },
   {
     name: 'Billing & Cost',
-    caption: '(optimization)',
+    caption: translate({message: '(optimization)'}),
     badge: <AwsBadge color="#dd344c" shape="circle" glyph={<path d="M11 21V11h6a3 3 0 0 1 0 6h-6M16 17l4 4" />} />,
   },
-];
+  ];
+}
 
 /** Detailed AWS architecture with the medallion storage layer and the shared infrastructure. */
 export function ArchitectureDetailed(): ReactNode {
   return (
-    <figure className={clsx(styles.figure, styles.aws)} aria-label="HospedaPlus detailed AWS architecture">
+    <figure className={clsx(styles.figure, styles.aws)} aria-label={translate({message: 'HospedaPlus detailed AWS architecture'})}>
       <div className={styles.awsHeader}>
         <span className={styles.awsTab}>
           <AwsWordmark />
         </span>
-        <span className={styles.region}>Region: Ohio (us-east-2)</span>
+        <span className={styles.region}>{translate({message: 'Region: Ohio (us-east-2)'})}</span>
       </div>
       <div className={styles.vpc}>
         <Icon name="cloud" size={16} className={styles.iconTeal} /> VPC
       </div>
       <div className={clsx(styles.flow, styles.flowCompact)}>
-        <Stage title="Data Sources" tone="blue">
+        <Stage title={translate({message: 'Data Sources'})} tone="blue">
           <SourceRows />
         </Stage>
         <Arrow />
-        <Stage title="Ingestion & Orchestration" tone="purple">
-          <Tool logo={<AirflowLogo />} caption="DAGs / Schedules" />
+        <Stage title={translate({message: 'Ingestion & Orchestration'})} tone="purple">
+          <Tool logo={<AirflowLogo />} caption={translate({message: 'DAGs / Schedules'})} />
           <Arrow vertical />
-          <Tool logo={<SparkLogo />} label="PySpark" caption="(3 workers + 1 master)" />
+          <Tool logo={<SparkLogo />} label="PySpark" caption={translate({message: '(3 workers + 1 master)'})} />
         </Stage>
         <Arrow />
-        <Stage title="Storage Layer (Medallion)" tone="green">
-          <Row logo={<BucketLogo />} label="S3 - Raw" caption="(raw)" />
-          <Row logo={<BucketLogo />} label="S3 - Bronze" caption="(cleaned)" />
-          <Row logo={<BucketLogo />} label="S3 - Gold" caption="(analytics)" />
+        <Stage title={translate({message: 'Storage Layer (Medallion)'})} tone="green">
+          <Row logo={<BucketLogo />} label={translate({message: 'S3 - Raw'})} caption={translate({message: '(raw)'})} />
+          <Row logo={<BucketLogo />} label={translate({message: 'S3 - Bronze'})} caption={translate({message: '(cleaned)'})} />
+          <Row logo={<BucketLogo />} label={translate({message: 'S3 - Gold'})} caption={translate({message: '(analytics)'})} />
         </Stage>
         <Arrow />
-        <Stage title="Data Warehouse & Metadata" tone="sky">
-          <Tool logo={<RdsLogo />} label="RDS" caption="(PostgreSQL)" />
-          <Tool logo={<GlueLogo />} label="Glue" caption="(Catalog)" />
+        <Stage title={translate({message: 'Data Warehouse & Metadata'})} tone="sky">
+          <Tool logo={<RdsLogo />} label="RDS" caption={translate({message: '(PostgreSQL)'})} />
+          <Tool logo={<GlueLogo />} label="Glue" caption={translate({message: '(Catalog)'})} />
         </Stage>
         <Arrow />
-        <Stage title="Analytics & BI" tone="violet">
+        <Stage title={translate({message: 'Analytics & BI'})} tone="violet">
           <Tool logo={<AthenaLogo />} label="Athena" />
           <Tool logo={<PowerBiLogo />} label="Power BI" />
         </Stage>
         <Arrow />
-        <Stage title="Visualization" tone="violet">
-          <Tool logo={<MetabaseLogo />} label="Metabase" caption="(Dashboards)" />
+        <Stage title={translate({message: 'Visualization'})} tone="violet">
+          <Tool logo={<MetabaseLogo />} label="Metabase" caption={translate({message: '(Dashboards)'})} />
         </Stage>
       </div>
       <div className={styles.infra}>
-        <div className={styles.infraTitle}>Infrastructure &amp; Security</div>
+        <div className={styles.infraTitle}>{translate({message: 'Infrastructure & Security'})}</div>
         <div className={styles.infraItems}>
-          {infrastructure.map((item) => (
+          {getInfrastructure().map((item) => (
             <div key={item.name} className={styles.infraItem}>
               {item.badge}
               <span>

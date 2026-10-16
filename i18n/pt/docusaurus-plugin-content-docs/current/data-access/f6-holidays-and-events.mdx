@@ -1,0 +1,38 @@
+---
+sidebar_position: 6
+sidebar_label: F6 · Feriados e eventos
+title: F6 · Feriados e eventos
+---
+
+import {AccessTable, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="calendar" tone="blue" />F6 · Feriados e eventos <SourceType>API REST + CSV</SourceType>
+
+Feriados do país de cada hotel, mais um arquivo de eventos locais como congressos e shows.
+
+<AccessTable>
+
+| Propriedade | Valor |
+| --- | --- |
+| Tipo | Dados reais, API pública + arquivo |
+| Localização | API pública [Nager.Date](https://date.nager.at) + CSV de eventos locais |
+| Método de acesso | API REST + arquivo CSV |
+| Frequência | Anual (feriados) / semanal (eventos) |
+| Volume | < 1.000 linhas/ano |
+
+</AccessTable>
+
+## Como acessar
+
+Os feriados vêm da API Nager.Date, por ano e código de país. Por exemplo, os feriados de Portugal em 2026:
+
+```bash
+curl https://date.nager.at/api/v3/PublicHolidays/2026/PT
+```
+
+Os eventos locais vêm de um arquivo CSV atualizado toda semana.
+
+## Como é usado
+
+- Um feriado ou evento local em uma data adiciona um multiplicador de preço extra de 1,15.
+- O overbooking nunca é permitido em datas com um evento de categoria "alta".

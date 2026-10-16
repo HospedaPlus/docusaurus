@@ -1,0 +1,52 @@
+---
+sidebar_position: 3
+sidebar_label: F3 · Motor de reservas propio
+title: F3 · Motor de reservas propio
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="database" tone="teal" />F3 · Motor de reservas propio <SourceType>Base de datos PostgreSQL</SourceType>
+
+Base de datos PostgreSQL simulada del motor de reservas propio de la cadena. Contiene el catálogo de hoteles, el inventario de habitaciones, las tarifas y las reservas directas.
+
+<AccessTable>
+
+| Propiedad | Valor |
+| --- | --- |
+| Tipo | Base de datos simulada |
+| Ubicación | Base de datos PostgreSQL, poblada mediante seed |
+| Método de acceso | Conexión a base de datos (SQL) |
+| Frecuencia | Continua |
+| Volumen | 28 hoteles, ~4.000 habitaciones |
+
+</AccessTable>
+
+## Cómo acceder
+
+Conéctate a la base de datos PostgreSQL con SQL. Las credenciales de conexión vienen de variables de entorno y nunca se guardan en el repositorio ni en las imágenes de contenedores.
+
+## Qué contiene
+
+- Hoteles y tipos de habitación.
+- Inventario por hotel, tipo de habitación y fecha.
+- Tarifas por temporada.
+- Reservas directas.
+
+## Seed de datos
+
+Todos los datos de esta base de datos se generan con un seed versionado en el repositorio, nunca cargados a mano ni desde un volcado. El seed:
+
+- Usa una semilla fija, así que los datos son reproducibles.
+- Es idempotente: ejecutarlo varias veces no duplica datos.
+- Permite elegir el volumen (modo de desarrollo pequeño o modo completo).
+- Mantiene la integridad referencial y un catálogo coherente con las APIs y los eventos simulados.
+- Inyecta los problemas de calidad de datos conocidos con una tasa configurable.
+- Se ejecuta tanto en local como contra la base de datos en AWS.
+
+<AccessNote icon="alert" title="Problemas de calidad de datos conocidos">
+
+- Reservas con cero adultos, cero niños y cero bebés.
+- Fechas de salida anteriores a la fecha de llegada.
+
+</AccessNote>

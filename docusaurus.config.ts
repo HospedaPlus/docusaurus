@@ -23,9 +23,17 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
 
+  // English is the main language: it is always the one served at the root URL.
   i18n: {
     defaultLocale: 'en',
-    locales: ['en'],
+    locales: ['en', 'es', 'pt', 'fr', 'de'],
+    localeConfigs: {
+      en: {label: 'English'},
+      es: {label: 'Español'},
+      pt: {label: 'Português'},
+      fr: {label: 'Français'},
+      de: {label: 'Deutsch'},
+    },
   },
 
   stylesheets: [
@@ -58,6 +66,7 @@ const config: Config = {
         hashed: true,
         indexBlog: false,
         docsRouteBasePath: 'docs',
+        language: ['en', 'es', 'pt', 'fr', 'de'],
         searchBarShortcutHint: true,
       },
     ],
@@ -83,6 +92,10 @@ const config: Config = {
       items: [
         {
           type: 'search',
+          position: 'right',
+        },
+        {
+          type: 'localeDropdown',
           position: 'right',
         },
         {

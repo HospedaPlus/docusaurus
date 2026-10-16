@@ -1,0 +1,35 @@
+---
+sidebar_label: Datenzugriff
+slug: /data-access
+title: Wo liegen die Quellen und wie greift man darauf zu?
+hide_table_of_contents: true
+---
+
+import {AccessTable, SourceName, AccessNote} from '@site/src/components/Overview';
+
+# Wo liegen die Quellen und wie greift man darauf zu?
+
+Die Datenquellen befinden sich auf öffentlichen Plattformen und in vom Team simulierten Systemen. Im Folgenden eine Übersicht, wo jede Quelle liegt und wie wir uns damit verbinden. Öffnen Sie eine Quelle, um die Details zu sehen.
+
+<AccessTable>
+
+| Quelle | Speicherort | Zugriffsmethode |
+| --- | --- | --- |
+| <SourceName icon="file" tone="purple">[F1 · Hotel booking demand](./f1-hotel-booking-demand.mdx)</SourceName> | Kaggle ([hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand)) | CSV-Download, einmaliger historischer Import |
+| <SourceName icon="stream" tone="blue">[F2 · Channel-Manager-Events](./f2-channel-manager-events.mdx)</SourceName> | Simulierter Event-Stream | JSON-Nachrichten, kontinuierlich |
+| <SourceName icon="database" tone="teal">[F3 · Eigene Buchungsmaschine](./f3-own-booking-engine.mdx)</SourceName> | Simulierte PostgreSQL-Datenbank, befüllt per Seed | Datenbankverbindung (SQL) |
+| <SourceName icon="file" tone="sky">[F4 · Dateien klassischer Reisebüros](./f4-traditional-agency-files.mdx)</SourceName> | Simulierte wöchentliche Dateien von ~15 Reisebüros | CSV- / Excel-Dateien |
+| <SourceName icon="message" tone="purple">[F5 · Gästebewertungen](./f5-guest-reviews.mdx)</SourceName> | Simulierte Bewertungs-API | Paginierte REST-API, täglich |
+| <SourceName icon="calendar" tone="blue">[F6 · Feiertage und Veranstaltungen](./f6-holidays-and-events.mdx)</SourceName> | Öffentliche API [Nager.Date](https://date.nager.at) + CSV mit lokalen Veranstaltungen | REST-API + CSV-Datei |
+| <SourceName icon="currency" tone="teal">[F7 · Wechselkurse](./f7-exchange-rates.mdx)</SourceName> | Öffentliche API [Frankfurter](https://frankfurter.dev) | REST-API, täglich |
+
+</AccessTable>
+
+<AccessNote title="Hinweise zum Zugriff">
+
+- Zugangsdaten, Schlüssel oder Passwörter werden weder im Repository noch in Container-Images gespeichert.
+- Personenbezogene Gästedaten (Name, E-Mail, Telefon) werden pseudonymisiert, bevor sie die Analyseschicht erreichen.
+- Gästedaten werden verschlüsselt.
+- Die Bewertungen sind synthetisch: Wir extrahieren keine echten Bewertungen von Bewertungsplattformen.
+
+</AccessNote>

@@ -1,6 +1,7 @@
 import type {ReactNode} from 'react';
 import clsx from 'clsx';
 import useBaseUrl from '@docusaurus/useBaseUrl';
+import {translate} from '@docusaurus/Translate';
 import Icon, {type IconName} from '@site/src/components/Icon';
 import styles from './styles.module.css';
 
@@ -16,7 +17,7 @@ export function Hero({children}: {children: ReactNode}): ReactNode {
           <img src={useBaseUrl('/img/logo.svg')} alt="" />
           <span>HospedaPlus</span>
         </div>
-        <p className={styles.slogan}>More data. Better stays.</p>
+        <p className={styles.slogan}>{translate({message: 'More data. Better stays.'})}</p>
       </div>
     </div>
   );
@@ -247,7 +248,7 @@ export function DataSourceCard({
       <div className={styles.tags}>
         <span className={styles.tag}>{type}</span>
         <span className={clsx(styles.tag, simulated ? styles.tagSimulated : styles.tagReal)}>
-          {simulated ? 'Simulated' : 'Real data'}
+          {simulated ? translate({message: 'Simulated'}) : translate({message: 'Real data'})}
         </span>
       </div>
       <dl className={styles.meta}>

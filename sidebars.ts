@@ -2,6 +2,17 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
+// HTML sidebar items are not part of the translation files, so the section
+// title is picked here from the locale being built.
+const sectionTitles: Record<string, string> = {
+  en: 'Project Overview',
+  es: 'Visión general del proyecto',
+  pt: 'Visão geral do projeto',
+  fr: "Vue d'ensemble du projet",
+  de: 'Projektübersicht',
+};
+const locale = process.env.DOCUSAURUS_CURRENT_LOCALE ?? 'en';
+
 const sidebars: SidebarsConfig = {
   docsSidebar: [
     {
@@ -12,7 +23,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'html',
-      value: 'Project Overview',
+      value: sectionTitles[locale] ?? sectionTitles.en,
       className: 'sidebar-section-title',
       defaultStyle: true,
     },

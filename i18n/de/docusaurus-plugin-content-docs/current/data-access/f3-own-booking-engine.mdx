@@ -1,0 +1,52 @@
+---
+sidebar_position: 3
+sidebar_label: F3 · Eigene Buchungsmaschine
+title: F3 · Eigene Buchungsmaschine
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="database" tone="teal" />F3 · Eigene Buchungsmaschine <SourceType>PostgreSQL-Datenbank</SourceType>
+
+Simulierte PostgreSQL-Datenbank der ketteneigenen Buchungsmaschine. Sie enthält den Hotelkatalog, den Zimmerbestand, die Raten und die Direktbuchungen.
+
+<AccessTable>
+
+| Eigenschaft | Wert |
+| --- | --- |
+| Typ | Simulierte Datenbank |
+| Speicherort | PostgreSQL-Datenbank, befüllt per Seed |
+| Zugriffsmethode | Datenbankverbindung (SQL) |
+| Frequenz | Kontinuierlich |
+| Volumen | 28 Hotels, ~4.000 Zimmer |
+
+</AccessTable>
+
+## Zugriff
+
+Verbinden Sie sich per SQL mit der PostgreSQL-Datenbank. Die Verbindungsdaten stammen aus Umgebungsvariablen und werden niemals im Repository oder in Container-Images gespeichert.
+
+## Inhalt
+
+- Hotels und Zimmertypen.
+- Bestand nach Hotel, Zimmertyp und Datum.
+- Raten nach Saison.
+- Direktbuchungen.
+
+## Daten-Seed
+
+Alle Daten in dieser Datenbank werden von einem im Repository versionierten Seed erzeugt – niemals von Hand oder aus einem Dump geladen. Der Seed:
+
+- Verwendet einen festen Zufalls-Seed, sodass die Daten reproduzierbar sind.
+- Ist idempotent: Mehrfaches Ausführen dupliziert keine Daten.
+- Erlaubt die Wahl des Volumens (kleiner Entwicklungsmodus oder Vollmodus).
+- Wahrt die referenzielle Integrität und einen mit den simulierten APIs und Events konsistenten Katalog.
+- Fügt die bekannten Datenqualitätsprobleme mit einer konfigurierbaren Rate ein.
+- Läuft sowohl lokal als auch gegen die Datenbank in AWS.
+
+<AccessNote icon="alert" title="Bekannte Datenqualitätsprobleme">
+
+- Buchungen mit null Erwachsenen, null Kindern und null Babys.
+- Abreisedaten, die vor dem Anreisedatum liegen.
+
+</AccessNote>

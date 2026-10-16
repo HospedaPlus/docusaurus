@@ -1,0 +1,33 @@
+---
+sidebar_position: 2
+sidebar_label: Los dolores
+title: Los dolores
+hide_table_of_contents: true
+---
+
+import {CardGrid, InfoCard} from '@site/src/components/Overview';
+
+# Los dolores
+
+HospedaPlus no tiene una vista única de su inventario de habitaciones ni del ritmo de reservas por fecha de estadía, así que los precios se ajustan tarde. Estos son los principales dolores que la plataforma debe resolver.
+
+<CardGrid columns={3}>
+  <InfoCard icon="x-circle" title="Alta tasa de cancelación">
+    El 37 % de las reservas se cancela y no hay una política de cancelación diferenciada por canal.
+  </InfoCard>
+  <InfoCard icon="alert" title="Sobreventa sin control">
+    Los hoteles practican sobreventa sin control, así que hay que reubicar huéspedes, con un alto costo y malas reseñas.
+  </InfoCard>
+  <InfoCard icon="clock" title="Precios manuales y tardíos">
+    Los precios se ajustan a mano con una semana de retraso.
+  </InfoCard>
+  <InfoCard icon="percent" title="Comisiones sin descontar">
+    Las comisiones de los canales no se descuentan al medir los ingresos, así que se desconoce el ingreso real por canal.
+  </InfoCard>
+  <InfoCard icon="message" title="Reseñas negativas sin analizar">
+    Las reseñas negativas no se analizan de forma sistemática.
+  </InfoCard>
+  <InfoCard icon="database" title="Sin vista única de las reservas">
+    Las reservas llegan desde un channel manager, archivos de agencias y el motor de reservas propio, sin una vista unificada del inventario ni del pickup.
+  </InfoCard>
+</CardGrid>

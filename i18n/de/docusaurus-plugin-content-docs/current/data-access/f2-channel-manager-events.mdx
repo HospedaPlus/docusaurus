@@ -1,0 +1,44 @@
+---
+sidebar_position: 2
+sidebar_label: F2 · Channel-Manager-Events
+title: F2 · Channel-Manager-Events
+---
+
+import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+
+# <SourceTitleIcon icon="stream" tone="blue" />F2 · Channel-Manager-Events <SourceType>JSON-Stream</SourceType>
+
+Simulierter Stream von Buchungs-Events aus dem Channel Manager, der die OTA-Buchungen sammelt. Das Team erstellt diesen Simulator gemäß der Projektspezifikation.
+
+<AccessTable>
+
+| Eigenschaft | Wert |
+| --- | --- |
+| Typ | Simulierter Stream |
+| Speicherort | Vom Team entwickelter Event-Simulator |
+| Zugriffsmethode | JSON-Nachrichten |
+| Frequenz | Kontinuierlich |
+| Volumen | ≥ 10 Events/Sekunde zu Spitzenzeiten |
+
+</AccessTable>
+
+## Zugriff
+
+Der Simulator veröffentlicht pro Event eine JSON-Nachricht, die die Plattform asynchron verarbeitet. Kein Event aus dem Channel Manager darf verloren gehen.
+
+## Inhalt
+
+Buchungs-Events der folgenden Typen:
+
+- Buchung erstellt, geändert und storniert.
+- No-Show.
+- Check-in und Check-out.
+
+OTA-Buchungen gehen mit mehrfachen Änderungen, kurzfristigen Stornierungen und No-Shows ein.
+
+<AccessNote icon="alert" title="Bekannte Datenqualitätsprobleme">
+
+- Events treffen gelegentlich in falscher Reihenfolge ein.
+- Ein Änderungs-Event kann vor dem Erstellungs-Event eintreffen und muss korrekt verarbeitet werden, sobald die Erstellung eingeht.
+
+</AccessNote>
