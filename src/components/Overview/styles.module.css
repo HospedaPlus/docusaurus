@@ -467,3 +467,32 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ---------- Data source page titles ---------- */
+
+.titleIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  margin-right: 0.75rem;
+  border-radius: 12px;
+  background: var(--hp-card-bg);
+  border: 1px solid var(--hp-border);
+  vertical-align: middle;
+}
+
+.titleType {
+  display: inline-block;
+  margin-left: 0.75rem;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  background: var(--hp-active-bg);
+  color: var(--hp-purple);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  vertical-align: middle;
+  white-space: nowrap;
+}

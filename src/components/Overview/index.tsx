@@ -262,3 +262,19 @@ export function DataSourceCard({
     </div>
   );
 }
+
+/* ---------- Data source page titles ---------- */
+
+/** Source icon shown at the start of a data source page title. */
+export function SourceTitleIcon({icon, tone = 'purple'}: {icon: IconName; tone?: Tone}): ReactNode {
+  return (
+    <span className={clsx(styles.titleIcon, styles[tone])}>
+      <Icon name={icon} size={30} strokeWidth={2} />
+    </span>
+  );
+}
+
+/** Badge with the kind of source (API, JSON stream, CSV...) shown in the page title. */
+export function SourceType({children}: {children: ReactNode}): ReactNode {
+  return <span className={styles.titleType}>{children}</span>;
+}
