@@ -15,7 +15,7 @@ export function AirflowLogo({size = 30}: LogoProps): ReactNode {
         <path d="M16 16 28 29c1-6-2-11-12-13Z" fill="#04d1f6" />
         <path d="M16 16 3 28c6 1 11-2 13-12Z" fill="#017cee" />
       </svg>
-      <span style={{fontSize: size * 0.62, color: '#3a4160', fontWeight: 500}}>Airflow</span>
+      <span style={{fontSize: size * 0.62, color: 'var(--hp-ink-soft)', fontWeight: 500}}>Airflow</span>
     </span>
   );
 }
@@ -28,7 +28,7 @@ export function SparkLogo({size = 30}: LogoProps): ReactNode {
           fontSize: size * 0.72,
           fontStyle: 'italic',
           fontWeight: 700,
-          color: '#2b2b2b',
+          color: 'var(--hp-ink)',
           letterSpacing: '-0.02em',
           fontFamily: 'Georgia, serif',
         }}>

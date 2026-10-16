@@ -496,3 +496,74 @@
   vertical-align: middle;
   white-space: nowrap;
 }
+
+/* ---------- Dark mode ---------- */
+
+:global(html[data-theme='dark']) .purple {
+  color: #a596ff;
+}
+
+:global(html[data-theme='dark']) .blue {
+  color: #8ea2ff;
+}
+
+:global(html[data-theme='dark']) .teal {
+  color: #4fd6b6;
+}
+
+:global(html[data-theme='dark']) .sky {
+  color: #6bb6ff;
+}
+
+:global(html[data-theme='dark']) .card {
+  box-shadow: none;
+}
+
+:global(html[data-theme='dark']) .note {
+  background: rgba(110, 130, 255, 0.12);
+}
+
+:global(html[data-theme='dark']) .noteIcon {
+  color: #8ea2ff;
+}
+
+:global(html[data-theme='dark']) .access {
+  background: rgba(143, 123, 255, 0.1);
+  border-color: rgba(143, 123, 255, 0.28);
+}
+
+:global(html[data-theme='dark']) .accessIcon,
+:global(html[data-theme='dark']) .accessTitle {
+  color: #b7abff;
+}
+
+:global(html[data-theme='dark']) .accessTable thead tr {
+  background: #1a2042;
+}
+
+:global(html[data-theme='dark']) .stat {
+  background: linear-gradient(180deg, #1d2148 0%, #151a35 100%);
+}
+
+:global(html[data-theme='dark']) .tag {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:global(html[data-theme='dark']) .tagSimulated {
+  background: rgba(255, 170, 60, 0.15);
+  color: #ffc27a;
+}
+
+:global(html[data-theme='dark']) .tagReal {
+  background: rgba(60, 200, 140, 0.15);
+  color: #7fe0b3;
+}
+
+/* Softer clouds behind the hotel illustration. */
+:global(html[data-theme='dark']) .hotel circle {
+  fill: rgba(143, 123, 255, 0.16);
+}
+
+:global(html[data-theme='dark']) .hotel ellipse {
+  fill: rgba(79, 214, 182, 0.25);
+}
