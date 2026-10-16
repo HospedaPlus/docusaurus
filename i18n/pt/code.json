@@ -486,5 +486,65 @@
   "theme.tags.tagsPageTitle": {
     "message": "Etiquetas",
     "description": "The title of the tag list page"
+  },
+  "landing.section.what.title": {
+    "message": "O que é o HospedaPlus"
+  },
+  "landing.section.what.text": {
+    "message": "O contexto do negócio, a rede hoteleira e quem usa a plataforma."
+  },
+  "landing.section.pains.title": {
+    "message": "As dores"
+  },
+  "landing.section.pains.text": {
+    "message": "Os problemas que a plataforma precisa resolver."
+  },
+  "landing.section.sources.title": {
+    "message": "Fontes de dados"
+  },
+  "landing.section.sources.text": {
+    "message": "As sete fontes, de F1 a F7, e o que cada uma traz."
+  },
+  "landing.section.access.title": {
+    "message": "Acesso aos dados"
+  },
+  "landing.section.access.text": {
+    "message": "Onde está cada fonte e como se conectar a ela."
+  },
+  "landing.section.architecture.title": {
+    "message": "Arquitetura e infraestrutura"
+  },
+  "landing.section.architecture.text": {
+    "message": "Como os dados são ingeridos, armazenados e visualizados na AWS."
+  },
+  "landing.meta.title": {
+    "message": "Boas-vindas"
+  },
+  "landing.meta.description": {
+    "message": "Seu guia completo para entender, explorar e usar a plataforma de dados HospedaPlus."
+  },
+  "landing.badge": {
+    "message": "Documentação"
+  },
+  "landing.title.welcome": {
+    "message": "Bem-vindo ao"
+  },
+  "landing.subtitle": {
+    "message": "Seu guia completo para entender, explorar e usar a plataforma de dados HospedaPlus."
+  },
+  "landing.text": {
+    "message": "Aqui você encontra todas as informações de que precisa sobre as fontes de dados, a arquitetura, a infraestrutura e como trabalhar com a plataforma."
+  },
+  "landing.cta": {
+    "message": "Ir para o início"
+  },
+  "landing.tagline.line1": {
+    "message": "Dados melhores."
+  },
+  "landing.tagline.line2": {
+    "message": "Estadias mais inteligentes."
+  },
+  "landing.sections.title": {
+    "message": "Explore a documentação"
   }
 }

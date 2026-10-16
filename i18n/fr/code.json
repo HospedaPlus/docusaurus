@@ -486,5 +486,65 @@
   "theme.tags.tagsPageTitle": {
     "message": "Tags",
     "description": "The title of the tag list page"
+  },
+  "landing.section.what.title": {
+    "message": "Qu'est-ce que HospedaPlus"
+  },
+  "landing.section.what.text": {
+    "message": "Le contexte métier, la chaîne d'hôtels et qui utilise la plateforme."
+  },
+  "landing.section.pains.title": {
+    "message": "Les points de friction"
+  },
+  "landing.section.pains.text": {
+    "message": "Les problèmes que la plateforme doit résoudre."
+  },
+  "landing.section.sources.title": {
+    "message": "Sources de données"
+  },
+  "landing.section.sources.text": {
+    "message": "Les sept sources, de F1 à F7, et ce que chacune apporte."
+  },
+  "landing.section.access.title": {
+    "message": "Accès aux données"
+  },
+  "landing.section.access.text": {
+    "message": "Où se trouve chaque source et comment s’y connecter."
+  },
+  "landing.section.architecture.title": {
+    "message": "Architecture et infrastructure"
+  },
+  "landing.section.architecture.text": {
+    "message": "Comment les données sont ingérées, stockées et visualisées sur AWS."
+  },
+  "landing.meta.title": {
+    "message": "Bienvenue"
+  },
+  "landing.meta.description": {
+    "message": "Votre guide complet pour comprendre, explorer et utiliser la plateforme de données HospedaPlus."
+  },
+  "landing.badge": {
+    "message": "Documentation"
+  },
+  "landing.title.welcome": {
+    "message": "Bienvenue sur"
+  },
+  "landing.subtitle": {
+    "message": "Votre guide complet pour comprendre, explorer et utiliser la plateforme de données HospedaPlus."
+  },
+  "landing.text": {
+    "message": "Vous trouverez ici toutes les informations nécessaires sur les sources de données, l’architecture, l’infrastructure et la façon de travailler avec la plateforme."
+  },
+  "landing.cta": {
+    "message": "Aller à l'accueil"
+  },
+  "landing.tagline.line1": {
+    "message": "De meilleures données."
+  },
+  "landing.tagline.line2": {
+    "message": "Des séjours plus malins."
+  },
+  "landing.sections.title": {
+    "message": "Explorez la documentation"
   }
 }

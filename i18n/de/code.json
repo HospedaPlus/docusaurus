@@ -486,5 +486,65 @@
   "theme.tags.tagsPageTitle": {
     "message": "Tags",
     "description": "The title of the tag list page"
+  },
+  "landing.section.what.title": {
+    "message": "Was ist HospedaPlus"
+  },
+  "landing.section.what.text": {
+    "message": "Der geschäftliche Kontext, die Hotelkette und wer die Plattform nutzt."
+  },
+  "landing.section.pains.title": {
+    "message": "Die Problemfelder"
+  },
+  "landing.section.pains.text": {
+    "message": "Die Probleme, die die Plattform lösen muss."
+  },
+  "landing.section.sources.title": {
+    "message": "Datenquellen"
+  },
+  "landing.section.sources.text": {
+    "message": "Die sieben Quellen, F1 bis F7, und was jede beiträgt."
+  },
+  "landing.section.access.title": {
+    "message": "Datenzugriff"
+  },
+  "landing.section.access.text": {
+    "message": "Wo jede Quelle liegt und wie man sich verbindet."
+  },
+  "landing.section.architecture.title": {
+    "message": "Architektur und Infrastruktur"
+  },
+  "landing.section.architecture.text": {
+    "message": "Wie Daten auf AWS erfasst, gespeichert und visualisiert werden."
+  },
+  "landing.meta.title": {
+    "message": "Willkommen"
+  },
+  "landing.meta.description": {
+    "message": "Ihr vollständiger Leitfaden, um die Datenplattform HospedaPlus zu verstehen, zu erkunden und zu nutzen."
+  },
+  "landing.badge": {
+    "message": "Dokumentation"
+  },
+  "landing.title.welcome": {
+    "message": "Willkommen bei"
+  },
+  "landing.subtitle": {
+    "message": "Ihr vollständiger Leitfaden, um die Datenplattform HospedaPlus zu verstehen, zu erkunden und zu nutzen."
+  },
+  "landing.text": {
+    "message": "Hier finden Sie alle Informationen zu den Datenquellen, der Architektur, der Infrastruktur und der Arbeit mit der Plattform."
+  },
+  "landing.cta": {
+    "message": "Zur Startseite"
+  },
+  "landing.tagline.line1": {
+    "message": "Bessere Daten."
+  },
+  "landing.tagline.line2": {
+    "message": "Klügere Aufenthalte."
+  },
+  "landing.sections.title": {
+    "message": "Dokumentation entdecken"
   }
 }
