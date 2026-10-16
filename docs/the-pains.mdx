@@ -9,25 +9,25 @@ import {CardGrid, InfoCard} from '@site/src/components/Overview';
 
 # The Pains
 
-The hospitality industry faces several challenges when it comes to data, operations and decision-making. These are the main pains we aim to solve with HospedaPlus.
+HospedaPlus has no single view of its room inventory or of the booking pace for each stay date, so prices are adjusted too late. These are the main pains the platform must solve.
 
 <CardGrid columns={3}>
-  <InfoCard icon="database" title="Fragmented data">
-    Information is spread across multiple systems and formats, making it hard to get a complete view.
+  <InfoCard icon="x-circle" title="High cancellation rate">
+    37% of bookings are cancelled, and there is no cancellation policy differentiated by channel.
   </InfoCard>
-  <InfoCard icon="clock" title="Slow decision-making">
-    Reports are often manual and delayed, which limits the ability to react to changes in real time.
+  <InfoCard icon="alert" title="Uncontrolled overbooking">
+    Hotels overbook without control, so guests have to be relocated, at a high cost and with bad reviews.
   </InfoCard>
-  <InfoCard icon="line-chart" title="Unclear guest behavior">
-    Lack of consolidated insights makes it difficult to understand guest preferences and improve their experience.
+  <InfoCard icon="clock" title="Late, manual pricing">
+    Prices are adjusted by hand with a one-week delay.
   </InfoCard>
-  <InfoCard icon="gear" title="Operational inefficiencies">
-    Without data-driven processes, resources are not always used in the best way.
+  <InfoCard icon="percent" title="Commissions not deducted">
+    Channel commissions are not deducted when revenue is measured, so the real income per channel is unknown.
   </InfoCard>
-  <InfoCard icon="alert" title="Revenue loss">
-    Missed opportunities due to inaccurate forecasting and poor segmentation.
+  <InfoCard icon="message" title="Unanalyzed negative reviews">
+    Negative reviews are not analyzed systematically.
   </InfoCard>
-  <InfoCard icon="shield" title="Limited scalability">
-    Manual and isolated systems cannot easily grow with the business.
+  <InfoCard icon="database" title="No single view of bookings">
+    Bookings arrive from a channel manager, agency files and the own booking engine, with no unified view of inventory or pickup.
   </InfoCard>
 </CardGrid>

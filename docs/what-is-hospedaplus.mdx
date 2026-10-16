@@ -5,21 +5,58 @@ title: What is HospedaPlus?
 hide_table_of_contents: true
 ---
 
-import {Hero, CardGrid, FeatureCard} from '@site/src/components/Overview';
+import {Hero, CardGrid, FeatureCard, InfoCard, StatGrid, Stat} from '@site/src/components/Overview';
 
 # What is HospedaPlus?
 
 <Hero>
 
-HospedaPlus is a data-driven platform designed to help hospitality businesses make better decisions through analytics and automation.
+HospedaPlus Revenue is a data platform for **HospedaPlus Hotels**, a (fictional) chain of 28 urban and vacation hotels. It brings together bookings from every sales channel to manage revenue, keep overbooking under control and measure the chain's online reputation.
 
-We collect, transform and analyze data from multiple sources to provide actionable insights on occupancy, revenue, customer behavior and operational performance. Our goal is to simplify data access, improve efficiency and support growth in the hospitality industry.
+HospedaPlus sells rooms through its own website, online travel agencies (OTAs), traditional travel agencies and corporate agreements. Each channel charges a different commission and has its own cancellation policy. The commercial department needs one platform to consolidate bookings from all channels, control overbooking with rules, calculate revenue indicators (ADR and RevPAR), apply pricing by season and event, and measure online reputation.
 
 </Hero>
 
+## The chain today
+
+<StatGrid>
+  <Stat value="28">urban and vacation hotels</Stat>
+  <Stat value="~4,000">rooms across the chain</Stat>
+  <Stat value="37%">booking cancellation rate</Stat>
+  <Stat value="68%">average occupancy</Stat>
+</StatGrid>
+
+Some hotels overbook without any control. When more guests arrive than there are rooms, they must be relocated to other hotels, which is expensive and leads to bad reviews. On top of that, bookings arrive through a channel manager that emits events, through files sent by agencies and through the chain's own booking engine. There is no single view of the room inventory or of the **pickup** (the pace of bookings) for each stay date, so prices are adjusted too late.
+
+## What the platform does
+
+HospedaPlus Revenue integrates bookings and cancellations, applies pricing, overbooking and cancellation rules, calculates revenue and reputation indicators, and publishes availability and rates to the sales channels.
+
+## Business goals
+
 <CardGrid columns={4}>
-  <FeatureCard icon="bar-chart">Data-driven decisions</FeatureCard>
-  <FeatureCard icon="zap">Operational efficiency</FeatureCard>
-  <FeatureCard icon="users">Better guest experiences</FeatureCard>
-  <FeatureCard icon="trending-up">Business growth</FeatureCard>
+  <FeatureCard icon="trending-up">Increase RevPAR by 8%</FeatureCard>
+  <FeatureCard icon="shield">Keep overbooking relocations below 0.5% of arrivals</FeatureCard>
+  <FeatureCard icon="zap">Adjust prices automatically every day, based on rules</FeatureCard>
+  <FeatureCard icon="percent">Measure net revenue after commissions per channel</FeatureCard>
+</CardGrid>
+
+## Who uses it
+
+<CardGrid columns={3}>
+  <InfoCard icon="line-chart" title="Revenue manager">
+    Pickup, projected occupancy, suggested prices and overbooking limits.
+  </InfoCard>
+  <InfoCard icon="network" title="Channel manager (system)">
+    Current availability and rates by hotel, room type and date.
+  </InfoCard>
+  <InfoCard icon="building" title="Hotel manager">
+    Occupancy, ADR, RevPAR, relocations and reputation of their hotel.
+  </InfoCard>
+  <InfoCard icon="message" title="Reputation team">
+    Reviews per hotel, recurring topics and ratings.
+  </InfoCard>
+  <InfoCard icon="user" title="Guest">
+    Their booking and the penalty that applies if they cancel.
+  </InfoCard>
 </CardGrid>
