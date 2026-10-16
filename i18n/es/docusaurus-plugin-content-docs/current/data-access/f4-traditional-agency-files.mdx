@@ -4,36 +4,205 @@ sidebar_label: F4 · Archivos de agencias tradicionales
 title: F4 · Archivos de agencias tradicionales
 ---
 
-import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import {AccessTable, AccessNote, Note, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
 
 # <SourceTitleIcon icon="file" tone="sky" />F4 · Archivos de agencias tradicionales <SourceType>Archivos CSV / Excel</SourceType>
 
-Archivos semanales simulados con las reservas que venden las agencias de viaje tradicionales.
+Archivos semanales simulados con las reservas que venden las agencias de viaje tradicionales. Las agencias tradicionales no se conectan por una API ni por un flujo de eventos: envían una hoja de cálculo una vez por semana. El equipo simula estos archivos con un generador escrito en Python.
 
 <AccessTable>
 
 | Propiedad | Valor |
 | --- | --- |
-| Tipo | Archivos simulados |
-| Ubicación | Archivos semanales de cada agencia |
-| Método de acceso | Archivos CSV / Excel |
+| Tipo | Archivos simulados, generados por el equipo |
+| Ubicación | `output/f4_agency_files/` · código fuente en [HospedaPlus/buenavista-csv](https://github.com/HospedaPlus/buenavista-csv) |
+| Método de acceso | Archivos CSV, uno por agencia |
 | Frecuencia | Semanal |
-| Volumen | ~15 agencias |
+| Volumen | 15 agencias, ~183 reservas por semana |
 
 </AccessTable>
 
+<StatGrid>
+  <Stat value="15">agencias, un archivo cada una</Stat>
+  <Stat value="2">formatos de columnas</Stat>
+  <Stat value="10%">comisión de agencia</Stat>
+  <Stat value="~183">reservas por semana</Stat>
+</StatGrid>
+
 ## Cómo acceder
 
-Cada agencia entrega un archivo CSV o Excel por semana, y la plataforma carga los archivos en batch.
+Cada agencia entrega un archivo CSV por semana, y la plataforma carga los archivos en batch. En la simulación, el generador escribe los 15 archivos semanales en `output/f4_agency_files/`, junto con un resumen de lo que generó.
 
-## Qué contiene
+## Cómo se generan los datos
 
-Las reservas vendidas por cada agencia. Cada agencia usa su propio formato de archivo.
+El generador es el módulo `buenavista_csv.f4_generator` del repositorio [buenavista-csv](https://github.com/HospedaPlus/buenavista-csv). Crea un archivo por agencia con estas reglas:
+
+- **Reproducible.** Usa una semilla fija (`7` por defecto), así que al ejecutarlo de nuevo produce exactamente los mismos archivos.
+- **Reservas normales.** Cada agencia recibe 12 reservas por defecto. Cada reserva tiene un hotel al azar de `hotel-001` a `hotel-028`, un check-in entre el 1 de noviembre de 2026 y el 30 de enero de 2027, una estadía de 1 a 6 noches, un tipo de habitación (`SINGLE`, `DOUBLE`, `TWIN` o `SUITE`), una moneda (`EUR` o `USD`) y un monto entre 80 y 2.000.
+- **Comisión fija.** Todas las reservas llevan una comisión de `0.10`, el 10% que cobran las agencias tradicionales.
+- **Ids de reserva.** Los ids siguen el patrón `AG<agencia>-<contador>`, por ejemplo `AG01-00001`. El contador sigue creciendo entre agencias, así que un id nunca se repite.
+- **Dos formatos.** Las agencias alternan entre dos formatos de columnas para simular que cada agencia usa el suyo. Las 8 agencias con número impar usan el formato B y las 7 con número par usan el formato A.
+
+### Parámetros
+
+| Parámetro | Por defecto | Descripción |
+| --- | --- | --- |
+| `--seed` | `7` | Semilla del generador aleatorio. |
+| `--bookings-per-agency` | `12` | Reservas normales por agencia. |
+| `--duplicate-count` | `3` | Reservas copiadas de F2 para crear duplicados entre canales. |
+| `--missing-currency-rate` | `0.10` | Proporción de reservas sin moneda, entre `0.0` y `1.0`. |
+| `--f2-events` | `data/f2_reference/events.jsonl` | Eventos de F2 usados como origen de los duplicados. |
+| `--output-dir` | `output/f4_agency_files` | Carpeta donde se escriben los archivos. |
+
+### Defectos que inyecta
+
+El generador agrega dos de los defectos de calidad de datos que la plataforma debe manejar:
+
+- **Moneda faltante.** Cerca del 10% de las reservas tienen el campo `currency` vacío. Con la semilla por defecto, 14 de las 183 reservas no tienen moneda.
+- **Duplicados entre canales.** El generador lee eventos `reservation.created` de [F2](./f2-channel-manager-events.mdx) y copia algunos en los archivos de las agencias. La copia conserva el hotel, el check-out, el tipo de habitación, la moneda y el monto, pero recibe un id de agencia nuevo, un check-in movido −1, 0 o +1 día y, por lo general, un nombre de huésped un poco distinto. El generador cambia el nombre de una de estas formas: nombre y apellido invertidos (`Ferreira Diego`), apellido reducido a su inicial (`Diego F.`), dos letras intercambiadas (`Diego Ferriera`) o apellido en minúsculas (`Diego ferreira`). Con los valores por defecto, las tres primeras agencias reciben un duplicado cada una.
+
+Los eventos de F2 no incluyen el nombre del huésped, así que el generador deriva uno a partir de cada `reservation_id` con su propia semilla. Así se puede comparar por nombre la reserva original de F2 con su copia en F4.
+
+## Salida
+
+El generador escribe 16 archivos en `output/f4_agency_files/`:
+
+- **15 archivos CSV semanales**, uno por agencia, con el nombre de la agencia en minúsculas y con guiones bajos: `viajafacil_week.csv`, `solymar_tours_week.csv`, `eurotrip_agency_week.csv`, etc.
+- **`_generation_summary.json`**, con las filas y el formato de cada archivo y la lista de duplicados que creó.
+
+| # | Agencia | Archivo | Formato |
+| --- | --- | --- | --- |
+| 1 | ViajaFacil | `viajafacil_week.csv` | B |
+| 2 | SolyMar Tours | `solymar_tours_week.csv` | A |
+| 3 | EuroTrip Agency | `eurotrip_agency_week.csv` | B |
+| 4 | Andes Travel | `andes_travel_week.csv` | A |
+| 5 | GlobalStay Agency | `globalstay_agency_week.csv` | B |
+| 6 | CaribeViajes | `caribeviajes_week.csv` | A |
+| 7 | MontanaTours | `montanatours_week.csv` | B |
+| 8 | CostaBella Travel | `costabella_travel_week.csv` | A |
+| 9 | NorteSur Agencia | `nortesur_agencia_week.csv` | B |
+| 10 | Horizonte Viajes | `horizonte_viajes_week.csv` | A |
+| 11 | Rutas del Sur | `rutas_del_sur_week.csv` | B |
+| 12 | BlueSky Agency | `bluesky_agency_week.csv` | A |
+| 13 | Destino Feliz | `destino_feliz_week.csv` | B |
+| 14 | Puerta del Sol Travel | `puerta_del_sol_travel_week.csv` | A |
+| 15 | Viajes Amanecer | `viajes_amanecer_week.csv` | B |
+
+### Formatos de archivo
+
+Los dos formatos tienen 9 columnas con la misma información, pero con nombres distintos y en otro orden:
+
+<Tabs groupId="f4-layout">
+<TabItem value="a" label="Formato A" default>
+
+```csv title="solymar_tours_week.csv"
+agency_booking_id,guest_name,hotel_id,check_in,check_out,room_type,currency,total_amount,commission_rate
+AG02-00014,Sofia Rossi,hotel-005,2026-12-02,2026-12-06,SINGLE,USD,1134.92,0.1
+AG02-00015,Laura Costa,hotel-005,2026-12-26,2026-12-31,SUITE,USD,1918.84,0.1
+AG02-00016,Ana Lopez,hotel-005,2026-11-11,2026-11-13,DOUBLE,,1675.7,0.1
+```
+
+</TabItem>
+<TabItem value="b" label="Formato B">
+
+```csv title="viajafacil_week.csv"
+booking_ref,hotel_id,guest_full_name,checkin_date,checkout_date,room_category,amount,currency,commission_pct
+AG01-00001,hotel-021,Rafael Fernandez,2026-11-07,2026-11-08,SINGLE,1826.63,EUR,0.1
+AG01-00002,hotel-007,Sofia Ferreira,2026-11-05,2026-11-06,SINGLE,193.49,USD,0.1
+AG01-00013,hotel-022,Diego ferreira,2026-11-11,2026-11-12,TWIN,100.42,EUR,0.1
+```
+
+</TabItem>
+</Tabs>
+
+En el ejemplo del formato A, `AG02-00016` no tiene moneda. En el ejemplo del formato B, `AG01-00013` es un duplicado de una reserva de F2.
+
+### Columnas
+
+Esta tabla relaciona cada columna del formato B con su nombre en el formato A, que es el nombre que se usa cuando se unifican los archivos:
+
+| Formato A | Formato B | Tipo | Descripción |
+| --- | --- | --- | --- |
+| `agency_booking_id` | `booking_ref` | texto | Id de la reserva en la agencia, por ejemplo `AG01-00001`. |
+| `guest_name` | `guest_full_name` | texto | Nombre del huésped. Es un dato personal. |
+| `hotel_id` | `hotel_id` | texto | Código del hotel, de `hotel-001` a `hotel-028`. |
+| `check_in` | `checkin_date` | fecha `YYYY-MM-DD` | Fecha de llegada. |
+| `check_out` | `checkout_date` | fecha `YYYY-MM-DD` | Fecha de salida, siempre posterior a la llegada. |
+| `room_type` | `room_category` | texto | `SINGLE`, `DOUBLE`, `TWIN` o `SUITE`. |
+| `currency` | `currency` | texto, puede estar vacío | `EUR` o `USD`. |
+| `total_amount` | `amount` | decimal | Monto total de la reserva, antes de la comisión. |
+| `commission_rate` | `commission_pct` | decimal | Comisión de la agencia, siempre `0.1`. |
+
+### Resumen de generación
+
+`_generation_summary.json` describe cada ejecución. Con los valores por defecto informa 183 filas, 14 de ellas sin moneda, y los 3 duplicados con la reserva de F2 de la que vienen:
+
+```json title="_generation_summary.json (extracto)"
+{
+  "agencies": {
+    "ViajaFacil": { "file": "viajafacil_week.csv", "rows": 13, "layout": "B" },
+    "SolyMar Tours": { "file": "solymar_tours_week.csv", "rows": 13, "layout": "A" }
+  },
+  "duplicates_created": [
+    {
+      "agency": "ViajaFacil",
+      "agency_booking_id": "AG01-00013",
+      "original_reservation_id": "res-10024",
+      "original_channel": "booking_channel_a",
+      "real_guest_name": "Diego Ferreira",
+      "agency_guest_name": "Diego ferreira",
+      "hotel_id": "hotel-022",
+      "agency_check_in": "2026-11-11",
+      "original_check_in": "2026-11-11",
+      "check_out": "2026-11-12"
+    }
+  ],
+  "warning": null,
+  "missing_currency_rate_configured": 0.1,
+  "total_rows": 183,
+  "rows_missing_currency": 14
+}
+```
+
+Estos son los 3 duplicados de la ejecución por defecto:
+
+| Archivo de agencia | Id de agencia | Reserva de F2 | Canal de F2 | Huésped en F2 | Huésped en F4 | Cambio de check-in |
+| --- | --- | --- | --- | --- | --- | --- |
+| `viajafacil_week.csv` | `AG01-00013` | `res-10024` | `booking_channel_a` | Diego Ferreira | Diego ferreira | 0 días |
+| `solymar_tours_week.csv` | `AG02-00026` | `res-10012` | `expedia` | Patricia Rossi | Patricia Rossi | −1 día |
+| `eurotrip_agency_week.csv` | `AG03-00039` | `res-10029` | `direct_ota` | Elena Santos | Elena santos | −1 día |
+
+`warning` se completa cuando falta el archivo de F2, cuando no tiene eventos `reservation.created` o cuando tiene menos eventos que los duplicados pedidos.
+
+### Validación de la salida
+
+El repositorio también incluye un validador, `buenavista_csv.validator`, que revisa los archivos sin modificarlos. Reconoce el formato de cada archivo por su encabezado e informa cada defecto que encuentra por tipo, como `MISSING_CURRENCY` o `CROSS_CHANNEL_DUPLICATE`. Con la ejecución por defecto, el resultado es `PASSED_WITH_CATALOGUED_DEFECTS`: los 15 archivos tienen una estructura válida, y encuentra 14 reservas sin moneda y 3 duplicados. El informe se escribe en `output/validation_reports/quality_validation_report.json`.
 
 <AccessNote icon="alert" title="Problemas de calidad de datos conocidos">
 
-- Las agencias usan formatos distintos.
-- Algunos archivos no indican la moneda.
-- Algunas reservas ya existen por otro canal, con leves diferencias en el nombre del huésped. Cuando el mismo huésped, hotel y fechas (±1 día) aparecen en dos canales, la reserva se marca y prevalece la del canal con menor comisión.
+- Las agencias usan dos formatos distintos, así que los archivos se deben unificar antes de combinarlos.
+- Cerca del 10% de las reservas no tienen moneda, así que su monto no se puede convertir hasta conocer la moneda.
+- Algunas reservas ya existen por F2, con leves diferencias en el nombre del huésped y un check-in movido hasta un día. Cuando el mismo huésped, hotel y fechas (±1 día) aparecen en dos canales, la reserva se marca y prevalece la del canal con menor comisión.
 
 </AccessNote>
+
+## Ejecutarlo localmente
+
+Con Python 3.11 o superior y [uv](https://docs.astral.sh/uv/), clona el repositorio y ejecuta el generador:
+
+```bash
+git clone https://github.com/HospedaPlus/buenavista-csv.git
+cd buenavista-csv
+uv sync --extra test
+uv run -m buenavista_csv.f4_generator --seed 7 --bookings-per-agency 12 --duplicate-count 3 --missing-currency-rate 0.10
+```
+
+El comando muestra cuántos archivos, filas, duplicados y reservas sin moneda generó. Para revisar los archivos, ejecuta `uv run -m buenavista_csv.validator`.
+
+<Note>
+
+Los archivos se vuelven a generar desde cero en cada ejecución. Con la misma semilla y los mismos parámetros, la salida es idéntica, así que las filas de ejemplo de esta página se pueden reproducir.
+
+</Note>
