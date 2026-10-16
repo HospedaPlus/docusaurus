@@ -282,3 +282,92 @@
     margin-left: 0;
   }
 }
+
+/* ---------- Dark mode ---------- */
+
+:global(html[data-theme='dark']) .blue {
+  --stage-border: #2c3f73;
+  --stage-bg: #121834;
+  --stage-head: #1a2650;
+  --stage-color: #9db4ff;
+}
+
+:global(html[data-theme='dark']) .purple {
+  --stage-border: #3b3270;
+  --stage-bg: #151634;
+  --stage-head: #221d4f;
+  --stage-color: #b7abff;
+}
+
+:global(html[data-theme='dark']) .green {
+  --stage-border: #1f5546;
+  --stage-bg: #10201f;
+  --stage-head: #15332c;
+  --stage-color: #6fe0b4;
+}
+
+:global(html[data-theme='dark']) .sky {
+  --stage-border: #24456e;
+  --stage-bg: #101b31;
+  --stage-head: #172a48;
+  --stage-color: #8cc4ff;
+}
+
+:global(html[data-theme='dark']) .violet {
+  --stage-border: #43306e;
+  --stage-bg: #171433;
+  --stage-head: #251c4c;
+  --stage-color: #c7a6ff;
+}
+
+:global(html[data-theme='dark']) .arrow {
+  color: #8ea2ff;
+}
+
+:global(html[data-theme='dark']) .arrowDown {
+  color: #a596ff;
+}
+
+:global(html[data-theme='dark']) .chip {
+  background: rgba(143, 123, 255, 0.16);
+  color: #c6bdff;
+}
+
+:global(html[data-theme='dark']) .iconPurple {
+  color: #a596ff;
+}
+
+:global(html[data-theme='dark']) .iconIndigo {
+  color: #9b9cff;
+}
+
+:global(html[data-theme='dark']) .iconBlue {
+  color: #8ea2ff;
+}
+
+:global(html[data-theme='dark']) .iconSky {
+  color: #6bb6ff;
+}
+
+:global(html[data-theme='dark']) .iconTeal {
+  color: #4fd6b6;
+}
+
+:global(html[data-theme='dark']) .aws {
+  border-color: #2c4677;
+  background: #0f1430;
+}
+
+:global(html[data-theme='dark']) .awsTab {
+  background: #232b5c;
+}
+
+:global(html[data-theme='dark']) .infra {
+  border-color: #2a3154;
+  background: #131936;
+}
+
+:global(html[data-theme='dark']) .infraTitle {
+  background: #1d2752;
+  color: #9db4ff;
+}

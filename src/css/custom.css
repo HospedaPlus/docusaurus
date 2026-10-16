@@ -48,6 +48,74 @@
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 }
 
+/* Dark mode: same navy and purple identity on a deep navy background. */
+[data-theme='dark'] {
+  --hp-navy: #121733;
+  --hp-ink: #f1f2fa;
+  --hp-ink-soft: #c6cae0;
+  --hp-muted: #9298b6;
+  --hp-border: #2a3154;
+  --hp-card-bg: #171d3a;
+  --hp-purple: #a596ff;
+  --hp-indigo: #9b9cff;
+  --hp-blue: #8ea2ff;
+  --hp-active-bg: rgba(143, 123, 255, 0.18);
+  --hp-sidebar-bg: #11152c;
+
+  --ifm-color-primary: #a596ff;
+  --ifm-color-primary-dark: #8f7dff;
+  --ifm-color-primary-darker: #8471ff;
+  --ifm-color-primary-darkest: #6a52fc;
+  --ifm-color-primary-light: #bbb0ff;
+  --ifm-color-primary-lighter: #c6bdff;
+  --ifm-color-primary-lightest: #e6e2ff;
+
+  --ifm-background-color: #0d1126;
+  --ifm-background-surface-color: #0d1126;
+  --ifm-navbar-background-color: var(--hp-navy);
+  --ifm-dropdown-background-color: #1a2042;
+  --ifm-menu-color-background-hover: rgba(255, 255, 255, 0.06);
+  --ifm-table-stripe-background: rgba(255, 255, 255, 0.03);
+  --ifm-toc-border-color: var(--hp-border);
+  --ifm-hr-border-color: var(--hp-border);
+
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+[data-theme='dark'] .navbar {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-theme='dark'] .navbar__link,
+[data-theme='dark'] .navbar__title {
+  color: #e7e9f5;
+}
+
+[data-theme='dark'] .dropdown__link {
+  color: var(--hp-ink-soft);
+}
+
+[data-theme='dark'] .dropdown__link--active {
+  background: var(--hp-active-bg);
+  color: var(--hp-purple);
+}
+
+[data-theme='dark'] .source-tone-purple .menu__link::before {
+  background-color: #a596ff;
+}
+
+[data-theme='dark'] .source-tone-blue .menu__link::before {
+  background-color: #8ea2ff;
+}
+
+[data-theme='dark'] .source-tone-teal .menu__link::before {
+  background-color: #4fd6b6;
+}
+
+[data-theme='dark'] .source-tone-sky .menu__link::before {
+  background-color: #6bb6ff;
+}
+
 body {
   -webkit-font-smoothing: antialiased;
 }
@@ -151,6 +219,11 @@ body {
 
 .navbar__toggle {
   color: #ffffff;
+}
+
+/* Light / dark switch next to the language selector. */
+.navbar [class*='colorModeToggle'] {
+  margin: 0 0.35rem;
 }
 
 @media (max-width: 996px) {
