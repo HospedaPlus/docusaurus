@@ -19,7 +19,21 @@ const sidebars: SidebarsConfig = {
     'what-is-hospedaplus',
     'the-pains',
     'data-sources',
-    'data-access',
+    {
+      type: 'category',
+      label: 'Data Access',
+      link: {type: 'doc', id: 'data-access/index'},
+      collapsed: true,
+      items: [
+        'data-access/f1-hotel-booking-demand',
+        'data-access/f2-channel-manager-events',
+        'data-access/f3-own-booking-engine',
+        'data-access/f4-traditional-agency-files',
+        'data-access/f5-guest-reviews',
+        'data-access/f6-holidays-and-events',
+        'data-access/f7-exchange-rates',
+      ],
+    },
     'architecture-infrastructure',
   ],
 };

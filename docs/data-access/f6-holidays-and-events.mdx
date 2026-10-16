@@ -1,0 +1,38 @@
+---
+sidebar_position: 6
+sidebar_label: F6 · Holidays and events
+title: F6 · Holidays and events
+---
+
+import {AccessTable} from '@site/src/components/Overview';
+
+# F6 · Holidays and events
+
+Public holidays of each hotel's country, plus a file of local events such as conferences and concerts.
+
+<AccessTable>
+
+| Property | Value |
+| --- | --- |
+| Type | Real data, public API + file |
+| Location | [Nager.Date](https://date.nager.at) public API + local events CSV |
+| Access method | REST API + CSV file |
+| Frequency | Yearly (holidays) / weekly (events) |
+| Volume | < 1,000 rows/year |
+
+</AccessTable>
+
+## How to access it
+
+Public holidays come from the Nager.Date API, by year and country code. For example, the holidays of Portugal in 2026:
+
+```bash
+curl https://date.nager.at/api/v3/PublicHolidays/2026/PT
+```
+
+Local events come from a CSV file updated weekly.
+
+## How it is used
+
+- A holiday or local event on a date adds an extra price multiplier of 1.15.
+- Overbooking is never allowed on dates with a "high" category event.

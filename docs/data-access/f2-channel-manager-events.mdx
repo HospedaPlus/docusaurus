@@ -1,0 +1,44 @@
+---
+sidebar_position: 2
+sidebar_label: F2 · Channel manager events
+title: F2 · Channel manager events
+---
+
+import {AccessTable, AccessNote} from '@site/src/components/Overview';
+
+# F2 · Channel manager events
+
+Simulated stream of booking events coming from the channel manager, which collects OTA bookings. The team builds this simulator following the project specification.
+
+<AccessTable>
+
+| Property | Value |
+| --- | --- |
+| Type | Simulated stream |
+| Location | Event simulator built by the team |
+| Access method | JSON messages |
+| Frequency | Continuous |
+| Volume | ≥ 10 events/second at peak |
+
+</AccessTable>
+
+## How to access it
+
+The simulator publishes one JSON message per event, and the platform consumes them asynchronously. No event from the channel manager may be lost.
+
+## What it contains
+
+Booking events of these types:
+
+- Booking created, modified and cancelled.
+- No-show.
+- Check-in and check-out.
+
+OTA bookings come with multiple modifications, late cancellations and no-shows.
+
+<AccessNote icon="alert" title="Known data quality issues">
+
+- Events occasionally arrive out of order.
+- A modification event can arrive before the creation event, and it must be processed correctly once the creation arrives.
+
+</AccessNote>

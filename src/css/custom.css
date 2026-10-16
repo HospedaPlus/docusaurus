@@ -188,8 +188,9 @@ body {
   font-weight: 500;
 }
 
-/* Small page icon in front of each doc link. */
-.theme-doc-sidebar-item-link-level-1 .menu__link::before {
+/* Small page icon in front of each doc link and category. */
+.theme-doc-sidebar-item-link-level-1 .menu__link::before,
+.theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible > .menu__link::before {
   content: '';
   flex: none;
   width: 14px;
@@ -201,6 +202,18 @@ body {
 
 .menu__link--active {
   font-weight: 600;
+}
+
+/* Data source pages nested under Data Access. */
+.theme-doc-sidebar-item-category-level-1 > .menu__list {
+  margin-top: 0.15rem;
+  padding-left: 1.6rem;
+  border-left: 0;
+}
+
+.theme-doc-sidebar-item-link-level-2 .menu__link {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.82rem;
 }
 
 .menu__link--active::before {
