@@ -89,7 +89,7 @@
 }
 
 .featureLabel {
-  max-width: 8rem;
+  max-width: 12rem;
   font-size: 0.92rem;
   font-weight: 600;
   line-height: 1.5;
@@ -323,5 +323,143 @@
   .cols2,
   .cols3 {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Key figures ---------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 1.75rem;
+}
+
+.stat {
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--hp-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f6f3ff 0%, #ffffff 100%);
+}
+
+.statValue {
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--hp-purple);
+}
+
+.statLabel {
+  margin-top: 0.3rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--hp-muted);
+}
+
+/* ---------- Data sources F1-F7 ---------- */
+
+.dataSource {
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 1.25rem 1.1rem;
+}
+
+.dataSourceHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dataSourceHead .sourceIcon {
+  margin-bottom: 0;
+}
+
+.sourceId {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--hp-active-bg);
+  color: var(--hp-purple);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.dataSourceTitle {
+  margin: 0.9rem 0 0.5rem;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--hp-ink);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.8rem;
+}
+
+.tag {
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+  background: #eef0f8;
+  color: var(--hp-ink-soft);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.tagSimulated {
+  background: #fff3e0;
+  color: #a35a00;
+}
+
+.tagReal {
+  background: #e6f6ef;
+  color: #11734d;
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.meta > div {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--hp-border);
+}
+
+.meta dt {
+  font-weight: 500;
+  color: var(--hp-muted);
+}
+
+.meta dd {
+  margin: 0;
+  color: var(--hp-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.dataSourceText {
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--hp-muted);
+}
+
+.dataSourceText p {
+  margin: 0;
+}
+
+.dataSourceText ul {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+@media (max-width: 996px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

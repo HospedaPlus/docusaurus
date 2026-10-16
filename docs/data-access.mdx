@@ -9,23 +9,27 @@ import {AccessTable, SourceName, AccessNote} from '@site/src/components/Overview
 
 # Where are the sources and how to access them?
 
-The data sources are located in different systems and can be accessed through secure connections and APIs. Below is a summary of where they are and how to connect.
+The data sources live in public platforms and in systems simulated by the team. Below is a summary of where each one is and how we connect to it.
 
 <AccessTable>
 
 | Source | Location | Access Method |
 | --- | --- | --- |
-| <SourceName icon="bed" tone="purple">PMS</SourceName> | Hotel's on-premise system / Cloud | Database connection (SQL) |
-| <SourceName icon="network" tone="blue">Channel Manager</SourceName> | Cloud (vendor platform) | API (REST) |
-| <SourceName icon="pos" tone="blue">POS</SourceName> | Cloud (vendor platform) | API (REST) |
-| <SourceName icon="cloud" tone="sky">External Data</SourceName> | Public APIs / Data providers | API / Web scraping (when applicable) |
+| <SourceName icon="file" tone="purple">F1 · Hotel booking demand</SourceName> | Kaggle ([hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand)) | CSV download, one-time historical load |
+| <SourceName icon="stream" tone="blue">F2 · Channel manager events</SourceName> | Simulated event stream | JSON messages, continuous |
+| <SourceName icon="database" tone="teal">F3 · Own booking engine</SourceName> | Simulated PostgreSQL database, populated by a seed | Database connection (SQL) |
+| <SourceName icon="file" tone="sky">F4 · Traditional agency files</SourceName> | Simulated weekly files from ~15 agencies | CSV / Excel files |
+| <SourceName icon="message" tone="purple">F5 · Guest reviews</SourceName> | Simulated reviews API | Paginated REST API, daily |
+| <SourceName icon="calendar" tone="blue">F6 · Holidays and events</SourceName> | [Nager.Date](https://date.nager.at) public API + local events CSV | REST API + CSV file |
+| <SourceName icon="currency" tone="teal">F7 · Exchange rates</SourceName> | [Frankfurter](https://frankfurter.dev) public API | REST API, daily |
 
 </AccessTable>
 
 <AccessNote title="Access considerations">
 
-- All connections are managed securely using credentials and environment variables.
-- Data access is restricted based on roles and permissions.
-- We use encrypted connections (SSL/TLS) when available.
+- No credential, key or password is stored in the repository or in container images.
+- Guest personal data (name, email, phone) is pseudonymized before it reaches the analytics layer.
+- Guest data is encrypted.
+- Reviews are synthetic: we do not extract real reviews from review platforms.
 
 </AccessNote>

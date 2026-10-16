@@ -150,10 +150,18 @@ export function Note({children}: {children: ReactNode}): ReactNode {
   );
 }
 
-export function AccessNote({title, children}: {title: string; children: ReactNode}): ReactNode {
+export function AccessNote({
+  icon = 'lock',
+  title,
+  children,
+}: {
+  icon?: IconName;
+  title: string;
+  children: ReactNode;
+}): ReactNode {
   return (
     <div className={clsx(styles.callout, styles.access)}>
-      <Icon name="lock" size={26} strokeWidth={2.2} className={styles.accessIcon} />
+      <Icon name={icon} size={26} strokeWidth={2.2} className={styles.accessIcon} />
       <div>
         <div className={styles.accessTitle}>{title}</div>
         {children}
@@ -177,4 +185,71 @@ export function SourceName({icon, tone = 'purple', children}: {icon: IconName; t
 
 export function AccessTable({children}: {children: ReactNode}): ReactNode {
   return <div className={styles.accessTable}>{children}</div>;
+}
+
+/* ---------- Key figures ---------- */
+
+export function StatGrid({children}: {children: ReactNode}): ReactNode {
+  return <div className={styles.stats}>{children}</div>;
+}
+
+export function Stat({value, children}: {value: string; children: ReactNode}): ReactNode {
+  return (
+    <div className={styles.stat}>
+      <div className={styles.statValue}>{value}</div>
+      <div className={styles.statLabel}>{children}</div>
+    </div>
+  );
+}
+
+/* ---------- Data sources F1-F7 ---------- */
+
+type SourceMeta = {label: string; value: ReactNode};
+
+/** Data source card with its ID (F1-F7), type and key facts. */
+export function DataSourceCard({
+  id,
+  icon,
+  tone = 'purple',
+  title,
+  type,
+  simulated = false,
+  meta,
+  children,
+}: {
+  id: string;
+  icon: IconName;
+  tone?: Tone;
+  title: string;
+  type: string;
+  simulated?: boolean;
+  meta: SourceMeta[];
+  children?: ReactNode;
+}): ReactNode {
+  return (
+    <div className={clsx(styles.card, styles.dataSource)}>
+      <div className={styles.dataSourceHead}>
+        <span className={clsx(styles.sourceIcon, styles[tone])}>
+          <Icon name={icon} size={30} strokeWidth={2} />
+        </span>
+        <span className={styles.sourceId}>{id}</span>
+      </div>
+      <h3 className={styles.dataSourceTitle}>{title}</h3>
+      <div className={styles.tags}>
+        <span className={styles.tag}>{type}</span>
+        <span className={clsx(styles.tag, simulated ? styles.tagSimulated : styles.tagReal)}>
+          {simulated ? 'Simulated' : 'Real data'}
+        </span>
+      </div>
+      <dl className={styles.meta}>
+        {meta.map((m) => (
+          <div key={m.label}>
+            <dt>{m.label}</dt>
+            <dd>{m.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {children && <div className={styles.dataSourceText}>{children}</div>}
+    </div>
+  );
 }
