@@ -14,6 +14,14 @@ const config: Config = {
     v4: true, // Improve compatibility with the upcoming Docusaurus v4
   },
 
+  // Each locale is built with its own baseUrl, so the automatic storage
+  // namespace would differ per language and the chosen light/dark mode would
+  // reset when switching languages. A fixed namespace keeps one choice for the
+  // whole site while staying separate from other sites on the same domain.
+  storage: {
+    namespace: 'hospedaplus-docs',
+  },
+
   url: 'https://hospedaplus.github.io',
   baseUrl: '/docusaurus/',
 
