@@ -486,5 +486,65 @@
   "theme.tags.tagsPageTitle": {
     "message": "Etiquetas",
     "description": "The title of the tag list page"
+  },
+  "landing.section.what.title": {
+    "message": "Qué es HospedaPlus"
+  },
+  "landing.section.what.text": {
+    "message": "El contexto del negocio, la cadena hotelera y quién usa la plataforma."
+  },
+  "landing.section.pains.title": {
+    "message": "Los dolores"
+  },
+  "landing.section.pains.text": {
+    "message": "Los problemas que la plataforma debe resolver."
+  },
+  "landing.section.sources.title": {
+    "message": "Fuentes de datos"
+  },
+  "landing.section.sources.text": {
+    "message": "Las siete fuentes, de F1 a F7, y lo que aporta cada una."
+  },
+  "landing.section.access.title": {
+    "message": "Acceso a los datos"
+  },
+  "landing.section.access.text": {
+    "message": "Dónde está cada fuente y cómo conectarse a ella."
+  },
+  "landing.section.architecture.title": {
+    "message": "Arquitectura e infraestructura"
+  },
+  "landing.section.architecture.text": {
+    "message": "Cómo se ingieren, almacenan y visualizan los datos en AWS."
+  },
+  "landing.meta.title": {
+    "message": "Bienvenida"
+  },
+  "landing.meta.description": {
+    "message": "Tu guía completa para entender, explorar y usar la plataforma de datos HospedaPlus."
+  },
+  "landing.badge": {
+    "message": "Documentación"
+  },
+  "landing.title.welcome": {
+    "message": "Bienvenido a"
+  },
+  "landing.subtitle": {
+    "message": "Tu guía completa para entender, explorar y usar la plataforma de datos HospedaPlus."
+  },
+  "landing.text": {
+    "message": "Aquí encontrarás toda la información que necesitas sobre las fuentes de datos, la arquitectura, la infraestructura y cómo trabajar con la plataforma."
+  },
+  "landing.cta": {
+    "message": "Ir al inicio"
+  },
+  "landing.tagline.line1": {
+    "message": "Mejores datos."
+  },
+  "landing.tagline.line2": {
+    "message": "Estadías más inteligentes."
+  },
+  "landing.sections.title": {
+    "message": "Explora la documentación"
   }
 }
