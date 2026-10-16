@@ -4,38 +4,250 @@ sidebar_label: F5 · Guest reviews
 title: F5 · Guest reviews
 ---
 
-import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import {AccessTable, AccessNote, Note, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
 
 # <SourceTitleIcon icon="message" tone="purple" />F5 · Guest reviews <SourceType>REST API</SourceType>
 
-Simulated API with the reviews guests leave on review platforms. It feeds the reputation indicators of each hotel.
+Simulated API with the reviews guests leave on review platforms (Booking, Google, Tripadvisor and Expedia). It feeds the reputation indicators of each hotel. The team built it with FastAPI and PostgreSQL, and it is deployed on AWS.
 
 <AccessTable>
 
 | Property | Value |
 | --- | --- |
-| Type | Simulated API |
-| Location | Reviews API built by the team |
-| Access method | Paginated REST API |
+| Type | Simulated API, built by the team |
+| Location | [api-reviews-buenavista.coderhivex.com/docs](https://api-reviews-buenavista.coderhivex.com/docs) · source code in [HospedaPlus/api-reviews](https://github.com/HospedaPlus/api-reviews) |
+| Access method | Paginated REST API (JSON), no authentication |
 | Frequency | Daily |
-| Volume | ~300 reviews/day |
+| Volume | ~300 reviews/day (~115,000 reviews per year) |
 
 </AccessTable>
 
+<StatGrid>
+  <Stat value="28">hotels in the catalog</Stat>
+  <Stat value="4">review platforms</Stat>
+  <Stat value="3">languages: es, en, pt</Stat>
+  <Stat value="~300">reviews per day</Stat>
+</StatGrid>
+
 ## How to access it
 
-The platform reads the reviews once a day through the paginated REST API. Reviews are synthetic: real reviews are not extracted from any platform.
+The API is public and needs no token. Its interactive documentation (Swagger UI) is at [`/docs`](https://api-reviews-buenavista.coderhivex.com/docs), and the OpenAPI contract is at [`/openapi.json`](https://api-reviews-buenavista.coderhivex.com/openapi.json).
+
+- **Base URL:** `https://api-reviews-buenavista.coderhivex.com`
+- **API prefix:** `/api/v1`
+- **Dates and times:** always in UTC, in ISO 8601 format.
+
+### Endpoints
+
+| Method | Path | What it does | Response codes |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/reviews` | Paginated list of reviews, with filters | 200, 422 |
+| `GET` | `/api/v1/reviews/{review_id}` | One review by its id | 200, 404 |
+| `POST` | `/api/v1/reviews` | Creates a review | 201, 409, 422 |
+| `PATCH` | `/api/v1/reviews/{review_id}` | Partially updates a review (`rating`, `title`, `text`, `language`) | 200, 404, 422 |
+| `DELETE` | `/api/v1/reviews/{review_id}` | Deletes a review | 204, 404 |
+| `GET` | `/api/v1/hotels` | Catalog of the 28 hotels used by the reviews | 200 |
+| `GET` | `/health` | Liveness check, used by the load balancer | 200 |
+| `GET` | `/health/ready` | Readiness check, verifies the database connection | 200, 503 |
+
+The data platform only reads: it uses `GET /api/v1/reviews` and `GET /api/v1/hotels`. The write endpoints exist so the team can test edge cases, such as an edited or deleted review.
+
+### Filters and pagination
+
+`GET /api/v1/reviews` accepts these query parameters, and all of them are optional:
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `page` | integer ≥ 1 | Page number. Default `1`. |
+| `page_size` | integer 1–100 | Reviews per page. Default `50`, maximum `100`. |
+| `hotel_id` | text | Hotel code, for example `HP-CO-001`. The codes come from `/api/v1/hotels`. |
+| `platform` | `booking`, `google`, `tripadvisor`, `expedia` | Platform where the review was published. |
+| `language` | `es`, `en`, `pt` | Language of the review. |
+| `min_rating`, `max_rating` | integer 1–5 | Rating range, both ends included. |
+| `published_from`, `published_to` | date `YYYY-MM-DD` | Publication date range in UTC, both ends included. |
+| `order` | `asc`, `desc` | Order by `published_at` and then by `id`. Default `asc`. |
+
+Results are always sorted by `published_at` and then by `id`, so pages never overlap or skip reviews while the data does not change.
+
+### Daily ingestion
+
+To load one day, call the list with `published_from` and `published_to` set to that same day, and walk the pages while `pagination.has_next` is `true`.
+
+<Tabs groupId="f5-client">
+<TabItem value="curl" label="curl" default>
+
+```bash
+curl "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews?published_from=2026-09-30&published_to=2026-09-30&page=1&page_size=100"
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+import requests
+
+BASE_URL = "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews"
+
+
+def load_day(day: str) -> list[dict]:
+    """Return every review published on one UTC day (YYYY-MM-DD)."""
+    reviews, page = [], 1
+    while True:
+        response = requests.get(
+            BASE_URL,
+            params={"published_from": day, "published_to": day, "page": page, "page_size": 100},
+            timeout=30,
+        )
+        response.raise_for_status()
+        body = response.json()
+        reviews.extend(body["items"])
+        if not body["pagination"]["has_next"]:
+            return reviews
+        page += 1
+
+
+reviews = load_day("2026-09-30")
+```
+
+</TabItem>
+</Tabs>
+
+### Response
+
+Each page returns the reviews in `items` and the page information in `pagination`:
+
+```json
+{
+  "items": [
+    {
+      "id": 355,
+      "external_id": "GG-e0de4b967aad530c",
+      "platform": "google",
+      "hotel_id": "HP-CO-001",
+      "language": "es",
+      "rating": 3,
+      "title": "Podría mejorar",
+      "text": "Estadía correcta. La habitación no estaba limpia al llegar.",
+      "reviewer_name": "Valentina Hernández",
+      "reviewer_country": "PE",
+      "stay_date": "2026-08-31",
+      "published_at": "2026-09-18T10:32:58Z",
+      "created_at": "2026-09-18T10:32:58Z",
+      "updated_at": "2026-09-18T10:32:58Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "page_size": 50,
+    "total_items": 7,
+    "total_pages": 1,
+    "has_next": false,
+    "has_previous": false
+  }
+}
+```
+
+### Errors
+
+Errors caused by a business rule share one shape, with a code in `error` and a message in `detail`:
+
+```json
+{ "error": "not_found", "detail": "Review 99999 not found" }
+```
+
+| Code | `error` | When it happens |
+| --- | --- | --- |
+| 404 | `not_found` | The review id does not exist. |
+| 409 | `conflict` | A review with the same `platform` and `external_id` already exists. |
+| 422 | `business_rule_violation` | A rule is broken: `published_from` is after `published_to`, `min_rating` is greater than `max_rating`, the hotel does not exist, `published_at` is in the future, or `stay_date` is after `published_at`. |
+| 422 | (FastAPI format) | A parameter or field has the wrong type or is out of range. |
+| 500 | `internal_error` | Unexpected error on the server. |
 
 ## What it contains
 
-Each review has a rating, text, date, hotel and platform. Reviews are written in Spanish, English and Portuguese.
+Each review has these fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | integer | Internal id of the review in the API. |
+| `external_id` | text | Id of the review on its platform. It starts with the platform prefix: `BK-`, `GG-`, `TA-` or `EX-`. |
+| `platform` | text | `booking`, `google`, `tripadvisor` or `expedia`. |
+| `hotel_id` | text | Hotel code from the shared catalog, for example `HP-CO-001`. |
+| `language` | text | `es`, `en` or `pt`. |
+| `rating` | integer | Rating normalized to a 1–5 scale. |
+| `title` | text, optional | Short title of the review, up to 150 characters. |
+| `text` | text | Body of the review, up to 5,000 characters. |
+| `reviewer_name` | text | Name of the guest. It is personal data. |
+| `reviewer_country` | text, optional | Country of the guest, as an ISO code of 2 letters. |
+| `stay_date` | date, optional | Date of the stay. It is never after the publication date. |
+| `published_at` | date and time (UTC) | When the review was published on the platform. |
+| `created_at`, `updated_at` | date and time (UTC) | When the review was created and last changed in the API. |
+
+The pair `platform` + `external_id` is unique: a platform never repeats its own review id.
+
+### Platforms and languages
+
+Reviews are spread across platforms with these shares:
+
+| Platform | Share | `external_id` prefix |
+| --- | --- | --- |
+| Booking | 40% | `BK-` |
+| Google | 30% | `GG-` |
+| Tripadvisor | 20% | `TA-` |
+| Expedia | 10% | `EX-` |
+
+The language depends on the country of the hotel. For example, hotels in Colombia, Mexico and Spain get mostly Spanish reviews, and hotels in Brazil and Portugal get mostly Portuguese reviews. About one in five reviews is in English.
+
+### Ratings and texts
+
+Each hotel has its own average quality, between 3.2 and 4.6 stars, so some hotels are better rated than others. Bigger hotels, with more rooms, receive more reviews.
+
+The texts are built from phrases about recurring topics, so the reputation analysis can find themes: cleanliness, staff, location, breakfast, noise, wifi, check-in, value for money, the pool (only in resort hotels) and relocation to another hotel. A review with 4 or 5 stars uses positive phrases, a review with 1 or 2 stars uses negative phrases, and a review with 3 stars mixes both.
+
+### Hotel catalog
+
+`GET /api/v1/hotels` returns the 28 hotels of the chain, with `hotel_id`, `name`, `city`, `country`, `timezone`, `type` (`urban` or `resort`) and `rooms`. There are hotels in Colombia (10), Mexico (6), Brazil (6), Portugal (3) and Spain (3). `HP-PT-001` and `HP-PT-002` are the two hotels of the [F1 history](./f1-hotel-booking-demand.mdx). The other simulated sources reuse the same codes.
+
+## How the data is generated
+
+Reviews are synthetic: they are not extracted from any real platform. A seed script generates them with these properties:
+
+- **Reproducible.** Each day is generated from a fixed seed, so running it again produces exactly the same reviews.
+- **Idempotent.** Reviews are inserted only if they don't exist yet, so running it twice inserts nothing the second time.
+- **Configurable volume.** The `dev` mode generates 30 days with about 20 reviews per day. The `full` mode generates 365 days with about 300 reviews per day, with a daily variation of ±15%.
+- **Configurable defects.** The share of duplicated reviews is a parameter, 5% by default.
+
+The seed also runs for a single day, which is how the daily batch adds new reviews: `python -m src.seed --date 2026-10-01`.
 
 ## How it is used
 
-The reputation rating of each hotel is the weighted average of its reviews from the last 90 days, where reviews from the last 30 days count double.
+- **Reputation rating.** The reputation rating of each hotel is the weighted average of its reviews from the last 90 days, where reviews from the last 30 days count double.
+- **Reputation page in Power BI.** Reviews feed the reputation page of the dashboard, where the recurring topics of the texts can also be analyzed.
+- **Personal data.** `reviewer_name` is personal data. The ingestion layer must pseudonymize it before it reaches the analytical layer.
 
 <AccessNote icon="alert" title="Known data quality issues">
 
-- Some reviews are duplicated across platforms.
+- About 5% of the reviews are duplicated on a second platform. The copy has the same hotel, rating and text, but a different `external_id`, a slightly different guest name (without accents, in lowercase or uppercase, or with only the initial of the last name), an earlier publication time and sometimes no final period. Ingestion must detect these duplicates.
+- A review can change or disappear after it was loaded, through `PATCH` or `DELETE`. `updated_at` shows when a review last changed.
 
 </AccessNote>
+
+## Run it locally
+
+With Docker installed, clone the repository and start the API, the database and the seed with one command:
+
+```bash
+git clone https://github.com/HospedaPlus/api-reviews.git
+cd api-reviews
+docker compose up --build
+```
+
+The API starts at `http://localhost:8000/docs` with 30 days of sample reviews. To load a full year, run `docker compose run --rm seed python -m src.seed --mode full`.
+
+<Note>
+
+The API is built with Python 3.12, FastAPI, SQLModel, Alembic and PostgreSQL 16. Each merge to `main` runs the tests and deploys a new image to AWS ECS Fargate.
+
+</Note>

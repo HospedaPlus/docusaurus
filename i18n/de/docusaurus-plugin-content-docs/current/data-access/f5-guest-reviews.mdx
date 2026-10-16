@@ -4,38 +4,250 @@ sidebar_label: F5 · Gästebewertungen
 title: F5 · Gästebewertungen
 ---
 
-import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import {AccessTable, AccessNote, Note, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
 
 # <SourceTitleIcon icon="message" tone="purple" />F5 · Gästebewertungen <SourceType>REST-API</SourceType>
 
-Simulierte API mit den Bewertungen, die Gäste auf Bewertungsplattformen hinterlassen. Sie speist die Reputationskennzahlen jedes Hotels.
+Simulierte API mit den Bewertungen, die Gäste auf Bewertungsplattformen hinterlassen (Booking, Google, Tripadvisor und Expedia). Sie speist die Reputationskennzahlen jedes Hotels. Das Team hat sie mit FastAPI und PostgreSQL entwickelt, und sie läuft auf AWS.
 
 <AccessTable>
 
 | Eigenschaft | Wert |
 | --- | --- |
-| Typ | Simulierte API |
-| Speicherort | Vom Team entwickelte Bewertungs-API |
-| Zugriffsmethode | Paginierte REST-API |
+| Typ | Simulierte API, vom Team entwickelt |
+| Speicherort | [api-reviews-buenavista.coderhivex.com/docs](https://api-reviews-buenavista.coderhivex.com/docs) · Quellcode in [HospedaPlus/api-reviews](https://github.com/HospedaPlus/api-reviews) |
+| Zugriffsmethode | Paginierte REST-API (JSON), ohne Authentifizierung |
 | Frequenz | Täglich |
-| Volumen | ~300 Bewertungen/Tag |
+| Volumen | ~300 Bewertungen/Tag (~115.000 Bewertungen pro Jahr) |
 
 </AccessTable>
 
+<StatGrid>
+  <Stat value="28">Hotels im Katalog</Stat>
+  <Stat value="4">Bewertungsplattformen</Stat>
+  <Stat value="3">Sprachen: es, en, pt</Stat>
+  <Stat value="~300">Bewertungen pro Tag</Stat>
+</StatGrid>
+
 ## Zugriff
 
-Die Plattform liest die Bewertungen einmal täglich über die paginierte REST-API ein. Die Bewertungen sind synthetisch: Es werden keine echten Bewertungen von irgendeiner Plattform extrahiert.
+Die API ist öffentlich und braucht kein Token. Ihre interaktive Dokumentation (Swagger UI) liegt unter [`/docs`](https://api-reviews-buenavista.coderhivex.com/docs), der OpenAPI-Vertrag unter [`/openapi.json`](https://api-reviews-buenavista.coderhivex.com/openapi.json).
+
+- **Basis-URL:** `https://api-reviews-buenavista.coderhivex.com`
+- **API-Präfix:** `/api/v1`
+- **Datum und Uhrzeit:** immer in UTC, im Format ISO 8601.
+
+### Endpunkte
+
+| Methode | Pfad | Funktion | Antwortcodes |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/reviews` | Paginierte Liste der Bewertungen, mit Filtern | 200, 422 |
+| `GET` | `/api/v1/reviews/{review_id}` | Eine Bewertung anhand ihrer ID | 200, 404 |
+| `POST` | `/api/v1/reviews` | Legt eine Bewertung an | 201, 409, 422 |
+| `PATCH` | `/api/v1/reviews/{review_id}` | Ändert eine Bewertung teilweise (`rating`, `title`, `text`, `language`) | 200, 404, 422 |
+| `DELETE` | `/api/v1/reviews/{review_id}` | Löscht eine Bewertung | 204, 404 |
+| `GET` | `/api/v1/hotels` | Katalog der 28 Hotels, auf die sich die Bewertungen beziehen | 200 |
+| `GET` | `/health` | Lebendigkeitsprüfung für den Load Balancer | 200 |
+| `GET` | `/health/ready` | Bereitschaftsprüfung, testet die Datenbankverbindung | 200, 503 |
+
+Die Datenplattform liest nur: Sie nutzt `GET /api/v1/reviews` und `GET /api/v1/hotels`. Die schreibenden Endpunkte gibt es, damit das Team Grenzfälle testen kann, etwa eine bearbeitete oder gelöschte Bewertung.
+
+### Filter und Paginierung
+
+`GET /api/v1/reviews` akzeptiert diese Abfrageparameter, alle optional:
+
+| Parameter | Typ | Beschreibung |
+| --- | --- | --- |
+| `page` | Ganzzahl ≥ 1 | Seitennummer. Standard `1`. |
+| `page_size` | Ganzzahl 1–100 | Bewertungen pro Seite. Standard `50`, maximal `100`. |
+| `hotel_id` | Text | Hotelcode, zum Beispiel `HP-CO-001`. Die Codes stammen aus `/api/v1/hotels`. |
+| `platform` | `booking`, `google`, `tripadvisor`, `expedia` | Plattform, auf der die Bewertung veröffentlicht wurde. |
+| `language` | `es`, `en`, `pt` | Sprache der Bewertung. |
+| `min_rating`, `max_rating` | Ganzzahl 1–5 | Bereich der Bewertungsnote, beide Grenzen eingeschlossen. |
+| `published_from`, `published_to` | Datum `YYYY-MM-DD` | Zeitraum der Veröffentlichung in UTC, beide Grenzen eingeschlossen. |
+| `order` | `asc`, `desc` | Sortierung nach `published_at` und dann nach `id`. Standard `asc`. |
+
+Die Ergebnisse sind immer nach `published_at` und dann nach `id` sortiert. Solange sich die Daten nicht ändern, überschneiden sich die Seiten also nie und lassen keine Bewertung aus.
+
+### Tägliche Übernahme
+
+Um einen Tag zu laden, rufen Sie die Liste mit `published_from` und `published_to` gleich diesem Tag auf und blättern durch die Seiten, solange `pagination.has_next` den Wert `true` hat.
+
+<Tabs groupId="f5-client">
+<TabItem value="curl" label="curl" default>
+
+```bash
+curl "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews?published_from=2026-09-30&published_to=2026-09-30&page=1&page_size=100"
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+import requests
+
+BASE_URL = "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews"
+
+
+def load_day(day: str) -> list[dict]:
+    """Return every review published on one UTC day (YYYY-MM-DD)."""
+    reviews, page = [], 1
+    while True:
+        response = requests.get(
+            BASE_URL,
+            params={"published_from": day, "published_to": day, "page": page, "page_size": 100},
+            timeout=30,
+        )
+        response.raise_for_status()
+        body = response.json()
+        reviews.extend(body["items"])
+        if not body["pagination"]["has_next"]:
+            return reviews
+        page += 1
+
+
+reviews = load_day("2026-09-30")
+```
+
+</TabItem>
+</Tabs>
+
+### Antwort
+
+Jede Seite liefert die Bewertungen in `items` und die Seiteninformationen in `pagination`:
+
+```json
+{
+  "items": [
+    {
+      "id": 355,
+      "external_id": "GG-e0de4b967aad530c",
+      "platform": "google",
+      "hotel_id": "HP-CO-001",
+      "language": "es",
+      "rating": 3,
+      "title": "Podría mejorar",
+      "text": "Estadía correcta. La habitación no estaba limpia al llegar.",
+      "reviewer_name": "Valentina Hernández",
+      "reviewer_country": "PE",
+      "stay_date": "2026-08-31",
+      "published_at": "2026-09-18T10:32:58Z",
+      "created_at": "2026-09-18T10:32:58Z",
+      "updated_at": "2026-09-18T10:32:58Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "page_size": 50,
+    "total_items": 7,
+    "total_pages": 1,
+    "has_next": false,
+    "has_previous": false
+  }
+}
+```
+
+### Fehler
+
+Fehler, die durch eine Geschäftsregel entstehen, haben alle dieselbe Form, mit einem Code in `error` und einer Meldung in `detail`:
+
+```json
+{ "error": "not_found", "detail": "Review 99999 not found" }
+```
+
+| Code | `error` | Wann er auftritt |
+| --- | --- | --- |
+| 404 | `not_found` | Die ID der Bewertung existiert nicht. |
+| 409 | `conflict` | Eine Bewertung mit derselben `platform` und derselben `external_id` existiert bereits. |
+| 422 | `business_rule_violation` | Eine Regel ist verletzt: `published_from` liegt nach `published_to`, `min_rating` ist größer als `max_rating`, das Hotel existiert nicht, `published_at` liegt in der Zukunft oder `stay_date` liegt nach `published_at`. |
+| 422 | (FastAPI-Format) | Ein Parameter oder Feld hat den falschen Typ oder liegt außerhalb des Bereichs. |
+| 500 | `internal_error` | Unerwarteter Fehler auf dem Server. |
 
 ## Inhalt
 
-Jede Bewertung enthält eine Bewertungsnote, einen Text, ein Datum, ein Hotel und eine Plattform. Die Bewertungen sind auf Spanisch, Englisch und Portugiesisch verfasst.
+Jede Bewertung hat diese Felder:
+
+| Feld | Typ | Beschreibung |
+| --- | --- | --- |
+| `id` | Ganzzahl | Interne ID der Bewertung in der API. |
+| `external_id` | Text | ID der Bewertung auf ihrer Plattform. Sie beginnt mit dem Präfix der Plattform: `BK-`, `GG-`, `TA-` oder `EX-`. |
+| `platform` | Text | `booking`, `google`, `tripadvisor` oder `expedia`. |
+| `hotel_id` | Text | Hotelcode aus dem gemeinsamen Katalog, zum Beispiel `HP-CO-001`. |
+| `language` | Text | `es`, `en` oder `pt`. |
+| `rating` | Ganzzahl | Auf eine Skala von 1 bis 5 normalisierte Note. |
+| `title` | Text, optional | Kurzer Titel der Bewertung, bis zu 150 Zeichen. |
+| `text` | Text | Inhalt der Bewertung, bis zu 5.000 Zeichen. |
+| `reviewer_name` | Text | Name des Gastes. Es handelt sich um personenbezogene Daten. |
+| `reviewer_country` | Text, optional | Land des Gastes als zweistelliger ISO-Code. |
+| `stay_date` | Datum, optional | Datum des Aufenthalts. Es liegt nie nach dem Veröffentlichungsdatum. |
+| `published_at` | Datum und Uhrzeit (UTC) | Zeitpunkt, zu dem die Bewertung auf der Plattform veröffentlicht wurde. |
+| `created_at`, `updated_at` | Datum und Uhrzeit (UTC) | Zeitpunkt, zu dem die Bewertung in der API angelegt und zuletzt geändert wurde. |
+
+Das Paar `platform` + `external_id` ist eindeutig: Eine Plattform wiederholt nie ihre eigene Bewertungs-ID.
+
+### Plattformen und Sprachen
+
+Die Bewertungen verteilen sich in diesen Anteilen auf die Plattformen:
+
+| Plattform | Anteil | Präfix von `external_id` |
+| --- | --- | --- |
+| Booking | 40 % | `BK-` |
+| Google | 30 % | `GG-` |
+| Tripadvisor | 20 % | `TA-` |
+| Expedia | 10 % | `EX-` |
+
+Die Sprache hängt vom Land des Hotels ab. Hotels in Kolumbien, Mexiko und Spanien erhalten zum Beispiel überwiegend spanische Bewertungen, Hotels in Brasilien und Portugal überwiegend portugiesische. Etwa jede fünfte Bewertung ist auf Englisch.
+
+### Noten und Texte
+
+Jedes Hotel hat eine eigene durchschnittliche Qualität zwischen 3,2 und 4,6 Sternen, sodass manche Hotels besser bewertet sind als andere. Größere Hotels mit mehr Zimmern erhalten mehr Bewertungen.
+
+Die Texte werden aus Sätzen zu wiederkehrenden Themen zusammengesetzt, damit die Reputationsanalyse Muster erkennen kann: Sauberkeit, Personal, Lage, Frühstück, Lärm, WLAN, Check-in, Preis-Leistungs-Verhältnis, der Pool (nur in Resort-Hotels) und die Umquartierung in ein anderes Hotel. Eine Bewertung mit 4 oder 5 Sternen nutzt positive Sätze, eine mit 1 oder 2 Sternen negative, und eine mit 3 Sternen mischt beide.
+
+### Hotelkatalog
+
+`GET /api/v1/hotels` liefert die 28 Hotels der Kette mit `hotel_id`, `name`, `city`, `country`, `timezone`, `type` (`urban` oder `resort`) und `rooms`. Es gibt Hotels in Kolumbien (10), Mexiko (6), Brasilien (6), Portugal (3) und Spanien (3). `HP-PT-001` und `HP-PT-002` sind die beiden Hotels der [F1-Historie](./f1-hotel-booking-demand.mdx). Die anderen simulierten Quellen verwenden dieselben Codes.
+
+## Wie die Daten erzeugt werden
+
+Die Bewertungen sind synthetisch: Sie werden von keiner echten Plattform extrahiert. Ein Seed-Skript erzeugt sie mit diesen Eigenschaften:
+
+- **Reproduzierbar.** Jeder Tag wird aus einem festen Startwert erzeugt, sodass ein erneuter Lauf genau dieselben Bewertungen liefert.
+- **Idempotent.** Bewertungen werden nur eingefügt, wenn sie noch nicht existieren, sodass ein zweiter Lauf nichts einfügt.
+- **Konfigurierbares Volumen.** Der Modus `dev` erzeugt 30 Tage mit etwa 20 Bewertungen pro Tag. Der Modus `full` erzeugt 365 Tage mit etwa 300 Bewertungen pro Tag, mit einer täglichen Schwankung von ±15 %.
+- **Konfigurierbare Fehler.** Der Anteil doppelter Bewertungen ist ein Parameter, standardmäßig 5 %.
+
+Der Seed lässt sich auch für einen einzelnen Tag ausführen, so fügt der tägliche Lauf neue Bewertungen hinzu: `python -m src.seed --date 2026-10-01`.
 
 ## Verwendung
 
-Die Reputationsnote jedes Hotels ist der gewichtete Durchschnitt seiner Bewertungen der letzten 90 Tage, wobei Bewertungen der letzten 30 Tage doppelt zählen.
+- **Reputationsnote.** Die Reputationsnote jedes Hotels ist der gewichtete Durchschnitt seiner Bewertungen der letzten 90 Tage, wobei Bewertungen der letzten 30 Tage doppelt zählen.
+- **Reputationsseite in Power BI.** Die Bewertungen speisen die Reputationsseite des Dashboards, auf der sich auch die wiederkehrenden Themen der Texte analysieren lassen.
+- **Personenbezogene Daten.** `reviewer_name` ist ein personenbezogenes Datum. Die Übernahmeschicht muss es pseudonymisieren, bevor es die Analyseschicht erreicht.
 
 <AccessNote icon="alert" title="Bekannte Datenqualitätsprobleme">
 
-- Einige Bewertungen sind plattformübergreifend doppelt vorhanden.
+- Etwa 5 % der Bewertungen sind auf einer zweiten Plattform doppelt vorhanden. Die Kopie hat dasselbe Hotel, dieselbe Note und denselben Text, aber eine andere `external_id`, einen leicht abweichenden Gastnamen (ohne Akzente, in Klein- oder Großbuchstaben oder nur mit dem Anfangsbuchstaben des Nachnamens), einen früheren Veröffentlichungszeitpunkt und manchmal keinen Schlusspunkt. Die Übernahme muss diese Duplikate erkennen.
+- Eine Bewertung kann sich nach dem Laden über `PATCH` oder `DELETE` ändern oder verschwinden. `updated_at` zeigt, wann sich eine Bewertung zuletzt geändert hat.
 
 </AccessNote>
+
+## Lokal ausführen
+
+Mit installiertem Docker klonen Sie das Repository und starten API, Datenbank und Seed mit einem einzigen Befehl:
+
+```bash
+git clone https://github.com/HospedaPlus/api-reviews.git
+cd api-reviews
+docker compose up --build
+```
+
+Die API läuft dann unter `http://localhost:8000/docs` mit 30 Tagen Beispielbewertungen. Um ein ganzes Jahr zu laden, führen Sie `docker compose run --rm seed python -m src.seed --mode full` aus.
+
+<Note>
+
+Die API ist mit Python 3.12, FastAPI, SQLModel, Alembic und PostgreSQL 16 gebaut. Jeder Merge in `main` führt die Tests aus und stellt ein neues Image auf AWS ECS Fargate bereit.
+
+</Note>
