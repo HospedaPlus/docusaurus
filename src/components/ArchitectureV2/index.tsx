@@ -13,6 +13,7 @@ import {
   EndpointLogo,
   FargateLogo,
   FastApiLogo,
+  GitHubActionsLogo,
   IgwLogo,
   LayerBucket,
   MqLogo,
@@ -122,7 +123,17 @@ function Sources({s}: {s: Strings}): ReactNode {
   return (
     <Column title={s.col1} className={styles.sources}>
       <Node logo={<SourceIcon name="users" />} title={s.guests} caption={s.guestsCaption} edges={<Edge kind="realtime" to="Route 53" />} />
-      <Node logo={<SourceIcon name="gear" />} title={s.dev} caption={s.devCaption} edges={<Edge kind="cicd" to="Amazon ECR" />} />
+      <Node
+        logo={<GitHubActionsLogo />}
+        title={s.dev}
+        caption={s.devCaption}
+        edges={
+          <>
+            <Edge kind="cicd" to="Amazon ECR" label={s.edge.pushImages} />
+            <Edge kind="cicd" to="ECS Fargate" label={s.edge.deployEcs} />
+          </>
+        }
+      />
       <Node logo={<SourceIcon name="network" />} title={s.f2} caption={s.f2Caption} edges={<Edge kind="realtime" to="Amazon MQ · RabbitMQ" />} />
       <Node logo={<SourceIcon name="cloud" />} title={s.apis} caption={s.apisCaption} edges={<Edge kind="batch" to={s.workerBronze} label={s.edge.dailyApis} />} />
       <Node logo={<SourceIcon name="file" />} title={s.files} caption={s.filesCaption} edges={<Edge kind="batch" to={s.workerBronze} label={s.edge.csv} />} />
@@ -144,7 +155,7 @@ function Entry({s}: {s: Strings}): ReactNode {
         caption={s.ecrCaption}
         edges={
           <>
-            <Edge kind="cicd" to="FastAPI" label={s.edge.deployImage} />
+            <Edge kind="cicd" to="ECS Fargate · FastAPI" label={s.edge.deployImage} />
             <Edge kind="cicd" to={s.core} label={s.edge.airflowImages} />
           </>
         }
@@ -412,8 +423,8 @@ export function ArchitectureV2(): ReactNode {
           <div className={styles.title}>{s.title}</div>
           <div className={styles.subtitle}>{s.subtitle}</div>
         </div>
-        <div className={styles.changes}>
-          <strong>{s.changesTitle}</strong> {s.changes} <strong>{s.keptTitle}</strong> {s.kept}
+        <div className={styles.roles}>
+          <strong>{s.stackTitle}</strong> {s.stack}
         </div>
       </div>
 
@@ -429,6 +440,21 @@ export function ArchitectureV2(): ReactNode {
           <DataLake s={s} />
         </div>
         <Analytics s={s} />
+      </div>
+
+      <div className={styles.pipeline}>
+        <div className={styles.pipelineTitle}>
+          <GitHubActionsLogo size={22} />
+          {s.cicdTitle}
+        </div>
+        <ol className={styles.pipelineSteps}>
+          {s.cicdSteps.map((step, index) => (
+            <li key={step}>
+              {index > 0 && <FlowLine kind="cicd" width={22} />}
+              <span>{step}</span>
+            </li>
+          ))}
+        </ol>
       </div>
 
       <div className={styles.security}>
