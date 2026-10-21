@@ -35,27 +35,56 @@ O banco de dados compartilhado da equipe roda no Neon (PostgreSQL 16 gerenciado)
 
 | Propriedade | Valor |
 | --- | --- |
-| Host | `ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech` |
+| Host | `ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech` (pooled) · `ep-divine-cake-b48dsbxg.c-6.us-east-2.aws.neon.tech` (direto) |
 | Porta | `5432` |
 | Banco de dados | `hospedaplus` |
-| Usuário | `hospedaplus_owner` |
 | SSL | `sslmode=require`, `channel_binding=require` |
 
-String de conexão:
+### Papéis
 
-```text
+Cada cliente se conecta com seu próprio papel e tem apenas o acesso de que precisa, assim um erro ou uma URL vazada em um lugar não pode apagar os dados.
+
+| Papel | Usado por | Pode |
+| --- | --- | --- |
+| `hospedaplus_owner` | Seed (`init`, `seed`, recargas) | Tudo. |
+| `hospedaplus_api` | FastAPI, consumidores Kafka | Ler todas as tabelas; atualizar `inventory`; inserir e atualizar `reservations` e `guests`; nunca apagar. |
+| `hospedaplus_reader` | Equipe (DBeaver, psql), worker bronze do Airflow | Somente leitura. |
+
+### Strings de conexão
+
+Use `hospedaplus_reader`, a menos que precise escrever.
+
+```text title="hospedaplus_reader"
+postgresql://hospedaplus_reader:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+```
+
+```text title="hospedaplus_api"
+postgresql://hospedaplus_api:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+```
+
+```text title="hospedaplus_owner"
 postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
 ```
 
 Por exemplo, com `psql`:
 
 ```bash
-psql "postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require"
+psql "postgresql://hospedaplus_reader:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require"
 ```
 
-- O host `-pooler` é indicado para clientes com muitas conexões curtas, como a API. O seed usa o host direto (o mesmo host sem `-pooler`).
+### Host pooled ou direto
+
+O host `-pooler` coloca o PgBouncer na frente do banco, assim muitas conexões de clientes compartilham poucas conexões reais. Ele funciona em modo de transação, então tudo o que precisa de uma sessão fixa (um `SET` duradouro, tabelas temporárias, cargas em massa longas) vai para o host direto.
+
+| Cliente | Host |
+| --- | --- |
+| FastAPI, consumidores Kafka, Airflow | Pooled |
+| Seed (`init`, carga com `COPY`) | Direto (o mesmo host sem `-pooler`) |
+| Equipe no DBeaver ou psql | Pooled |
+
+- No DBeaver ou pgAdmin, crie uma conexão PostgreSQL com os dados acima e defina o modo SSL como `require`.
 - O banco de dados hiberna após 5 minutos sem uso e acorda na próxima consulta, então a primeira consulta pode levar alguns segundos.
-- Para rodar o seed localmente, o repositório inclui um arquivo Docker Compose com PostgreSQL 16.
+- Para rodar o seed localmente, o repositório inclui um arquivo Docker Compose com PostgreSQL 16 na porta `5437`, para nunca conflitar com o Neon.
 
 ## O que contém
 
