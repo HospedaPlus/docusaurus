@@ -4,49 +4,100 @@ sidebar_label: F3 · Moteur de réservation propre
 title: F3 · Moteur de réservation propre
 ---
 
-import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
 
 # <SourceTitleIcon icon="database" tone="teal" />F3 · Moteur de réservation propre <SourceType>Base de données PostgreSQL</SourceType>
 
-Base de données PostgreSQL simulée du moteur de réservation propre de la chaîne. Elle contient le catalogue des hôtels, l'inventaire des chambres, les tarifs et les réservations directes.
+Base de données opérationnelle simulée du moteur de réservation propre de la chaîne. Elle contient le catalogue des hôtels, l'inventaire des chambres, les tarifs par saison et les réservations directes et entreprises, afin que tous les autres composants soient construits et testés avec les mêmes données.
 
 <AccessTable>
 
 | Propriété | Valeur |
 | --- | --- |
-| Type | Base de données simulée |
-| Emplacement | Base de données PostgreSQL, alimentée par un seed |
+| Type | Base de données simulée, générée par un seed |
+| Emplacement | PostgreSQL 16 sur Neon (AWS US East, Ohio) · code source dans [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
 | Méthode d'accès | Connexion à la base de données (SQL) |
 | Fréquence | Continue |
-| Volume | 28 hôtels, ~4 000 chambres |
+| Volume | 28 hôtels dans 5 pays, 4 000 chambres |
 
 </AccessTable>
 
+<StatGrid>
+  <Stat value="28">hôtels dans 5 pays</Stat>
+  <Stat value="4 000">chambres</Stat>
+  <Stat value="9">tables</Stat>
+  <Stat value="21">canaux de vente</Stat>
+</StatGrid>
+
 ## Comment y accéder
 
-Connectez-vous à la base de données PostgreSQL en SQL. Les identifiants de connexion proviennent de variables d'environnement et ne sont jamais stockés dans le dépôt ni dans les images de conteneurs.
+La base de données partagée de l'équipe tourne sur Neon (PostgreSQL 16 managé), chargée en mode `full` et vérifiée avec `python -m seed check`.
+
+| Propriété | Valeur |
+| --- | --- |
+| Hôte | `ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech` |
+| Port | `5432` |
+| Base de données | `hospedaplus` |
+| Utilisateur | `hospedaplus_owner` |
+| SSL | `sslmode=require`, `channel_binding=require` |
+
+Chaîne de connexion :
+
+```text
+postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+```
+
+Par exemple, avec `psql` :
+
+```bash
+psql "postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require"
+```
+
+- L'hôte `-pooler` convient aux clients avec beaucoup de connexions courtes, comme l'API. Le seed utilise l'hôte direct (le même hôte sans `-pooler`).
+- La base de données se met en veille après 5 minutes d'inactivité et se réveille à la requête suivante : la première requête peut donc prendre quelques secondes.
+- Pour exécuter le seed en local, le dépôt inclut un fichier Docker Compose avec PostgreSQL 16.
 
 ## Contenu
 
-- Hôtels et types de chambre.
-- Inventaire par hôtel, type de chambre et date.
-- Tarifs par saison.
-- Réservations directes.
+| Table | Contenu |
+| --- | --- |
+| `hotels` | 28 hôtels urbains et resorts, avec code (`HP-CO-001`…), ville, pays, fuseau horaire et devise. |
+| `room_types` | `SINGLE`, `DOUBLE`, `TWIN` et `SUITE`, avec leur nombre maximal de clients. |
+| `rooms` | Les 4 000 chambres physiques, par hôtel et type de chambre. |
+| `channels` | 21 canaux de vente avec leur commission (RN-02). |
+| `rates` | Prix par nuit par hôtel, type de chambre et saison (`LOW`, `MID`, `HIGH`, RN-05). |
+| `inventory` | Chambres totales et disponibles par hôtel, type de chambre et nuit. |
+| `guests` | Données personnelles des clients, pseudonymisées avant l'analyse (RN-11). |
+| `reservations` | Réservations directes et entreprises, avec annulations et no-shows. |
+| `reservation_anomalies` | Lignes avec les problèmes de qualité de données connus, mises à part volontairement. |
+
+Les hôtels, types de chambre et canaux viennent du **catalogue partagé** que F2, F4 et F5 lisent aussi, afin que le pipeline puisse croiser toutes les sources.
 
 ## Seed de données
 
-Toutes les données de cette base sont générées par un seed versionné dans le dépôt, jamais chargées à la main ni à partir d'un dump. Le seed :
+Toutes les données sont générées par le seed du dépôt (`python -m seed`), jamais chargées à la main ni depuis un dump. Le seed :
 
-- Utilise une graine aléatoire fixe, de sorte que les données sont reproductibles.
-- Est idempotent : l'exécuter plusieurs fois ne duplique pas les données.
-- Permet de choisir le volume (petit mode de développement ou mode complet).
-- Préserve l'intégrité référentielle et un catalogue cohérent avec les API et les événements simulés.
-- Injecte les problèmes de qualité de données connus selon un taux configurable.
-- S'exécute aussi bien en local que sur la base de données dans AWS.
+- **Est reproductible.** Le même seed et la même date de début produisent les mêmes données, ligne par ligne.
+- **Est idempotent.** Il remplace les données en une seule transaction : l'exécuter plusieurs fois laisse une seule copie, et en cas d'échec les données précédentes restent intactes.
+- **Propose deux volumes.** Le mode `dev` couvre 90 nuits passées et 30 futures ; le mode `full` couvre 400 passées et 180 futures.
+- **Simule une demande réaliste.** Les hôtels urbains reçoivent plus d'arrivées du dimanche au mardi, les resorts le week-end, et la haute saison amène plus de clients.
+- **Ne fait jamais de surréservation.** Le générateur refuse une réservation quand le type de chambre est complet, et la base rejette `available_rooms < 0`.
+- **Rejette les réservations dans le passé.** Un trigger rejette toute réservation dont le check-in est antérieur au jour où elle a été faite.
+- **Est sûr par défaut.** Les commandes destructives s'arrêtent sur les bases distantes, sauf avec `--allow-remote`.
+- **Se vérifie lui-même.** `python -m seed check` exécute 21 contrôles de santé et d'intégrité et ne réussit que si tous réussissent.
+
+| Commande | Ce qu'elle fait |
+| --- | --- |
+| `python -m seed init` | Crée les tables et les index. |
+| `python -m seed seed` | Vide les tables et charge un nouveau jeu de données. |
+| `python -m seed check` | Exécute les contrôles de santé et d'intégrité (lecture seule). |
+| `python -m seed all` | `init` + `seed` + `check`. |
 
 <AccessNote icon="alert" title="Problèmes de qualité de données connus">
 
-- Des réservations avec zéro adulte, zéro enfant et zéro bébé.
-- Des dates de départ antérieures à la date d'arrivée.
+Les lignes qui casseraient les contraintes vont dans `reservation_anomalies` au lieu de `reservations` (2 % chacune par défaut, configurable) :
+
+- Réservations avec zéro client.
+- Dates de check-out antérieures à la date de check-in.
 
 </AccessNote>
