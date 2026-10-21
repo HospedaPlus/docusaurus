@@ -4,49 +4,100 @@ sidebar_label: F3 · Motor de reservas próprio
 title: F3 · Motor de reservas próprio
 ---
 
-import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
 
 # <SourceTitleIcon icon="database" tone="teal" />F3 · Motor de reservas próprio <SourceType>Banco de dados PostgreSQL</SourceType>
 
-Banco de dados PostgreSQL simulado do motor de reservas próprio da rede. Contém o catálogo de hotéis, o inventário de quartos, as tarifas e as reservas diretas.
+Banco de dados operacional simulado do motor de reservas próprio da rede. Contém o catálogo de hotéis, o inventário de quartos, as tarifas por temporada e as reservas diretas e corporativas, para que todos os outros componentes sejam construídos e testados com os mesmos dados.
 
 <AccessTable>
 
 | Propriedade | Valor |
 | --- | --- |
-| Tipo | Banco de dados simulado |
-| Localização | Banco de dados PostgreSQL, populado por seed |
+| Tipo | Banco de dados simulado, gerado por um seed |
+| Localização | PostgreSQL 16 no Neon (AWS US East, Ohio) · código-fonte em [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
 | Método de acesso | Conexão com o banco de dados (SQL) |
 | Frequência | Contínua |
-| Volume | 28 hotéis, ~4.000 quartos |
+| Volume | 28 hotéis em 5 países, 4.000 quartos |
 
 </AccessTable>
 
+<StatGrid>
+  <Stat value="28">hotéis em 5 países</Stat>
+  <Stat value="4.000">quartos</Stat>
+  <Stat value="9">tabelas</Stat>
+  <Stat value="21">canais de venda</Stat>
+</StatGrid>
+
 ## Como acessar
 
-Conecte-se ao banco de dados PostgreSQL com SQL. As credenciais de conexão vêm de variáveis de ambiente e nunca são guardadas no repositório nem nas imagens de contêiner.
+O banco de dados compartilhado da equipe roda no Neon (PostgreSQL 16 gerenciado), carregado no modo `full` e verificado com `python -m seed check`.
+
+| Propriedade | Valor |
+| --- | --- |
+| Host | `ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech` |
+| Porta | `5432` |
+| Banco de dados | `hospedaplus` |
+| Usuário | `hospedaplus_owner` |
+| SSL | `sslmode=require`, `channel_binding=require` |
+
+String de conexão:
+
+```text
+postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+```
+
+Por exemplo, com `psql`:
+
+```bash
+psql "postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require"
+```
+
+- O host `-pooler` é indicado para clientes com muitas conexões curtas, como a API. O seed usa o host direto (o mesmo host sem `-pooler`).
+- O banco de dados hiberna após 5 minutos sem uso e acorda na próxima consulta, então a primeira consulta pode levar alguns segundos.
+- Para rodar o seed localmente, o repositório inclui um arquivo Docker Compose com PostgreSQL 16.
 
 ## O que contém
 
-- Hotéis e tipos de quarto.
-- Inventário por hotel, tipo de quarto e data.
-- Tarifas por temporada.
-- Reservas diretas.
+| Tabela | Conteúdo |
+| --- | --- |
+| `hotels` | 28 hotéis urbanos e resorts, com código (`HP-CO-001`…), cidade, país, fuso horário e moeda. |
+| `room_types` | `SINGLE`, `DOUBLE`, `TWIN` e `SUITE`, com o máximo de hóspedes. |
+| `rooms` | Os 4.000 quartos físicos, por hotel e tipo de quarto. |
+| `channels` | 21 canais de venda com sua comissão (RN-02). |
+| `rates` | Preço por noite por hotel, tipo de quarto e temporada (`LOW`, `MID`, `HIGH`, RN-05). |
+| `inventory` | Quartos totais e disponíveis por hotel, tipo de quarto e noite. |
+| `guests` | Dados pessoais dos hóspedes, pseudonimizados antes da análise (RN-11). |
+| `reservations` | Reservas diretas e corporativas, com cancelamentos e no-shows. |
+| `reservation_anomalies` | Linhas com os problemas de qualidade de dados conhecidos, separadas de propósito. |
+
+Hotéis, tipos de quarto e canais vêm do **catálogo compartilhado** que F2, F4 e F5 também leem, para que o pipeline possa cruzar todas as fontes.
 
 ## Seed de dados
 
-Todos os dados deste banco são gerados por um seed versionado no repositório, nunca carregados à mão nem a partir de um dump. O seed:
+Todos os dados são gerados pelo seed do repositório (`python -m seed`), nunca carregados à mão ou a partir de um dump. O seed:
 
-- Usa uma semente fixa, então os dados são reproduzíveis.
-- É idempotente: rodá-lo várias vezes não duplica dados.
-- Permite escolher o volume (modo de desenvolvimento pequeno ou modo completo).
-- Mantém a integridade referencial e um catálogo coerente com as APIs e os eventos simulados.
-- Injeta os problemas de qualidade de dados conhecidos com uma taxa configurável.
-- Roda tanto localmente quanto no banco de dados na AWS.
+- **É reproduzível.** O mesmo seed e a mesma data de início produzem os mesmos dados, linha por linha.
+- **É idempotente.** Substitui os dados em uma única transação: executá-lo várias vezes deixa uma única cópia, e se falhar, os dados anteriores ficam intactos.
+- **Tem dois volumes.** O modo `dev` cobre 90 noites passadas e 30 futuras; o modo `full` cobre 400 passadas e 180 futuras.
+- **Simula uma demanda realista.** Hotéis urbanos recebem mais chegadas de domingo a terça, resorts no fim de semana, e a alta temporada traz mais hóspedes.
+- **Nunca faz overbooking.** O gerador recusa uma reserva quando o tipo de quarto está lotado, e o banco rejeita `available_rooms < 0`.
+- **Rejeita reservas no passado.** Um trigger rejeita qualquer reserva cujo check-in seja anterior ao dia em que foi feita.
+- **É seguro por padrão.** Comandos destrutivos param em bancos remotos, a menos que se use `--allow-remote`.
+- **Verifica a si mesmo.** `python -m seed check` executa 21 verificações de saúde e integridade e só passa se todas passarem.
+
+| Comando | O que faz |
+| --- | --- |
+| `python -m seed init` | Cria as tabelas e os índices. |
+| `python -m seed seed` | Esvazia as tabelas e carrega um novo conjunto de dados. |
+| `python -m seed check` | Executa as verificações de saúde e integridade (somente leitura). |
+| `python -m seed all` | `init` + `seed` + `check`. |
 
 <AccessNote icon="alert" title="Problemas de qualidade de dados conhecidos">
 
-- Reservas com zero adultos, zero crianças e zero bebês.
-- Datas de saída anteriores à data de chegada.
+As linhas que quebrariam as restrições vão para `reservation_anomalies` em vez de `reservations` (2% cada por padrão, configurável):
+
+- Reservas com zero hóspedes.
+- Datas de check-out anteriores à data de check-in.
 
 </AccessNote>
