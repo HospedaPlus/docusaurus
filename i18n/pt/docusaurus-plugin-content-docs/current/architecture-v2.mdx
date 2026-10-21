@@ -9,7 +9,7 @@ import {ArchitectureV2} from '@site/src/components/ArchitectureV2';
 
 # Arquitetura v2
 
-Esta é a arquitetura de dados atual da HospedaPlus Revenue na AWS (região us-east-2, Ohio). Os dados avançam da esquerda para a direita por cinco blocos: as fontes, a entrada na AWS, o processamento dentro da VPC de produção, o data lake com seu catálogo e o analytics usado para decidir os preços. Uma camada de segurança e observabilidade atravessa todos eles.
+Esta é a arquitetura de dados atual da HospedaPlus Revenue na AWS (região us-east-2, Ohio). Os dados avançam da esquerda para a direita por cinco blocos: as fontes, a entrada na AWS, o processamento dentro da VPC de produção, o lakehouse com seu catálogo e o analytics usado para decidir os preços. Uma camada de segurança e observabilidade atravessa todos eles.
 
 <ArchitectureV2 />
 
@@ -37,8 +37,9 @@ Esta é a arquitetura de dados atual da HospedaPlus Revenue na AWS (região us-e
 - **Neon PostgreSQL 16 (SaaS externo)** é o banco operacional da F3: 28 hotéis e 4.000 quartos, com branches `production` e `dev`. O worker bronze lê reservas, canais e tarifas de forma incremental com um papel somente leitura.
 - **O endpoint do S3 do tipo gateway** (gratuito) permite que os workers gravem Parquet no S3 sem passar pelo NAT.
 
-### 4. Data lake e catálogo
+### 4. Lakehouse e catálogo
 
+- A HospedaPlus usa um **lakehouse**: os dados ficam como arquivos Parquet no Amazon S3, e o Glue Data Catalog e o Athena permitem que o negócio os consulte com SQL diretamente sobre o S3, sem um warehouse separado.
 - O bucket **`hospedaplus-datalake`** é criptografado com SSE-KMS e guarda Parquet particionado por data, com uma única cópia por camada:
   - **Bronze:** os dados como chegam (eventos da F2 a cada 5 minutos e as extrações diárias); vão para o Glacier após 90 dias.
   - **Silver:** gravado pelo Spark; limpo, tipado e sem duplicados, com as anomalias em quarentena e sem dados pessoais.

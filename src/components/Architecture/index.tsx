@@ -95,7 +95,7 @@ export function ArchitectureOverview(): ReactNode {
           </div>
         </Stage>
         <Arrow />
-        <Stage title={translate({message: 'Data Lake & Warehouse'})} tone="green">
+        <Stage title={translate({message: 'Lakehouse'})} tone="green">
           <Tool logo={<S3Logo />} label="S3" caption={translate({message: '(Raw / Bronze / Gold)'})} />
           <Tool logo={<PostgresLogo />} label="PostgreSQL" caption={translate({message: '(Metadata / Catalog)'})} />
         </Stage>

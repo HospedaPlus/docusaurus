@@ -9,7 +9,7 @@ import {ArchitectureV2} from '@site/src/components/ArchitectureV2';
 
 # Architecture v2
 
-Voici l’architecture de données actuelle de HospedaPlus Revenue sur AWS (région us-east-2, Ohio). Les données circulent de gauche à droite à travers cinq blocs : les sources, l’entrée dans AWS, le traitement dans le VPC de production, le data lake avec son catalogue et l’analyse qui sert à fixer les prix. Une couche de sécurité et d’observabilité traverse l’ensemble.
+Voici l’architecture de données actuelle de HospedaPlus Revenue sur AWS (région us-east-2, Ohio). Les données circulent de gauche à droite à travers cinq blocs : les sources, l’entrée dans AWS, le traitement dans le VPC de production, le lakehouse avec son catalogue et l’analyse qui sert à fixer les prix. Une couche de sécurité et d’observabilité traverse l’ensemble.
 
 <ArchitectureV2 />
 
@@ -37,8 +37,9 @@ Voici l’architecture de données actuelle de HospedaPlus Revenue sur AWS (rég
 - **Neon PostgreSQL 16 (SaaS externe)** est la base opérationnelle de F3 : 28 hôtels et 4 000 chambres, avec des branches `production` et `dev`. Le worker bronze lit les réservations, les canaux et les tarifs de façon incrémentale avec un rôle en lecture seule.
 - **L’endpoint S3 de type gateway** (gratuit) permet aux workers d’écrire le Parquet dans S3 sans passer par le NAT.
 
-### 4. Data lake et catalogue
+### 4. Lakehouse et catalogue
 
+- HospedaPlus utilise un **lakehouse** : les données sont stockées en fichiers Parquet dans Amazon S3, et le Glue Data Catalog et Athena permettent au métier de les interroger en SQL directement sur S3, sans entrepôt séparé.
 - Le bucket **`hospedaplus-datalake`** est chiffré avec SSE-KMS et stocke du Parquet partitionné par date, avec une seule copie par couche :
   - **Bronze :** les données telles qu’elles arrivent (événements F2 toutes les 5 minutes et extractions quotidiennes) ; déplacées vers Glacier après 90 jours.
   - **Silver :** écrit par Spark ; nettoyé, typé et dédoublonné, anomalies en quarantaine et sans données personnelles.

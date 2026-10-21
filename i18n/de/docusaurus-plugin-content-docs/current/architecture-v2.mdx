@@ -9,7 +9,7 @@ import {ArchitectureV2} from '@site/src/components/ArchitectureV2';
 
 # Architektur v2
 
-Dies ist die aktuelle Datenarchitektur von HospedaPlus Revenue auf AWS (Region us-east-2, Ohio). Die Daten laufen von links nach rechts durch fünf Blöcke: die Quellen, den Eingang in AWS, die Verarbeitung in der Produktions-VPC, den Data Lake mit seinem Katalog und die Analyse, mit der die Preise entschieden werden. Eine Schicht für Sicherheit und Observability zieht sich durch alle Blöcke.
+Dies ist die aktuelle Datenarchitektur von HospedaPlus Revenue auf AWS (Region us-east-2, Ohio). Die Daten laufen von links nach rechts durch fünf Blöcke: die Quellen, den Eingang in AWS, die Verarbeitung in der Produktions-VPC, das Lakehouse mit seinem Katalog und die Analyse, mit der die Preise entschieden werden. Eine Schicht für Sicherheit und Observability zieht sich durch alle Blöcke.
 
 <ArchitectureV2 />
 
@@ -37,8 +37,9 @@ Dies ist die aktuelle Datenarchitektur von HospedaPlus Revenue auf AWS (Region u
 - **Neon PostgreSQL 16 (externes SaaS)** ist die operative Datenbank von F3: 28 Hotels und 4.000 Zimmer, mit den Branches `production` und `dev`. Der Bronze-Worker liest Buchungen, Kanäle und Raten inkrementell mit einer Nur-Lese-Rolle.
 - **Der S3-Gateway-Endpoint** (kostenlos) erlaubt den Workern, Parquet ohne Umweg über das NAT nach S3 zu schreiben.
 
-### 4. Data Lake und Katalog
+### 4. Lakehouse und Katalog
 
+- HospedaPlus nutzt ein **Lakehouse**: Die Daten liegen als Parquet-Dateien in Amazon S3, und Glue Data Catalog und Athena erlauben dem Business, sie per SQL direkt auf S3 abzufragen, ohne separates Warehouse.
 - Der Bucket **`hospedaplus-datalake`** ist mit SSE-KMS verschlüsselt und speichert nach Datum partitioniertes Parquet, mit genau einer Kopie pro Schicht:
   - **Bronze:** die Daten so, wie sie ankommen (F2-Events alle 5 Minuten und die täglichen Extraktionen); nach 90 Tagen nach Glacier verschoben.
   - **Silver:** von Spark geschrieben; bereinigt, typisiert und ohne Duplikate, Anomalien in Quarantäne und ohne personenbezogene Daten.

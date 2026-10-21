@@ -226,7 +226,7 @@ export function NeonLogo({size = 34}: LogoProps): ReactNode {
   );
 }
 
-/** Data lake bucket tinted for each medallion layer. */
+/** Lakehouse bucket tinted for each medallion layer. */
 export function LayerBucket({color, size = 30}: LogoProps & {color: string}): ReactNode {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
