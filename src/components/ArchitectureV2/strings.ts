@@ -5,11 +5,9 @@
 const en = {
   ariaLabel: 'HospedaPlus AWS data architecture (v2)',
   title: 'HospedaPlus Revenue · AWS data architecture',
-  subtitle: 'CeleryExecutor + RabbitMQ + Spark · team lead feedback applied · team Buenavista_01 · October 2026 · us-east-2 (Ohio)',
-  changesTitle: 'Changes from v1:',
-  changes: 'RDS → Neon (Gold is no longer copied to PostgreSQL) · Lambda → Airflow tasks · no staging VPC (Neon dev branch + local Docker) · QuickSight → Power BI.',
-  keptTitle: 'Kept, each with a defined role:',
-  kept: 'RabbitMQ (Celery broker and event queue), Celery (workers on their own EC2) and Spark (Silver and Gold).',
+  subtitle: 'CeleryExecutor + RabbitMQ + Spark · team Buenavista_01 · October 2026 · us-east-2 (Ohio)',
+  stackTitle: 'Roles:',
+  stack: 'Neon is the operational database (F3) · Airflow tasks orchestrate the batch · RabbitMQ is the Celery broker and the event queue · Celery runs the workers on their own EC2 · Spark builds Silver and Gold · Power BI reads Gold through Athena.',
 
   col1: '1 · Data sources',
   col2: '2 · Entry',
@@ -20,8 +18,8 @@ const en = {
 
   guests: 'Guests · web / app',
   guestsCaption: 'direct and corporate bookings (own engine F3)',
-  dev: 'Dev team · GitHub Actions',
-  devCaption: 'pytest, image builds and deployment',
+  dev: 'GitHub Actions · CI/CD',
+  devCaption: 'dev team pipeline: pytest, image builds and deployment',
   f2: 'F2 · Channel Manager',
   f2Caption: 'OTA events: bookings, cancellations and rates',
   apis: 'Public APIs F5 · F6 · F7',
@@ -92,6 +90,15 @@ const en = {
     'How to publish and give the managers access',
   ],
 
+  cicdTitle: 'CI/CD · GitHub Actions',
+  cicdSteps: [
+    'pytest',
+    'Docker image builds (FastAPI, consumers, Airflow)',
+    'push to Amazon ECR',
+    'deployment to ECS Fargate (FastAPI and consumers)',
+    'Airflow images on the EC2 instances',
+  ],
+
   securityTitle: 'Security and observability — cross-cutting layer (each service with a concrete role)',
   iamCaption: 'Roles for the EC2 instances (S3, Glue, secrets) and the Fargate tasks; people with MFA and least privilege.',
   kmsCaption: 'Our own key encrypts the S3 bucket, the EBS disks, the secrets and Amazon MQ.',
@@ -122,6 +129,8 @@ const en = {
     parquet: 'writes Parquet without going through NAT',
     hourlyRates: 'hourly rates',
     broker: 'Celery broker',
+    pushImages: 'pushes the images',
+    deployEcs: 'deployment',
     metadata: 'metadata',
   },
 };
@@ -131,11 +140,9 @@ export type Strings = typeof en;
 const es: Strings = {
   ariaLabel: 'Arquitectura de datos de HospedaPlus en AWS (v2)',
   title: 'HospedaPlus Revenue · Arquitectura de datos en AWS',
-  subtitle: 'CeleryExecutor + RabbitMQ + Spark · feedback del TL aplicado · equipo Buenavista_01 · octubre 2026 · us-east-2 (Ohio)',
-  changesTitle: 'Cambios frente a la v1:',
-  changes: 'RDS → Neon (Gold ya no se copia a PostgreSQL) · Lambda → tareas de Airflow · sin VPC de staging (rama dev de Neon + Docker local) · QuickSight → Power BI.',
-  keptTitle: 'Se quedan, con un rol definido:',
-  kept: 'RabbitMQ (broker de Celery y cola de eventos), Celery (workers en su propio EC2) y Spark (Silver y Gold).',
+  subtitle: 'CeleryExecutor + RabbitMQ + Spark · equipo Buenavista_01 · octubre 2026 · us-east-2 (Ohio)',
+  stackTitle: 'Roles:',
+  stack: 'Neon es la base operacional (F3) · las tareas de Airflow orquestan el batch · RabbitMQ es el broker de Celery y la cola de eventos · Celery corre los workers en su propio EC2 · Spark construye Silver y Gold · Power BI lee Gold a través de Athena.',
 
   col1: '1 · Fuentes de datos',
   col2: '2 · Entrada',
@@ -146,8 +153,8 @@ const es: Strings = {
 
   guests: 'Huéspedes · web / app',
   guestsCaption: 'reservas directas y corporativas (motor propio F3)',
-  dev: 'Equipo dev · GitHub Actions',
-  devCaption: 'pytest, build de imágenes y despliegue',
+  dev: 'GitHub Actions · CI/CD',
+  devCaption: 'pipeline del equipo dev: pytest, build de imágenes y despliegue',
   f2: 'F2 · Channel Manager',
   f2Caption: 'eventos de las OTAs: reservas, cancelaciones y tarifas',
   apis: 'APIs públicas F5 · F6 · F7',
@@ -218,6 +225,15 @@ const es: Strings = {
     'Cómo publicar y dar acceso a los gerentes',
   ],
 
+  cicdTitle: 'CI/CD · GitHub Actions',
+  cicdSteps: [
+    'pytest',
+    'build de imágenes Docker (FastAPI, consumidores, Airflow)',
+    'push a Amazon ECR',
+    'despliegue en ECS Fargate (FastAPI y consumidores)',
+    'imágenes de Airflow en los EC2',
+  ],
+
   securityTitle: 'Seguridad y observabilidad — capa transversal (cada servicio con una función concreta)',
   iamCaption: 'Roles de los EC2 (S3, Glue, secretos) y de las tareas Fargate; personas con MFA y mínimo privilegio.',
   kmsCaption: 'Una llave propia cifra el bucket S3, los discos EBS, los secretos y Amazon MQ.',
@@ -248,6 +264,8 @@ const es: Strings = {
     parquet: 'escribe Parquet sin pasar por NAT',
     hourlyRates: 'tarifas horarias',
     broker: 'broker de Celery',
+    pushImages: 'sube las imágenes',
+    deployEcs: 'despliegue',
     metadata: 'metadatos',
   },
 };
@@ -255,11 +273,9 @@ const es: Strings = {
 const pt: Strings = {
   ariaLabel: 'Arquitetura de dados da HospedaPlus na AWS (v2)',
   title: 'HospedaPlus Revenue · Arquitetura de dados na AWS',
-  subtitle: 'CeleryExecutor + RabbitMQ + Spark · feedback do TL aplicado · equipe Buenavista_01 · outubro 2026 · us-east-2 (Ohio)',
-  changesTitle: 'Mudanças em relação à v1:',
-  changes: 'RDS → Neon (o Gold não é mais copiado para o PostgreSQL) · Lambda → tarefas do Airflow · sem VPC de staging (branch dev do Neon + Docker local) · QuickSight → Power BI.',
-  keptTitle: 'Permanecem, com um papel definido:',
-  kept: 'RabbitMQ (broker do Celery e fila de eventos), Celery (workers no seu próprio EC2) e Spark (Silver e Gold).',
+  subtitle: 'CeleryExecutor + RabbitMQ + Spark · equipe Buenavista_01 · outubro 2026 · us-east-2 (Ohio)',
+  stackTitle: 'Papéis:',
+  stack: 'O Neon é o banco operacional (F3) · as tarefas do Airflow orquestram o batch · o RabbitMQ é o broker do Celery e a fila de eventos · o Celery roda os workers no seu próprio EC2 · o Spark constrói o Silver e o Gold · o Power BI lê o Gold pelo Athena.',
 
   col1: '1 · Fontes de dados',
   col2: '2 · Entrada',
@@ -270,8 +286,8 @@ const pt: Strings = {
 
   guests: 'Hóspedes · web / app',
   guestsCaption: 'reservas diretas e corporativas (motor próprio F3)',
-  dev: 'Equipe dev · GitHub Actions',
-  devCaption: 'pytest, build de imagens e deploy',
+  dev: 'GitHub Actions · CI/CD',
+  devCaption: 'pipeline da equipe dev: pytest, build de imagens e deploy',
   f2: 'F2 · Channel Manager',
   f2Caption: 'eventos das OTAs: reservas, cancelamentos e tarifas',
   apis: 'APIs públicas F5 · F6 · F7',
@@ -342,6 +358,15 @@ const pt: Strings = {
     'Como publicar e dar acesso aos gerentes',
   ],
 
+  cicdTitle: 'CI/CD · GitHub Actions',
+  cicdSteps: [
+    'pytest',
+    'build das imagens Docker (FastAPI, consumidores, Airflow)',
+    'push para o Amazon ECR',
+    'deploy no ECS Fargate (FastAPI e consumidores)',
+    'imagens do Airflow nos EC2',
+  ],
+
   securityTitle: 'Segurança e observabilidade — camada transversal (cada serviço com uma função concreta)',
   iamCaption: 'Papéis dos EC2 (S3, Glue, segredos) e das tarefas Fargate; pessoas com MFA e privilégio mínimo.',
   kmsCaption: 'Uma chave própria criptografa o bucket S3, os discos EBS, os segredos e o Amazon MQ.',
@@ -372,6 +397,8 @@ const pt: Strings = {
     parquet: 'escreve Parquet sem passar pelo NAT',
     hourlyRates: 'tarifas horárias',
     broker: 'broker do Celery',
+    pushImages: 'envia as imagens',
+    deployEcs: 'deploy',
     metadata: 'metadados',
   },
 };
@@ -379,11 +406,9 @@ const pt: Strings = {
 const fr: Strings = {
   ariaLabel: 'Architecture de données HospedaPlus sur AWS (v2)',
   title: 'HospedaPlus Revenue · Architecture de données sur AWS',
-  subtitle: 'CeleryExecutor + RabbitMQ + Spark · retours du TL appliqués · équipe Buenavista_01 · octobre 2026 · us-east-2 (Ohio)',
-  changesTitle: 'Changements par rapport à la v1 :',
-  changes: 'RDS → Neon (Gold n’est plus copié dans PostgreSQL) · Lambda → tâches Airflow · plus de VPC de staging (branche dev de Neon + Docker local) · QuickSight → Power BI.',
-  keptTitle: 'Conservés, chacun avec un rôle défini :',
-  kept: 'RabbitMQ (broker Celery et file d’événements), Celery (workers sur leur propre EC2) et Spark (Silver et Gold).',
+  subtitle: 'CeleryExecutor + RabbitMQ + Spark · équipe Buenavista_01 · octobre 2026 · us-east-2 (Ohio)',
+  stackTitle: 'Rôles :',
+  stack: 'Neon est la base opérationnelle (F3) · les tâches Airflow orchestrent le batch · RabbitMQ est le broker Celery et la file d’événements · Celery exécute les workers sur leur propre EC2 · Spark construit Silver et Gold · Power BI lit Gold via Athena.',
 
   col1: '1 · Sources de données',
   col2: '2 · Entrée',
@@ -394,8 +419,8 @@ const fr: Strings = {
 
   guests: 'Clients · web / app',
   guestsCaption: 'réservations directes et entreprises (moteur propre F3)',
-  dev: 'Équipe dev · GitHub Actions',
-  devCaption: 'pytest, build des images et déploiement',
+  dev: 'GitHub Actions · CI/CD',
+  devCaption: 'pipeline de l’équipe dev : pytest, build des images et déploiement',
   f2: 'F2 · Channel Manager',
   f2Caption: 'événements des OTA : réservations, annulations et tarifs',
   apis: 'API publiques F5 · F6 · F7',
@@ -466,6 +491,15 @@ const fr: Strings = {
     'Comment publier et donner l’accès aux directeurs',
   ],
 
+  cicdTitle: 'CI/CD · GitHub Actions',
+  cicdSteps: [
+    'pytest',
+    'build des images Docker (FastAPI, consommateurs, Airflow)',
+    'push vers Amazon ECR',
+    'déploiement sur ECS Fargate (FastAPI et consommateurs)',
+    'images Airflow sur les EC2',
+  ],
+
   securityTitle: 'Sécurité et observabilité — couche transversale (chaque service avec un rôle précis)',
   iamCaption: 'Rôles des EC2 (S3, Glue, secrets) et des tâches Fargate ; personnes avec MFA et moindre privilège.',
   kmsCaption: 'Une clé propre chiffre le bucket S3, les disques EBS, les secrets et Amazon MQ.',
@@ -496,6 +530,8 @@ const fr: Strings = {
     parquet: 'écrit le Parquet sans passer par le NAT',
     hourlyRates: 'tarifs horaires',
     broker: 'broker Celery',
+    pushImages: 'pousse les images',
+    deployEcs: 'déploiement',
     metadata: 'métadonnées',
   },
 };
@@ -503,11 +539,9 @@ const fr: Strings = {
 const de: Strings = {
   ariaLabel: 'HospedaPlus Datenarchitektur auf AWS (v2)',
   title: 'HospedaPlus Revenue · Datenarchitektur auf AWS',
-  subtitle: 'CeleryExecutor + RabbitMQ + Spark · Feedback des TL umgesetzt · Team Buenavista_01 · Oktober 2026 · us-east-2 (Ohio)',
-  changesTitle: 'Änderungen gegenüber v1:',
-  changes: 'RDS → Neon (Gold wird nicht mehr nach PostgreSQL kopiert) · Lambda → Airflow-Tasks · keine Staging-VPC (Neon-Dev-Branch + lokales Docker) · QuickSight → Power BI.',
-  keptTitle: 'Bleiben, jeweils mit klarer Rolle:',
-  kept: 'RabbitMQ (Celery-Broker und Event-Queue), Celery (Worker auf eigener EC2) und Spark (Silver und Gold).',
+  subtitle: 'CeleryExecutor + RabbitMQ + Spark · Team Buenavista_01 · Oktober 2026 · us-east-2 (Ohio)',
+  stackTitle: 'Rollen:',
+  stack: 'Neon ist die operative Datenbank (F3) · Airflow-Tasks orchestrieren den Batch · RabbitMQ ist Celery-Broker und Event-Queue · Celery betreibt die Worker auf eigener EC2 · Spark baut Silver und Gold · Power BI liest Gold über Athena.',
 
   col1: '1 · Datenquellen',
   col2: '2 · Eingang',
@@ -518,8 +552,8 @@ const de: Strings = {
 
   guests: 'Gäste · Web / App',
   guestsCaption: 'Direkt- und Firmenbuchungen (eigene Buchungsmaschine F3)',
-  dev: 'Dev-Team · GitHub Actions',
-  devCaption: 'pytest, Image-Builds und Deployment',
+  dev: 'GitHub Actions · CI/CD',
+  devCaption: 'Pipeline des Dev-Teams: pytest, Image-Builds und Deployment',
   f2: 'F2 · Channel Manager',
   f2Caption: 'OTA-Events: Buchungen, Stornierungen und Raten',
   apis: 'Öffentliche APIs F5 · F6 · F7',
@@ -590,6 +624,15 @@ const de: Strings = {
     'Wie veröffentlichen und der Hoteldirektion Zugriff geben',
   ],
 
+  cicdTitle: 'CI/CD · GitHub Actions',
+  cicdSteps: [
+    'pytest',
+    'Docker-Image-Builds (FastAPI, Consumer, Airflow)',
+    'Push nach Amazon ECR',
+    'Deployment auf ECS Fargate (FastAPI und Consumer)',
+    'Airflow-Images auf den EC2-Instanzen',
+  ],
+
   securityTitle: 'Sicherheit und Observability — Querschnittsschicht (jeder Dienst mit konkreter Aufgabe)',
   iamCaption: 'Rollen für die EC2-Instanzen (S3, Glue, Secrets) und die Fargate-Tasks; Personen mit MFA und minimalen Rechten.',
   kmsCaption: 'Ein eigener Schlüssel verschlüsselt den S3-Bucket, die EBS-Volumes, die Secrets und Amazon MQ.',
@@ -620,6 +663,8 @@ const de: Strings = {
     parquet: 'schreibt Parquet ohne Umweg über NAT',
     hourlyRates: 'stündliche Raten',
     broker: 'Celery-Broker',
+    pushImages: 'lädt die Images hoch',
+    deployEcs: 'Deployment',
     metadata: 'Metadaten',
   },
 };

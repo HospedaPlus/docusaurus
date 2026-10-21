@@ -54,13 +54,13 @@
   color: var(--hp-muted);
 }
 
-.changes {
+.roles {
   flex: 1 1 22rem;
   max-width: 36rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #f3b7bf;
+  border: 1px solid var(--hp-border);
   border-radius: 8px;
-  background: #fff4f5;
+  background: var(--hp-card-bg);
   font-size: 0.7rem;
   line-height: 1.45;
   color: var(--hp-ink-soft);
@@ -468,6 +468,56 @@
   --layer-bg: #fff8d6;
 }
 
+/* ---------- CI/CD band ---------- */
+
+.pipeline {
+  margin-top: 1rem;
+  padding: 0.6rem;
+  border: 1.5px dashed #a58bf0;
+  border-radius: 10px;
+  background: #f8f5ff;
+}
+
+.pipelineTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #6d3ee0;
+}
+
+.pipelineSteps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipelineSteps li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.pipelineSteps li span {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid #ddd2fb;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 0.68rem;
+  color: var(--hp-ink);
+}
+
+.pipelineSteps .flowLine {
+  --flow: #7c4ddf;
+}
+
 /* ---------- Security layer ---------- */
 
 .security {
@@ -632,6 +682,24 @@
 
 /* ---------- Dark mode ---------- */
 
+:global(html[data-theme='dark']) .pipeline {
+  border-color: #5a47a8;
+  background: #17143a;
+}
+
+:global(html[data-theme='dark']) .pipelineTitle {
+  color: #b59cff;
+}
+
+:global(html[data-theme='dark']) .pipelineSteps li span {
+  border-color: #3b3270;
+  background: #141a3a;
+}
+
+:global(html[data-theme='dark']) .pipelineSteps .flowLine {
+  --flow: #b59cff;
+}
+
 :global(html[data-theme='dark']) .figure {
   background: #0f1430;
 }
@@ -658,11 +726,6 @@
 
 :global(html[data-theme='dark']) .gold {
   --flow: #5fd38f;
-}
-
-:global(html[data-theme='dark']) .changes {
-  border-color: #6b2c3a;
-  background: #2a1424;
 }
 
 :global(html[data-theme='dark']) .cloud {

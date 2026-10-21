@@ -5,16 +5,11 @@ title: Arquitectura v2
 hide_table_of_contents: true
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
 import {ArchitectureV2} from '@site/src/components/ArchitectureV2';
 
 # Arquitectura v2
 
-Esta es la arquitectura de datos actual de HospedaPlus Revenue en AWS (región us-east-2, Ohio), con el feedback del líder técnico ya aplicado. Los datos avanzan de izquierda a derecha por cinco bloques: las fuentes, la entrada a AWS, el procesamiento dentro de la VPC de producción, el data lake con su catálogo y la analítica con la que se deciden los precios. Una capa de seguridad y observabilidad atraviesa todos los bloques.
-
-:::info[Qué cambió frente a la v1]
-RDS se reemplazó por **Neon** (Gold ya no se copia a PostgreSQL), las funciones Lambda pasaron a ser **tareas de Airflow**, ya no hay VPC de staging (su lugar lo ocupan una rama `dev` de Neon y Docker local) y QuickSight se reemplazó por **Power BI**. RabbitMQ, Celery y Spark se quedan, cada uno con un rol definido.
-:::
+Esta es la arquitectura de datos actual de HospedaPlus Revenue en AWS (región us-east-2, Ohio). Los datos avanzan de izquierda a derecha por cinco bloques: las fuentes, la entrada a AWS, el procesamiento dentro de la VPC de producción, el data lake con su catálogo y la analítica con la que se deciden los precios. Una capa de seguridad y observabilidad atraviesa todos los bloques.
 
 <ArchitectureV2 />
 
@@ -26,7 +21,7 @@ RDS se reemplazó por **Neon** (Gold ya no se copia a PostgreSQL), las funciones
 - **F2 · Channel Manager** envía a RabbitMQ los eventos de las OTAs (reservas, cancelaciones y tarifas).
 - **Las APIs públicas F5, F6 y F7** (reseñas y demás fuentes externas) se extraen una vez al día por HTTPS, saliendo por el NAT Gateway.
 - **F1 Kaggle y F4 agencias** llegan como archivos: el histórico de Kaggle una sola vez y los CSV de las agencias cada día, a `s3://…/landing` y de ahí a Bronze.
-- **El equipo de desarrollo** usa GitHub Actions para correr pytest, construir las imágenes y desplegarlas.
+- **GitHub Actions (CI/CD)** es el pipeline del equipo de desarrollo: corre pytest, construye las imágenes, las sube a Amazon ECR y las despliega en ECS Fargate (detalle más abajo).
 
 ### 2. Entrada
 
@@ -57,6 +52,15 @@ RDS se reemplazó por **Neon** (Gold ya no se copia a PostgreSQL), las funciones
 - **Metabase** (alternativa) es open source y tiene conector nativo para Athena; todavía está en evaluación.
 - **El Revenue Manager y los gerentes de hotel** usan esos tableros para decidir precio y ocupación por hotel.
 
+### CI/CD con GitHub Actions
+
+GitHub Actions es el pipeline de CI/CD del equipo y es lo que conecta el código con Amazon ECR y Amazon ECS:
+
+1. Corre las pruebas con pytest.
+2. Construye las imágenes Docker de FastAPI, los consumidores y Airflow.
+3. Sube esas imágenes a Amazon ECR.
+4. Despliega las nuevas imágenes en los servicios de ECS Fargate (FastAPI y los consumidores). Los EC2 de Airflow también toman sus imágenes de ECR.
+
 ### Seguridad y observabilidad
 
 | Servicio | Función |
@@ -86,9 +90,3 @@ Por decidir (prioridad 5):
 - Licencias de Power BI Pro o Metabase open source.
 - Power BI Service necesita un gateway con el driver ODBC de Athena para refrescar los datos.
 - Cómo publicar los tableros y dar acceso a los gerentes.
-
-## Diagrama original
-
-El diagrama de arriba es una recreación del dibujo original del equipo, que puedes <a href={useBaseUrl('/img/architecture-v2-original.png')} target="_blank" rel="noopener">abrir en tamaño completo</a>.
-
-<img src={useBaseUrl('/img/architecture-v2-original.png')} alt="Diagrama original de la arquitectura de datos de HospedaPlus en AWS" />

@@ -326,3 +326,18 @@ export function SecurityLogo({name, size = 30}: LogoProps & {name: string}): Rea
   const {color, glyph} = securityGlyphs[name];
   return <AwsBadge size={size} color={color} shape="square" glyph={glyph} />;
 }
+
+export function GitHubActionsLogo({size = 32}: LogoProps): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="2" y="2" width="28" height="28" rx="7" fill="#2088ff" />
+      <g fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="10" cy="10" r="3" />
+        <path d="m9 8.6 2.4 1.4L9 11.4Z" fill="#fff" strokeWidth="1" />
+        <circle cx="22" cy="10" r="2.2" />
+        <circle cx="22" cy="22" r="2.2" />
+        <path d="M13 10h6.8M10 13v5a4 4 0 0 0 4 4h5.8" />
+      </g>
+    </svg>
+  );
+}
