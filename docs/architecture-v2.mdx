@@ -9,7 +9,7 @@ import {ArchitectureV2} from '@site/src/components/ArchitectureV2';
 
 # Architecture v2
 
-This is the current data architecture of HospedaPlus Revenue on AWS (region us-east-2, Ohio). Data moves from left to right through five blocks: the sources, the entry into AWS, processing inside the production VPC, the data lake with its catalog, and the analytics used to decide prices. A security and observability layer runs across all of them.
+This is the current data architecture of HospedaPlus Revenue on AWS (region us-east-2, Ohio). Data moves from left to right through five blocks: the sources, the entry into AWS, processing inside the production VPC, the lakehouse with its catalog, and the analytics used to decide prices. A security and observability layer runs across all of them.
 
 <ArchitectureV2 />
 
@@ -37,8 +37,9 @@ This is the current data architecture of HospedaPlus Revenue on AWS (region us-e
 - **Neon PostgreSQL 16 (external SaaS)** is the F3 operational database: 28 hotels and 4,000 rooms, with `production` and `dev` branches. The bronze worker reads bookings, channels and rates incrementally with a read-only role.
 - **S3 gateway endpoint** (free) lets the workers write Parquet to S3 without going through the NAT.
 
-### 4. Data lake and catalog
+### 4. Lakehouse and catalog
 
+- HospedaPlus uses a **lakehouse**: the data lives as Parquet files in Amazon S3, and the Glue Data Catalog and Athena let the business query it with SQL directly on S3, without a separate warehouse.
 - The **`hospedaplus-datalake`** bucket is encrypted with SSE-KMS and stores Parquet partitioned by date, with one copy per layer:
   - **Bronze:** the data as it arrives (F2 events every 5 minutes and the daily extractions); moved to Glacier after 90 days.
   - **Silver:** written by Spark; clean, typed and deduplicated, anomalies in quarantine and no personal data.

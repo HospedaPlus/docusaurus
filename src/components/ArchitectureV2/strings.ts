@@ -12,7 +12,7 @@ const en = {
   col1: '1 · Data sources',
   col2: '2 · Entry',
   col3: '3 · Processing — production VPC',
-  col4: '4 · Data lake & catalog',
+  col4: '4 · Lakehouse & catalog',
   col5: '5 · Analytics & decision',
   awsCloud: 'AWS Cloud · us-east-2',
 
@@ -147,7 +147,7 @@ const es: Strings = {
   col1: '1 · Fuentes de datos',
   col2: '2 · Entrada',
   col3: '3 · Procesamiento — VPC de producción',
-  col4: '4 · Data Lake y catálogo',
+  col4: '4 · Lakehouse y catálogo',
   col5: '5 · Analítica y decisión',
   awsCloud: 'AWS Cloud · us-east-2',
 
@@ -280,7 +280,7 @@ const pt: Strings = {
   col1: '1 · Fontes de dados',
   col2: '2 · Entrada',
   col3: '3 · Processamento — VPC de produção',
-  col4: '4 · Data lake e catálogo',
+  col4: '4 · Lakehouse e catálogo',
   col5: '5 · Analytics e decisão',
   awsCloud: 'AWS Cloud · us-east-2',
 
@@ -413,7 +413,7 @@ const fr: Strings = {
   col1: '1 · Sources de données',
   col2: '2 · Entrée',
   col3: '3 · Traitement — VPC de production',
-  col4: '4 · Data lake et catalogue',
+  col4: '4 · Lakehouse et catalogue',
   col5: '5 · Analyse et décision',
   awsCloud: 'AWS Cloud · us-east-2',
 
@@ -546,7 +546,7 @@ const de: Strings = {
   col1: '1 · Datenquellen',
   col2: '2 · Eingang',
   col3: '3 · Verarbeitung — Produktions-VPC',
-  col4: '4 · Data Lake und Katalog',
+  col4: '4 · Lakehouse und Katalog',
   col5: '5 · Analyse und Entscheidung',
   awsCloud: 'AWS Cloud · us-east-2',
 

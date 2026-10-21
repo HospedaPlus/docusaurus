@@ -14,8 +14,8 @@
   "Ingestion & Processing": {
     "message": "Ingestion et traitement"
   },
-  "Data Lake & Warehouse": {
-    "message": "Data Lake et Warehouse"
+  "Lakehouse": {
+    "message": "Lakehouse"
   },
   "(Raw / Bronze / Gold)": {
     "message": "(Raw / Bronze / Gold)"
