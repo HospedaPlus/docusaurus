@@ -361,8 +361,8 @@ function DataLake({s}: {s: Strings}): ReactNode {
         <div className={styles.ec2Head}>
           <DataLakeLogo />
           <span>
-            <span className={styles.nodeTitle}>{s.datalake}</span>
-            <span className={styles.nodeCaption}>{s.datalakeCaption}</span>
+            <span className={styles.nodeTitle}>{s.lakehouse}</span>
+            <span className={styles.nodeCaption}>{s.lakehouseCaption}</span>
           </span>
         </div>
         <div className={styles.layers}>

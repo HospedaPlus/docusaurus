@@ -40,7 +40,7 @@ Esta é a arquitetura de dados atual da HospedaPlus Revenue na AWS (região us-e
 ### 4. Lakehouse e catálogo
 
 - A HospedaPlus usa um **lakehouse**: os dados ficam como arquivos Parquet no Amazon S3, e o Glue Data Catalog e o Athena permitem que o negócio os consulte com SQL diretamente sobre o S3, sem um warehouse separado.
-- O bucket **`hospedaplus-datalake`** é criptografado com SSE-KMS e guarda Parquet particionado por data, com uma única cópia por camada:
+- O bucket **`hospedaplus-lakehouse`** é criptografado com SSE-KMS e guarda Parquet particionado por data, com uma única cópia por camada:
   - **Bronze:** os dados como chegam (eventos da F2 a cada 5 minutos e as extrações diárias); vão para o Glacier após 90 dias.
   - **Silver:** gravado pelo Spark; limpo, tipado e sem duplicados, com as anomalias em quarentena e sem dados pessoais.
   - **Gold:** gravado pelo Spark como modelo estrela (`dim_` / `fact_`); é a única camada que o negócio consulta e vive só aqui.
