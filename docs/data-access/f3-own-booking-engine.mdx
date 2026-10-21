@@ -35,27 +35,56 @@ The team's shared database runs on Neon (managed PostgreSQL 16), loaded in `full
 
 | Property | Value |
 | --- | --- |
-| Host | `ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech` |
+| Host | `ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech` (pooled) · `ep-divine-cake-b48dsbxg.c-6.us-east-2.aws.neon.tech` (direct) |
 | Port | `5432` |
 | Database | `hospedaplus` |
-| User | `hospedaplus_owner` |
 | SSL | `sslmode=require`, `channel_binding=require` |
 
-Connection string:
+### Roles
 
-```text
+Each client connects with its own role and gets only the access it needs, so a bug or a leaked URL in one place cannot wipe the data.
+
+| Role | Used by | Can |
+| --- | --- | --- |
+| `hospedaplus_owner` | Seed (`init`, `seed`, reloads) | Everything. |
+| `hospedaplus_api` | FastAPI, Kafka consumers | Read all tables; update `inventory`; insert and update `reservations` and `guests`; never delete. |
+| `hospedaplus_reader` | Team (DBeaver, psql), Airflow bronze worker | Read only. |
+
+### Connection strings
+
+Use `hospedaplus_reader` unless you need to write.
+
+```text title="hospedaplus_reader"
+postgresql://hospedaplus_reader:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+```
+
+```text title="hospedaplus_api"
+postgresql://hospedaplus_api:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+```
+
+```text title="hospedaplus_owner"
 postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
 ```
 
 For example, with `psql`:
 
 ```bash
-psql "postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require"
+psql "postgresql://hospedaplus_reader:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require"
 ```
 
-- The `-pooler` host suits clients with many short connections, such as the API. The seed uses the direct host (the same host without `-pooler`).
+### Pooled or direct host
+
+The `-pooler` host puts PgBouncer in front of the database, so many client connections share a few real ones. It runs in transaction mode, so anything that needs one fixed session (a lasting `SET`, temporary tables, long bulk loads) goes to the direct host.
+
+| Client | Host |
+| --- | --- |
+| FastAPI, Kafka consumers, Airflow | Pooled |
+| Seed (`init`, `COPY` load) | Direct (same host without `-pooler`) |
+| Team in DBeaver or psql | Pooled |
+
+- In DBeaver or pgAdmin, create a PostgreSQL connection with the fields above and set the SSL mode to `require`.
 - The database sleeps after 5 minutes idle and wakes on the next query, so the first query can take a few seconds.
-- To run the seed locally instead, the repository includes a Docker Compose file with PostgreSQL 16.
+- To run the seed locally instead, the repository includes a Docker Compose file with PostgreSQL 16 on port `5437`, so it never clashes with Neon.
 
 ## What it contains
 
