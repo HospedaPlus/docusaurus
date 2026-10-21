@@ -46,6 +46,7 @@ const sidebars: SidebarsConfig = {
       ],
     },
     'architecture-infrastructure',
+    'architecture-v2',
   ],
 };
 

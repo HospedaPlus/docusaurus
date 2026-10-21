@@ -1,0 +1,94 @@
+---
+sidebar_position: 6
+sidebar_label: Architecture v2
+title: Architecture v2
+hide_table_of_contents: true
+---
+
+import useBaseUrl from '@docusaurus/useBaseUrl';
+import {ArchitectureV2} from '@site/src/components/ArchitectureV2';
+
+# Architecture v2
+
+This is the current data architecture of HospedaPlus Revenue on AWS (region us-east-2, Ohio), after applying the team lead's feedback. Data moves from left to right through five blocks: the sources, the entry into AWS, processing inside the production VPC, the data lake with its catalog, and the analytics used to decide prices. A security and observability layer runs across all of them.
+
+:::info[What changed from v1]
+RDS was replaced by **Neon** (Gold is no longer copied to PostgreSQL), Lambda functions became **Airflow tasks**, there is no staging VPC (a Neon `dev` branch and local Docker take its place) and QuickSight was replaced by **Power BI**. RabbitMQ, Celery and Spark stay, each with a defined role.
+:::
+
+<ArchitectureV2 />
+
+## Block by block
+
+### 1. Data sources
+
+- **Guests (web / app)** make direct and corporate bookings through the chain's own booking engine (F3). Their requests go through Route 53.
+- **F2 · Channel Manager** sends the OTA events (bookings, cancellations and rates) to RabbitMQ.
+- **Public APIs F5, F6 and F7** (reviews and other external sources) are extracted once a day over HTTPS, going out through the NAT Gateway.
+- **F1 Kaggle and F4 agencies** arrive as files: the Kaggle history once, the agency CSVs every day, into `s3://…/landing` and then Bronze.
+- **The dev team** uses GitHub Actions to run pytest, build the images and deploy them.
+
+### 2. Entry
+
+- **Route 53** resolves the DNS of the bookings API.
+- **AWS WAF** limits the request rate and applies the OWASP rules before traffic reaches the Internet Gateway.
+- **Amazon ECR** stores the images for FastAPI, the consumers and Airflow, which are deployed from there.
+
+### 3. Processing — production VPC
+
+- **Public subnet:** the Internet Gateway lets traffic in, the Application Load Balancer terminates HTTPS and forwards it to FastAPI, and the NAT Gateway gives the private subnets a way out to the external APIs and Neon.
+- **Private subnet, real time:** FastAPI on ECS Fargate answers availability and direct bookings and receives the F2 webhooks; a direct booking is written to Neon with a conditional `UPDATE`. Amazon MQ (RabbitMQ) carries the F2 events and rates on `/streaming` and acts as the Celery broker on `/airflow`. The Fargate consumers read `q.operacion` to apply the events in Neon and `q.bronze` to land them in Bronze every 5 minutes.
+- **Private subnet, batch:** a `t3.medium` EC2 runs Airflow 3 with the CeleryExecutor (API Server, Scheduler, DAG Processor and metadata DB). A separate `t3.xlarge` EC2 runs three Celery workers with Spark: *bronze* (Python, extracts from Neon, the APIs and the files), *silver* (Spark: validates, deduplicates, pseudonymizes and converts amounts to COP) and *gold* (Spark: `dim_` / `fact_` tables and hourly rates). If Spark runs out of memory, only the workers' EC2 goes down, not the Scheduler.
+- **Neon PostgreSQL 16 (external SaaS)** is the F3 operational database: 28 hotels and 4,000 rooms, with `production` and `dev` branches. The bronze worker reads bookings, channels and rates incrementally with a read-only role.
+- **S3 gateway endpoint** (free) lets the workers write Parquet to S3 without going through the NAT.
+
+### 4. Data lake and catalog
+
+- The **`hospedaplus-datalake`** bucket is encrypted with SSE-KMS and stores Parquet partitioned by date, with one copy per layer:
+  - **Bronze:** the data as it arrives (F2 events every 5 minutes and the daily extractions); moved to Glacier after 90 days.
+  - **Silver:** written by Spark; clean, typed and deduplicated, anomalies in quarantine and no personal data.
+  - **Gold:** written by Spark as a star schema (`dim_` / `fact_`); the only layer the business queries, and it lives only here.
+- When Gold finishes, Airflow starts the **Glue Crawler**, which reads `silver/` and `gold/` and registers tables and partitions in the **Glue Data Catalog**.
+- **Amazon Athena** uses that catalog to query the Parquet files with SQL, without copying them to another database, and charges per data scanned. Its results go to `s3://…/athena-results/` and are deleted after 7 days.
+
+### 5. Analytics and decision
+
+- **Power BI** (preferred) connects to Athena through its ODBC connector, with a scheduled refresh through a gateway.
+- **Metabase** (alternative) is open source and has a native Athena connector; it is still being evaluated.
+- The **Revenue Manager and the hotel managers** use these dashboards to decide price and occupancy per hotel.
+
+### Security and observability
+
+| Service | Role |
+| --- | --- |
+| IAM | Roles for the EC2 instances (S3, Glue, secrets) and the Fargate tasks; people with MFA and least privilege. |
+| KMS | Our own key encrypts the S3 bucket, the EBS disks, the secrets and Amazon MQ. |
+| Secrets Manager | Neon URLs per role, RabbitMQ users and API keys. None of this is in the repo. |
+| CloudWatch | FastAPI, consumer and Airflow logs; alarms for ALB 5xx, a growing queue, a failed DAG and cost. |
+| CloudTrail | Audit of who read a secret, changed IAM permissions or deleted data in S3. |
+| Systems Manager | Access to the EC2 instances and the Airflow UI without SSH or open ports (Session Manager). |
+
+## Data flows
+
+The colors in the diagram follow the legend:
+
+- **Real time (pink):** guest → Route 53 → WAF → ALB → FastAPI → Neon, and F2 → RabbitMQ → consumers → Neon.
+- **CI/CD and Airflow control (purple, dashed):** GitHub Actions → ECR → FastAPI and the Airflow EC2; RabbitMQ is also the Celery broker between the Airflow core and the workers.
+- **Batch (blue):** sources → bronze worker → Bronze → Silver → Gold, written through the S3 endpoint.
+- **Metadata (teal, dashed):** Glue Crawler → Glue Data Catalog → Athena.
+- **Hourly rates (orange):** gold worker → RabbitMQ → consumer → Neon.
+- **Gold consumption (green):** Gold → Athena → Power BI or Metabase → managers.
+
+## Open decisions
+
+Still to decide (priority 5):
+
+- Power BI Pro licenses or open-source Metabase.
+- Power BI Service needs a gateway with the Athena ODBC driver to refresh the data.
+- How to publish the dashboards and give the managers access.
+
+## Original diagram
+
+The diagram above is a recreation of the team's original drawing, which you can <a href={useBaseUrl('/img/architecture-v2-original.png')} target="_blank" rel="noopener">open at full size</a>.
+
+<img src={useBaseUrl('/img/architecture-v2-original.png')} alt="Original HospedaPlus AWS data architecture diagram" />

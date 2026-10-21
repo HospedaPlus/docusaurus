@@ -1,0 +1,747 @@
+/* Flow colors (legend). Each flow class sets --flow for edges, links and the legend. */
+.realtime {
+  --flow: #d6286a;
+}
+
+.cicd {
+  --flow: #7c4ddf;
+}
+
+.batch {
+  --flow: #1f6fd1;
+}
+
+.meta {
+  --flow: #138a99;
+}
+
+.rates {
+  --flow: #e2630f;
+}
+
+.gold {
+  --flow: #1d8f4e;
+}
+
+.figure {
+  container: arch / inline-size;
+  margin: 1.5rem 0 2rem;
+  padding: 1rem;
+  border: 1px solid var(--hp-border);
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--hp-ink-soft);
+}
+
+/* ---------- Header ---------- */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--hp-ink);
+}
+
+.subtitle {
+  font-size: 0.72rem;
+  color: var(--hp-muted);
+}
+
+.changes {
+  flex: 1 1 22rem;
+  max-width: 36rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #f3b7bf;
+  border-radius: 8px;
+  background: #fff4f5;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: var(--hp-ink-soft);
+}
+
+/* ---------- Board: stacked by default, five columns when there is room ---------- */
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cloud {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.6rem;
+  border: 1.5px dashed #8a93ad;
+  border-radius: 10px;
+}
+
+.cloudLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--hp-ink);
+}
+
+.awsTag {
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  background: #232f3e;
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.columnTitle {
+  margin: 0 0 0.6rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 6px;
+  background: var(--hp-navy);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.columnBody {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.columnBody > * {
+  flex: 1 1 12rem;
+}
+
+.processing .columnBody > *,
+.lake .columnBody > * {
+  flex-basis: 100%;
+}
+
+/* ---------- Nodes ---------- */
+
+.node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  text-align: center;
+}
+
+.nodeLogo {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.nodeTitle {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--hp-ink);
+}
+
+.nodeCaption {
+  display: block;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  color: var(--hp-muted);
+}
+
+.sourceIcon {
+  color: var(--hp-ink-soft);
+}
+
+.box {
+  padding: 0.55rem;
+  border: 1.5px solid #f2a65a;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.dashedBox {
+  padding: 0.6rem;
+  border: 1.5px dashed #b9c0d6;
+  border-radius: 8px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.row > .node,
+.row > .zone {
+  flex: 1 1 7.5rem;
+}
+
+.row > .link {
+  align-self: center;
+}
+
+/* ---------- Edges and links ---------- */
+
+.flowLine {
+  flex: none;
+  fill: none;
+  stroke: var(--flow);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.edges {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  margin-top: 0.35rem;
+}
+
+.edge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  max-width: 100%;
+  font-size: 0.64rem;
+  line-height: 1.35;
+  color: var(--flow);
+  text-align: left;
+}
+
+.edge > svg {
+  position: relative;
+  top: 1px;
+}
+
+.edge strong {
+  font-weight: 600;
+}
+
+.edgeBoth {
+  font-weight: 700;
+}
+
+.link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.left {
+  transform: rotate(180deg);
+}
+
+.down {
+  transform: rotate(90deg);
+}
+
+.up {
+  transform: rotate(-90deg);
+}
+
+/* ---------- Zones (VPC, subnets, external) ---------- */
+
+.zone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.55rem;
+  border: 1.5px solid var(--zone-border);
+  border-radius: 8px;
+  background: var(--zone-bg);
+}
+
+.zoneLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--zone-color);
+}
+
+.vpc {
+  --zone-border: #8c4fff;
+  --zone-bg: transparent;
+  --zone-color: #6d3ee0;
+}
+
+.public {
+  --zone-border: #7aa116;
+  --zone-bg: #f4f9ec;
+  --zone-color: #4d7a0c;
+}
+
+.realtimeZone {
+  --zone-border: #e8708f;
+  --zone-bg: #fff3f6;
+  --zone-color: #c21f55;
+}
+
+.batchZone {
+  --zone-border: #3d8fd6;
+  --zone-bg: #eef6fd;
+  --zone-color: #1f63b0;
+}
+
+.external {
+  --zone-border: #3dbb6d;
+  --zone-bg: #f1fbf4;
+  --zone-color: #1d8f4e;
+  border-style: dashed;
+}
+
+.endpoint {
+  border-color: #b9c0d6;
+}
+
+/* ---------- Batch subnet ---------- */
+
+.batchRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ec2 {
+  display: flex;
+  flex: 1 1 11rem;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.ec2Head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.ec2Head > svg {
+  flex: none;
+}
+
+.components {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding: 0.45rem;
+  border-radius: 6px;
+  background: var(--hp-card-bg);
+}
+
+.components > svg {
+  flex: none;
+}
+
+.worker {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding: 0.4rem 0.45rem;
+  border: 1px solid var(--layer-border);
+  border-radius: 6px;
+  background: var(--layer-bg);
+}
+
+.worker > svg {
+  flex: none;
+}
+
+.worker .edges {
+  align-items: flex-start;
+}
+
+.ec2 > .edges {
+  align-items: flex-start;
+}
+
+.note {
+  margin: 0;
+  font-size: 0.64rem;
+  line-height: 1.4;
+  color: var(--hp-muted);
+}
+
+/* ---------- Data lake ---------- */
+
+.howGold,
+.decide {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--hp-border);
+  border-radius: 8px;
+  background: var(--hp-card-bg);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.howGold strong,
+.decide strong {
+  color: var(--hp-ink);
+}
+
+.howGold ol,
+.decide ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.bucket {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.55rem;
+  border: 1.5px solid #7aa116;
+  border-radius: 8px;
+}
+
+.layers {
+  display: flex;
+  align-items: stretch;
+  gap: 0.2rem;
+}
+
+.layers > .link {
+  align-self: center;
+}
+
+.layer {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 0.5rem 0.35rem;
+  border: 1.5px solid var(--layer-border);
+  border-radius: 8px;
+  background: var(--layer-bg);
+  text-align: center;
+}
+
+.bucket > .edges {
+  align-items: flex-start;
+}
+
+.bronze {
+  --layer-border: #e0a46c;
+  --layer-bg: #fbeee2;
+}
+
+.silver {
+  --layer-border: #b4bac6;
+  --layer-bg: #f1f2f5;
+}
+
+.layer.gold,
+.worker.gold {
+  --layer-border: #e6c84f;
+  --layer-bg: #fff8d6;
+}
+
+/* ---------- Security layer ---------- */
+
+.security {
+  margin-top: 1rem;
+  padding: 0.6rem;
+  border: 1.5px solid #e8798a;
+  border-radius: 10px;
+  background: #fff6f7;
+}
+
+.securityTitle {
+  margin-bottom: 0.55rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #c21f3a;
+}
+
+.securityItems {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.securityItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid #f1d0d5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.securityItem > svg {
+  flex: none;
+}
+
+/* ---------- Legend ---------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1.4rem;
+  margin-top: 0.9rem;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.legend > strong {
+  color: var(--hp-ink);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* ---------- Wide layout: five columns like the original diagram ---------- */
+
+@container arch (min-width: 1000px) {
+  .board {
+    display: grid;
+    grid-template-columns: 1fr 5.4fr 1.2fr;
+    align-items: stretch;
+  }
+
+  .cloud {
+    display: grid;
+    grid-template-columns: 0.85fr 2.6fr 2fr;
+    grid-template-rows: auto 1fr;
+    gap: 0.6rem;
+  }
+
+  .cloudLabel {
+    grid-column: 1 / -1;
+  }
+
+  .columnBody {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    justify-content: space-between;
+  }
+
+  .columnBody > *,
+  .processing .columnBody > *,
+  .lake .columnBody > * {
+    flex: none;
+  }
+
+  /* Line the outer columns up with the ones inside the AWS Cloud box. */
+  .sources .columnTitle,
+  .analytics .columnTitle {
+    margin-top: 2.65rem;
+  }
+
+  .sources .columnBody {
+    justify-content: space-around;
+  }
+
+  .entry .columnBody {
+    justify-content: flex-start;
+    gap: 2.5rem;
+  }
+
+  /* Column 4 is narrow: the catalog chain and the layers run top to bottom. */
+  .catalog,
+  .layers {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+
+  .catalog > .link,
+  .layers > .link {
+    transform: rotate(90deg);
+  }
+
+  .catalog > .link.left {
+    transform: rotate(-90deg);
+  }
+
+  .catalog > .node {
+    flex: none;
+  }
+
+  .securityItems {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .analytics .columnBody {
+    justify-content: flex-start;
+    gap: 1.25rem;
+  }
+}
+
+/* ---------- Phone width: rows become top-to-bottom chains ---------- */
+
+@container arch (max-width: 560px) {
+  .row,
+  .layers {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .row > .link,
+  .layers > .link {
+    transform: rotate(90deg);
+  }
+
+  .row > .link.left {
+    transform: rotate(-90deg);
+  }
+
+  .row > .node,
+  .row > .zone {
+    flex: none;
+  }
+}
+
+/* ---------- Dark mode ---------- */
+
+:global(html[data-theme='dark']) .figure {
+  background: #0f1430;
+}
+
+:global(html[data-theme='dark']) .realtime {
+  --flow: #ff74a5;
+}
+
+:global(html[data-theme='dark']) .cicd {
+  --flow: #b59cff;
+}
+
+:global(html[data-theme='dark']) .batch {
+  --flow: #6eaaff;
+}
+
+:global(html[data-theme='dark']) .meta {
+  --flow: #4fd0dc;
+}
+
+:global(html[data-theme='dark']) .rates {
+  --flow: #ffa05a;
+}
+
+:global(html[data-theme='dark']) .gold {
+  --flow: #5fd38f;
+}
+
+:global(html[data-theme='dark']) .changes {
+  border-color: #6b2c3a;
+  background: #2a1424;
+}
+
+:global(html[data-theme='dark']) .cloud {
+  border-color: #4b5478;
+}
+
+:global(html[data-theme='dark']) .columnTitle {
+  background: #232b5c;
+}
+
+:global(html[data-theme='dark']) .box {
+  border-color: #a8622a;
+  background: #141a3a;
+}
+
+:global(html[data-theme='dark']) .dashedBox,
+:global(html[data-theme='dark']) .endpoint {
+  border-color: #3a4370;
+}
+
+:global(html[data-theme='dark']) .vpc {
+  --zone-border: #8a6bff;
+  --zone-color: #b59cff;
+}
+
+:global(html[data-theme='dark']) .public {
+  --zone-border: #4f7a1c;
+  --zone-bg: #142318;
+  --zone-color: #a6d86a;
+}
+
+:global(html[data-theme='dark']) .realtimeZone {
+  --zone-border: #7a2e48;
+  --zone-bg: #251328;
+  --zone-color: #ff8db3;
+}
+
+:global(html[data-theme='dark']) .batchZone {
+  --zone-border: #2c5a8e;
+  --zone-bg: #0f1d38;
+  --zone-color: #8cc4ff;
+}
+
+:global(html[data-theme='dark']) .external {
+  --zone-border: #2a7a4c;
+  --zone-bg: #10221c;
+  --zone-color: #6fe0a0;
+}
+
+:global(html[data-theme='dark']) .bucket {
+  border-color: #4f7a1c;
+}
+
+:global(html[data-theme='dark']) .bronze {
+  --layer-border: #8a5a2e;
+  --layer-bg: #2a1d16;
+}
+
+:global(html[data-theme='dark']) .silver {
+  --layer-border: #4d5470;
+  --layer-bg: #1b2140;
+}
+
+:global(html[data-theme='dark']) .layer.gold,
+:global(html[data-theme='dark']) .worker.gold {
+  --layer-border: #8a7424;
+  --layer-bg: #262312;
+}
+
+:global(html[data-theme='dark']) .security {
+  border-color: #6b2c3a;
+  background: #1d1228;
+}
+
+:global(html[data-theme='dark']) .securityTitle {
+  color: #ff8d9f;
+}
+
+:global(html[data-theme='dark']) .securityItem {
+  border-color: #3d2440;
+  background: #141a3a;
+}
