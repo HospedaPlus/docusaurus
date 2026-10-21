@@ -55,21 +55,21 @@ Each client connects with its own role and gets only the access it needs, so a b
 Use `hospedaplus_reader` unless you need to write.
 
 ```text title="hospedaplus_reader"
-postgresql://hospedaplus_reader:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+postgresql://<ROLE>:<PASSWORD>@<NEON_HOST>/<DATABASE>?sslmode=require&channel_binding=require
 ```
 
 ```text title="hospedaplus_api"
-postgresql://hospedaplus_api:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+postgresql://<ROLE>:<PASSWORD>@<NEON_HOST>/<DATABASE>?sslmode=require&channel_binding=require
 ```
 
 ```text title="hospedaplus_owner"
-postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+postgresql://<ROLE>:<PASSWORD>@<NEON_HOST>/<DATABASE>?sslmode=require&channel_binding=require
 ```
 
 For example, with `psql`:
 
 ```bash
-psql "postgresql://hospedaplus_reader:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require"
+psql "postgresql://<ROLE>:<PASSWORD>@<NEON_HOST>/<DATABASE>?sslmode=require&channel_binding=require"
 ```
 
 ### Pooled or direct host
