@@ -86,6 +86,158 @@ Die Marts sind vorab aggregierte Antworten aus den Fakten, sodass jede Dashboard
 
 Dazu `neon_cancellation_rate_by_lead` (Hotel × Vorlaufklasse), eine kleine JSON-Datei, die `gold_neon_writeback` in Neon lädt. Siehe [Verbindung zu Neon](../neon-connection.mdx).
 
+## So wird das Modell gebaut, im Code
+
+Alles steht in `spark_jobs/gold_modelo.py`. Der Job hat drei Schritte: Silver und die Neon-Kataloge **lesen**, jede Tabelle mit reinen Funktionen **bauen** (ohne Lesen oder Schreiben darin, daher testbar), dann **prüfen** und **schreiben**. Die Auszüge stammen aus dieser Datei und sind nur dort gekürzt, wo `…` steht.
+
+### 1. Lesen: Silver und die neuesten Kataloge
+
+```python
+def run() -> dict[str, int]:
+    s = spark("gold_modelo")
+    silver = {name: s.read.parquet(path("silver", name))
+              for name in ("reservas", "cancelaciones", "ocupacion_diaria", "calendario_hotel", "tasa_cambio_diaria")}
+    silver["resenas"] = _optional(lambda: s.read.parquet(path("silver", "resenas")))
+    silver["historico_f1"] = _optional(lambda: s.read.parquet(path("silver", "historico_f1")))
+    dims = {name: sr._latest_dim(s, name) for name in ("hotels", "channels", "room_types")}
+    dims["rates"] = _optional(lambda: sr._latest_dim(s, "rates"))
+    tables = build(silver, dims, dt.datetime.now(dt.timezone.utc).date(), s)
+    check(tables)
+    …
+```
+
+`_optional` gibt `None` zurück, wenn ein Ordner noch nicht existiert, so stoppt eine fehlende optionale Quelle (Bewertungen, F1, Tarife) niemals P1 bis P4.
+
+### 2. Bauen: Dimensionen
+
+`dim_fecha` wird erzeugt, nicht gelesen: eine Zeile pro Tag, von vor einem Jahr bis zum letzten Check-out.
+
+```python
+def dim_fecha(first: dt.date, last: dt.date, spark: SparkSession) -> DataFrame:
+    d = spark.range(1).select(F.explode(F.sequence(F.lit(first), F.lit(last))).alias("fecha"))
+    dow = F.dayofweek("fecha")  # 1 = Sunday
+    return (d.withColumn("fecha_key", F.date_format("fecha", "yyyyMMdd").cast("int"))
+            .withColumn("anio", F.year("fecha")).withColumn("trimestre", F.quarter("fecha"))
+            .withColumn("mes", F.month("fecha")).withColumn("nombre_mes", F.date_format("fecha", "MMMM"))
+            .withColumn("semana_iso", F.weekofyear("fecha"))
+            .withColumn("dia_semana", F.date_format("fecha", "EEEE"))
+            .withColumn("es_fin_de_semana", dow.isin(1, 7))
+            .withColumn("anio_mes", F.date_format("fecha", "yyyy-MM")))
+```
+
+Die anderen Dimensionen benennen die Spalten der Neon-Kataloge um. `dim_hotel` hält Stadt, Land und Kategorie in derselben Tabelle (deshalb ist es ein Stern und keine Schneeflocke) und ergänzt die Zimmerzahl:
+
+```python
+def dim_hotel(hotels: DataFrame, ocupacion: DataFrame) -> DataFrame:
+    rooms = (ocupacion.groupBy("hotel_code", "fecha").agg(F.sum("habitaciones").alias("h"))
+             .groupBy("hotel_code").agg(F.max("h").alias("habitaciones")))
+    return (hotels.select(F.col("code").alias("hotel_code"), F.col("name").alias("nombre"),
+                          F.col("category").alias("categoria"), F.col("city").alias("ciudad"),
+                          F.col("country").alias("pais"), F.col("currency").alias("moneda"),
+                          F.col("timezone").alias("zona_horaria"))
+            .join(rooms, "hotel_code", "left"))
+```
+
+### 3. Bauen: Fakten
+
+`fact_reservas` sind die Silver-Buchungen ohne die F4-Duplikate, plus die Vorlaufklasse, die P1 nutzt:
+
+```python
+def fact_reservas(reservas: DataFrame) -> DataFrame:
+    return (reservas.filter("NOT es_duplicado")
+            .select("code", "source", "hotel_code", "channel_code", "channel_type", "room_type", "status",
+                    "fecha_reserva", "check_in", "check_out", "noches", "habitaciones", "huespedes",
+                    "lead_time_dias", "reembolsable", "es_cancelada", "currency", "fx_estimada",
+                    "total_cop", "comision_pct", "comision_cop", "neto_cop", "penalidad_cop")
+            .withColumn("rango_anticipacion", lead_bucket(F.col("lead_time_dias"))))
+```
+
+Der Umsatz pro Nacht braucht eine Zeile pro Buchung und Aufenthaltsnacht. `_nights` „explodiert“ jede Buchung in ihre Nächte, und `fact_ocupacion` ergänzt diesen Umsatz und die Feiertags-/Event-Kennzeichen in der Silver-Belegung:
+
+```python
+def _nights(fact_res: DataFrame) -> DataFrame:
+    night = F.explode(F.sequence("check_in", F.date_sub("check_out", 1)))
+    return fact_res.filter("noches > 0").select(
+        "hotel_code", "room_type", "habitaciones", "fecha_reserva", "es_cancelada",
+        F.to_date(F.col("_cancelada_en")).alias("fecha_cancelacion"),
+        (F.col("total_cop") / F.col("noches")).alias("ingreso_noche_cop"), night.alias("fecha"))
+
+
+def fact_ocupacion(ocupacion: DataFrame, n: DataFrame, calendario: DataFrame) -> DataFrame:
+    ingreso = (n.filter("NOT es_cancelada").groupBy("hotel_code", "room_type", "fecha")
+               .agg(F.round(F.sum(F.col("ingreso_noche_cop") * 1.0), 2).alias("ingreso_cop")))
+    cal = calendario.select("hotel_code", "fecha", "es_festivo", "nombre_festivo", "hay_evento", "evento",
+                            "categoria_evento")
+    return (ocupacion.join(ingreso, ["hotel_code", "room_type", "fecha"], "left")
+            .join(cal, ["hotel_code", "fecha"], "left")
+            .fillna({"ingreso_cop": 0.0, "es_festivo": False, "hay_evento": False}))
+```
+
+### 4. Bauen: Marts, bereit für die Analyse
+
+Ein Mart ist ein Fakt, der schon auf der Ebene gruppiert ist, die eine Dashboard-Seite braucht. Zum Beispiel P3 (Auslastung, ADR, RevPAR pro Hotel und Nacht):
+
+```python
+def mart_p3_revenue(fo: DataFrame, otb: DataFrame) -> DataFrame:
+    …
+    return (fo.groupBy("hotel_code", "fecha")
+            .agg(F.sum("habitaciones").alias("habitaciones"), F.sum("vendidas").alias("vendidas"),
+                 F.round(F.sum("ingreso_cop"), 2).alias("ingreso_cop"), …)
+            .join(p, ["hotel_code", "fecha"], "left")
+            .withColumn("ocupacion_pct", F.round(F.when(F.col("habitaciones") > 0,
+                                                        F.col("vendidas") * 100.0 / F.col("habitaciones")), 2))
+            .withColumn("adr_cop", F.round(F.when(F.col("vendidas") > 0, F.col("ingreso_cop") / F.col("vendidas")), 2))
+            .withColumn("revpar_cop", F.round(F.when(F.col("habitaciones") > 0,
+                                                     F.col("ingreso_cop") / F.col("habitaciones")), 2))
+            .withColumn("pickup_pct", _pickup_pct()))
+```
+
+`build()` setzt alles zusammen. Fakten, die mehrere Marts nutzen, werden gecacht, damit Spark sie nur einmal berechnet:
+
+```python
+def build(silver, dims, today, spark) -> dict[str, DataFrame]:
+    res, ocup, cal = silver["reservas"], silver["ocupacion_diaria"], silver["calendario_hotel"]
+    fr = fact_reservas(res).cache()
+    n = nights(res).cache()
+    otb = on_the_books(n).cache()
+    fo = fact_ocupacion(ocup, n, cal).cache()
+    t = {
+        "dim_fecha": dim_fecha(…), "dim_hotel": dim_hotel(dims["hotels"], ocup),
+        "dim_canal": dim_canal(dims["channels"]), "dim_tipo_habitacion": dim_tipo_habitacion(dims["room_types"]),
+        "fact_reservas": fr, "fact_cancelaciones": fact_cancelaciones(silver["cancelaciones"]),
+        "fact_ocupacion_diaria": fo,
+        "mart_p1_cancelacion": mart_p1_cancelacion(fr), "mart_p2_sobreventa": mart_p2_sobreventa(fo),
+        "mart_p3_revenue": mart_p3_revenue(fo, otb), "mart_p4_comisiones": mart_p4_comisiones(fr),
+        "neon_cancellation_rate_by_lead": neon_cancellation_rates(fr, today),
+    }
+    …
+    return t
+```
+
+### 5. Prüfen, dann schreiben
+
+`check()` läuft, bevor irgendetwas geschrieben wird. Zum Beispiel lehnt es Buchungen ab, deren Hotel oder Kanal nicht in den Dimensionen steht:
+
+```python
+fr = t["fact_reservas"]
+orphan = fr.join(t["dim_hotel"], "hotel_code", "left_anti").count() + \
+    fr.join(t["dim_canal"], "channel_code", "left_anti").count()
+if orphan:
+    raise quality.QualityError(f"gold.fact_reservas: {orphan} rows without their hotel or channel")
+```
+
+Erst wenn alle Prüfungen bestanden sind, wird jede Tabelle in S3 als Parquet überschrieben. Die kleine Tabelle für Neon wird als eine einzige JSON-Datei geschrieben:
+
+```python
+for name, df in tables.items():
+    if name == "neon_cancellation_rate_by_lead":
+        df.coalesce(1).write.mode("overwrite").json(path("gold", name))
+    else:
+        df.write.mode("overwrite").parquet(path("gold", name))
+```
+
+Von dort liest Athena die Tabellen über den Glue-Katalog, und Power BI liest Athena (siehe [Athena-Konfiguration](../athena.mdx)).
+
 ## Qualitätsprüfungen vor dem Schreiben
 
 - Jede Dimension, jeder Fakt und jeder Haupt-Mart ist nicht leer und auf seinem Schlüssel eindeutig.

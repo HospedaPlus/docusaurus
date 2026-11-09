@@ -1,0 +1,140 @@
+---
+sidebar_label: Resolução das dores
+title: Como cada dor é resolvida
+---
+
+# Como cada dor é resolvida
+
+Esta página pega cada dor do negócio de [As dores](./the-pains.mdx), explica em palavras simples como a plataforma a resolve e mostra **onde você pode ver a solução**. Cada resposta termina em uma tabela gold. Você pode consultar essa tabela no Athena (banco `hospedaplus_gold`), e o Power BI a lê de lá. As tabelas gold são reconstruídas toda noite e ficam prontas por volta das 22:35 hora da Colômbia (03:35 UTC).
+
+| # | Dor | Solução em uma frase | Onde ver |
+| --- | --- | --- | --- |
+| P1 | 37 % das reservas são canceladas | Medir a taxa de cancelamento por canal, antecedência e reembolsável/não reembolsável, e devolver essas taxas à operação | `mart_p1_cancelacion`, `mart_p1_historico_f1`, Neon `operation.cancellation_rate_by_lead` |
+| P2 | Overbooking sem controle | Toda reserva de todos os canais passa por uma só função que bloqueia o inventário e respeita um limite de overbooking calculado | Neon `operation.reservar()`, `mart_p2_sobreventa` |
+| P3 | Preços ajustados à mão, com uma semana de atraso | Ocupação, ADR, RevPAR e pickup são calculados toda noite, junto com um preço sugerido para as próximas 90 noites | `mart_p3_revenue`, `mart_p3_precio_sugerido` |
+| P4 | Comissões não descontadas | A comissão é descontada de cada reserva no silver, então a receita bruta, a comissão e a líquida são conhecidas por canal | `mart_p4_comisiones` |
+| P5 | Avaliações negativas não analisadas | As avaliações são deduplicadas entre plataformas, classificadas por sentimento e viram uma nota de reputação por hotel e dia | `mart_p5_reputacion`, `fact_resenas` |
+| – | Sem visão única das reservas | Todos os canais (motor próprio, OTA, agências) reservam pelo Neon, e o silver guarda uma linha por reserva | `fact_reservas`, `fact_ocupacion_diaria` |
+
+## P1 · Alta taxa de cancelamento
+
+**O problema.** 37 % das reservas são canceladas e a política de cancelamento é a mesma para todos os canais. Ninguém sabia *quais* reservas cancelam.
+
+**A solução.**
+1. O silver calcula, para cada reserva cancelada, quantas horas antes do check-in ela foi cancelada e a multa cobrada (`silver/cancelaciones`).
+2. O gold agrupa as reservas por **canal × faixa de antecedência × reembolsável × mês** e dá a taxa de cancelamento, a multa cobrada e a receita perdida (`mart_p1_cancelacion`). O histórico do Kaggle adiciona a visão por **tipo de depósito** (`mart_p1_historico_f1`).
+3. Toda noite `gold_neon_writeback` grava a taxa por hotel e faixa de antecedência no Neon (`operation.cancellation_rate_by_lead`). A operação usa essa taxa para os limites de overbooking (P2), então o negócio e a operação trabalham com o mesmo número.
+4. O Neon tem uma tabela de políticas de cancelamento por tipo de canal e reembolsável (`operation.cancellation_policies`), com uma multa que depende de quão perto do check-in o hóspede cancela.
+
+**Onde ver.**
+
+```sql
+SELECT channel_type, rango_anticipacion, reembolsable,
+       SUM(reservas) AS reservas, SUM(canceladas) AS canceladas,
+       ROUND(SUM(canceladas) * 1.0 / SUM(reservas), 3) AS tasa_cancelacion,
+       SUM(ingreso_perdido_cop) AS ingreso_perdido_cop
+FROM hospedaplus_gold.mart_p1_cancelacion
+GROUP BY channel_type, rango_anticipacion, reembolsable
+ORDER BY tasa_cancelacion DESC;
+```
+
+## P2 · Overbooking sem controle
+
+**O problema.** Cada canal vendia quartos por conta própria, então os hotéis vendiam mais quartos do que tinham e precisavam realocar hóspedes.
+
+**A solução.**
+1. **Uma só porta para todas as reservas.** O motor de reservas (F3), o consumidor OTA (F2) e o carregador de agências (F4) chamam a mesma função do Neon, `operation.reservar()`. Ela bloqueia as noites pedidas com `SELECT … FOR UPDATE`, então dois canais nunca podem vender o último quarto ao mesmo tempo:
+
+   ```sql
+   SELECT inventory_date, available_rooms
+     FROM inventory
+    WHERE hotel_id = v_hotel.id AND room_type_id = v_type.id
+      AND inventory_date >= p_check_in AND inventory_date < p_check_out
+    ORDER BY inventory_date
+      FOR UPDATE
+   ```
+
+   Se uma noite não tem mais quarto, a reserva é recusada e fica em `reservation_rejections`, então a demanda que não pôde ser atendida também é medida.
+2. **Um limite calculado.** `available_rooms` inclui um `overbooking_limit` por hotel, tipo de quarto e noite: no máximo 5 % dos quartos, menos se a taxa de cancelamento for baixa, e **0 em noites com um evento local de alto impacto** (F6). `refresh_overbooking_limits()` o recalcula com as taxas do P1. Por enquanto está desligado (`NEON_REFRESH_OVERBOOKING=false`), porque ligá-lo muda quantos quartos os hotéis podem vender.
+3. O gold mede o resultado por hotel e noite: quartos vendidos acima da capacidade, realocações, recusas e % realocado (`mart_p2_sobreventa`).
+
+**Onde ver.**
+
+```sql
+SELECT hotel_code, fecha, habitaciones, vendidas, limite_sobreventa,
+       sobrevendidas, reubicadas, habitaciones_rechazadas, pct_reubicacion
+FROM hospedaplus_gold.mart_p2_sobreventa
+WHERE sobrevendidas > 0 OR reubicadas > 0
+ORDER BY fecha DESC;
+```
+
+## P3 · Preços manuais e atrasados
+
+**O problema.** Os preços eram ajustados à mão uma vez por semana, sem conhecer o ritmo de reservas de cada noite.
+
+**A solução.**
+1. Toda noite o gold calcula, por hotel e noite, a **ocupação %**, o **ADR** (receita ÷ quartos vendidos), o **RevPAR** (receita ÷ quartos disponíveis) e o **pickup**: os quartos já reservados 14 dias antes da noite, comparados com o mesmo dia da semana um ano antes (`mart_p3_revenue`). Feriados (F6 Nager) e eventos locais (F6) vêm como indicadores.
+2. Para as próximas 90 noites sugere um preço (`mart_p3_precio_sugerido`). A fórmula é a tarifa base × o fator de pickup (1,10 quando o pickup está mais de 15 % acima do ano anterior, 0,92 quando está mais de 15 % abaixo) × 1,15 em feriados e noites com evento. O resultado sempre fica entre 0,75 e 1,60 da tarifa base (regras RN-05 e RN-06), e também aparece em COP.
+3. Fica pronto toda noite antes das 06:00 hora local em cada hotel, em vez de uma semana depois.
+
+**Onde ver.**
+
+```sql
+SELECT hotel_code, room_type, fecha, tarifa, factor_pickup, factor_evento,
+       precio_sugerido, precio_sugerido_cop
+FROM hospedaplus_gold.mart_p3_precio_sugerido
+WHERE fecha BETWEEN current_date AND current_date + INTERVAL '14' DAY
+ORDER BY hotel_code, fecha;
+```
+
+## P4 · Comissões não descontadas
+
+**O problema.** A receita era medida bruta, então um canal com comissão alta parecia melhor do que era.
+
+**A solução.** O silver converte cada reserva para COP com o câmbio do dia da reserva (F7) e desconta a comissão do canal (`comision_cop`, `neto_cop`). O gold soma por **canal × hotel × mês**, com o % de comissão efetiva (`mart_p4_comisiones`). Estadias canceladas ficam de fora.
+
+**Onde ver.**
+
+```sql
+SELECT channel_type, SUM(bruto_cop) AS bruto_cop, SUM(comision_cop) AS comision_cop,
+       SUM(neto_cop) AS neto_cop,
+       ROUND(SUM(comision_cop) * 100.0 / SUM(bruto_cop), 2) AS pct_comision
+FROM hospedaplus_gold.mart_p4_comisiones
+GROUP BY channel_type
+ORDER BY neto_cop DESC;
+```
+
+## P5 · Avaliações negativas não analisadas
+
+**O problema.** As avaliações chegavam de várias plataformas, muitas vezes a mesma avaliação duas vezes, e ninguém as acompanhava.
+
+**A solução.** O silver guarda a versão mais recente de cada avaliação, remove as cópias da mesma avaliação publicadas em outra plataforma e dá a cada avaliação uma faixa de sentimento pela sua nota (`silver/resenas`, detalhes em [Camada silver](./data-engineering-pipeline/medallion/silver.mdx)). O gold calcula para cada hotel e dia a **nota RN-10**: a média dos últimos 90 dias, com os últimos 30 dias valendo o dobro, mais o % de avaliações positivas e negativas (`mart_p5_reputacion`).
+
+**Onde ver.**
+
+```sql
+SELECT hotel_code, fecha_corte, calificacion_rn10, resenas_90d, pct_positivas, pct_negativas
+FROM hospedaplus_gold.mart_p5_reputacion
+WHERE fecha_corte = (SELECT MAX(fecha_corte) FROM hospedaplus_gold.mart_p5_reputacion)
+ORDER BY pct_negativas DESC;
+```
+
+## Sem visão única das reservas
+
+**O problema.** As reservas chegavam de um channel manager, de arquivos de agências e do motor próprio, cada uma em seu lugar.
+
+**A solução.** Todos os canais reservam pelo Neon (`reservar()`), então existe uma só lista de reservas e um só inventário. O lakehouse a copia a cada hora, e o silver guarda **uma linha por reserva** com as mesmas colunas para todos os canais (`silver/reservas`). No gold, `fact_reservas` e `fact_ocupacion_diaria` são essa visão única. Reservas duplicadas de agências (F4) são marcadas e nunca contam.
+
+**Onde ver.**
+
+```sql
+SELECT source, channel_type, COUNT(*) AS reservas, SUM(total_cop) AS total_cop
+FROM hospedaplus_gold.fact_reservas
+GROUP BY source, channel_type;
+```
+
+## Como abrir esses resultados
+
+1. **Athena**: console da AWS, região us-east-2 → Athena → *Query editor* → banco `hospedaplus_gold`, e rode qualquer uma das consultas acima. Configuração em [Configuração do Athena](./data-engineering-pipeline/athena.mdx).
+2. **Power BI**: conecte com o conector do Amazon Athena ao banco `hospedaplus_gold`. Cada dor tem seu próprio mart, então cada página do relatório lê uma tabela pequena.
+3. **Neon**: as taxas devolvidas para o P1 estão em `operation.cancellation_rate_by_lead`, e as recusas do P2 em `operation.reservation_rejections`.

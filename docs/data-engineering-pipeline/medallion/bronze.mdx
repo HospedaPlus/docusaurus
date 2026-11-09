@@ -32,6 +32,134 @@ Bronze is the raw copy of every source in S3. It is written by plain Python task
 - **F4 files**: the F4 generator copies the week's 15 agency files and a summary to S3 every Monday at 06:00 UTC. At 07:00 `bronze_f4_agencias` checks that the week is complete (it retries up to 6 times, every 20 minutes) and marks the asset. The agency **bookings** reach silver through Neon (the F4 loader calls `reservar()`), not from these files.
 - **F1**: the Kaggle CSV is downloaded once from the `hospedaplus-csv` repository. Its sha256 is saved in the object metadata; if it is already there with the same hash, nothing is uploaded.
 
+## How the extraction works, in code
+
+Every bronze DAG is a small Python task on the `bronze` queue. They all share two helpers: one that reads Neon and one that writes to S3. The excerpts below are taken from `dags/` in the pipeline repository and shortened only where marked with `…`.
+
+### The two shared helpers
+
+`dags/hospedaplus/neon.py` opens a connection with the read-only role `etl_reader` (`NEON_READ_URL`), runs one query and returns the rows as JSON Lines, exactly as Neon gave them:
+
+```python
+def dump(sql: str, params: tuple = ()) -> tuple[bytes, int]:
+    with psycopg2.connect(neon_url()) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        cols = [c.name for c in cur.description]
+        rows = cur.fetchall()
+    lines = [json.dumps(dict(zip(cols, r)), default=str, ensure_ascii=False) for r in rows]
+    return ("\n".join(lines) + ("\n" if lines else "")).encode(), len(rows)
+```
+
+`dags/hospedaplus/lake.py` writes one object to the lakehouse bucket. The worker has no access keys: boto3 takes the temporary credentials of the EC2 IAM role (see [AWS services](../aws-services.mdx)).
+
+```python
+def s3_client():
+    return boto3.client("s3", endpoint_url=os.getenv("S3_ENDPOINT_URL") or None)
+
+
+def put(key: str, body: bytes, content_type: str = "application/json") -> str:
+    s3_client().put_object(Bucket=BUCKET, Key=key, Body=body, ContentType=content_type)
+    return f"s3://{BUCKET}/{key}"
+```
+
+The same file declares one **Asset** per dataset. A task that lists an asset in `outlets` marks it as updated when it succeeds, and that is what starts silver.
+
+```python
+BRONZE_F3_RESERVATIONS = asset("bronze", "f3_reservations")
+BRONZE_F7_FX = asset("bronze", "f7_fx")
+```
+
+### F2 and F3 from Neon, every hour (`bronze_neon_f2_f3.py`)
+
+Each run copies only the rows that changed inside its Airflow data interval `[start, end)`. F3 is read by `updated_at`, which a trigger in Neon sets on every change, so a late OTA event or a status change (no-show, relocated) is never missed. The key is named after the interval, so re-running the hour overwrites the same file.
+
+```python
+F2_SQL = """
+SELECT * FROM streaming.reservation_event_ledger
+ WHERE received_at >= %s AND received_at < %s
+"""
+F3_SQL = """
+SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s
+"""
+
+def _key(prefix: str, start) -> str:
+    return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
+
+
+@dag(schedule="@hourly", start_date=pendulum.datetime(2026, 11, 1, tz="UTC"), catchup=False,
+     tags=["bronze", "F2", "F3"], default_args={"retries": 3, "retry_exponential_backoff": True})
+def bronze_neon_f2_f3():
+    @task(queue="bronze", outlets=[BRONZE_F2_LEDGER])
+    def f2_ledger(data_interval_start=None, data_interval_end=None) -> int:
+        body, n = _dump(F2_SQL, data_interval_start, data_interval_end)
+        put(_key("f2_ledger", data_interval_start), body, "application/x-ndjson")
+        return n
+    …
+```
+
+The nightly full copy of the same tables (`bronze_neon_full_load.py`, one `REPEATABLE READ` transaction, pages of 50,000 rows, `_SUCCESS` at the end) is shown in [Incremental and batch loading](../loading.mdx).
+
+### F5 reviews API, every hour (`bronze_f5_reviews.py`)
+
+The API is asked for everything updated since the start of the hour and every page is walked. The API only filters "from", so the task drops anything after the end of the interval: consecutive hours never overlap.
+
+```python
+items, page = [], 1
+while True:
+    r = requests.get(f"{base}/api/v1/reviews", headers=headers, timeout=60, params={
+        "updated_from": data_interval_start.isoformat(), "page": page, "page_size": PAGE_SIZE})
+    r.raise_for_status()
+    body = r.json()
+    items += body["items"]
+    if page >= body.get("total_pages", 1):
+        break
+    page += 1
+items = [i for i in items if i.get("updated_at") and pendulum.parse(i["updated_at"]) < data_interval_end]
+put(f"bronze/f5_reviews/fecha={data_interval_start:%Y-%m-%d}/hora={data_interval_start:%H}.jsonl", …)
+```
+
+### F7 exchange rates, every day (`bronze_f7_fx.py`)
+
+One call to Frankfurter v2 for the day of the interval. The answer is saved byte for byte.
+
+```python
+@task(queue="bronze", outlets=[BRONZE_F7_FX])
+def extract(data_interval_start=None) -> str:
+    day = data_interval_start.date().isoformat()
+    r = requests.get("https://api.frankfurter.dev/v2/rates",
+                     params={"date": day, "base": "USD", "quotes": "COP,EUR,MXN,BRL"}, timeout=30)
+    r.raise_for_status()
+    return put(f"bronze/f7_fx/fecha={day}.json", r.content)
+```
+
+### F6 holidays, every month (`bronze_f6_holidays.py`)
+
+One file per country and year, for this year and the next one, because bookings are made months ahead.
+
+```python
+COUNTRIES = ["PT", "CO", "MX", "BR", "ES"]
+
+for y in (year, year + 1):
+    for country in COUNTRIES:
+        r = requests.get(f"{NAGER_BASE_URL}/api/v4/Holidays/{country}/{y}", timeout=30)
+        r.raise_for_status()
+        written.append(put(f"bronze/f6_holidays/anio={y}/pais={country}.json", r.content))
+```
+
+### F4 agency files, every Monday (`bronze_f4_agencias.py`)
+
+The files are not downloaded by Airflow: the F4 generator uploads them to S3 itself. The DAG only checks that the week is complete and fails (and retries every 20 minutes, up to 6 times) while it is not, so silver never starts on half a week.
+
+```python
+week = data_interval_end.strftime("%G-W%V")
+prefix = f"bronze/f4_agencias/semana={week}/"
+resp = s3_client().list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+names = [o["Key"].rsplit("/", 1)[-1] for o in resp.get("Contents", [])]
+agency_files = [n for n in names if n.startswith("AG")]
+if len(agency_files) < EXPECTED_AGENCIES or "_generation_summary.json" not in names:
+    raise RuntimeError(f"{prefix}: {len(agency_files)}/{EXPECTED_AGENCIES} agency files yet; …")
+```
+
 ## Rules of the layer
 
 - **Raw and complete.** No filter, no type change, no cleaning. Bronze is the evidence of what arrived.
