@@ -1,0 +1,31 @@
+---
+sidebar_position: 8
+sidebar_label: Monitoramento
+title: Monitoramento
+---
+
+import {Note} from '@site/src/components/Overview';
+
+# Monitoramento
+
+As três UIs operacionais do pipeline são **auto-hospedadas** na EC2 núcleo e publicadas com Nginx e um certificado de origem do Cloudflare (HTTPS, com proxy). Servem para verificar a qualquer momento se o scheduler, os workers e o broker de mensagens estão saudáveis.
+
+| Ferramenta | O que monitora | Link | Usuário | Senha |
+| --- | --- | --- | --- | --- |
+| **Airflow** | DAGs, execuções, logs de tarefas, Assets, horários | [airflow-buenavista.coderhivex.com](https://airflow-buenavista.coderhivex.com) | *a preencher* | *a preencher* |
+| **Flower (Celery)** | Workers Celery `bronze`, `silver`, `gold`: online, tarefas ativas e com falha | [flower-buenavista.coderhivex.com](https://flower-buenavista.coderhivex.com) | *a preencher* | *a preencher* |
+| **RabbitMQ** | Broker do Celery: filas, mensagens pendentes, conexões | [rabbitmq-buenavista.coderhivex.com](https://rabbitmq-buenavista.coderhivex.com) | *a preencher* | *a preencher* |
+
+<Note>
+As credenciais nunca são publicadas neste site: peça à equipe, ou preencha esta tabela só em uma cópia privada. Troque as senhas padrão antes de compartilhar os links.
+</Note>
+
+## O que verificar em cada UI
+
+- **Airflow** → *DAGs*: nenhuma execução em vermelho; *Assets*: última atualização de cada asset de bronze/silver; *Browse → Task instances* filtrado por *failed*. O scheduler e o DAG processor mostram seu heartbeat em *Dashboard* (API `/api/v2/monitor/health`).
+- **Flower** → *Workers*: os três workers `online`; *Tasks*: tarefas em andamento, concluídas e com falha, com duração e worker; *Broker*: mensagens em espera por fila.
+- **RabbitMQ** → *Queues*: `bronze`, `silver`, `gold` com *Ready* perto de 0 (um número crescendo indica um worker parado ou sobrecarregado); *Connections*: uma por worker e pelo scheduler.
+
+## Rede e segurança
+
+Flower e RabbitMQ só escutam em `127.0.0.1` do núcleo; o Nginx é a única entrada pública. Postgres (5432), AMQP (5672) e a API de execução (8080) ficam abertos só para o security group dos workers.

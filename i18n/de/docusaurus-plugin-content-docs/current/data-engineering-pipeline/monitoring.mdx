@@ -1,0 +1,31 @@
+---
+sidebar_position: 8
+sidebar_label: Monitoring
+title: Monitoring
+---
+
+import {Note} from '@site/src/components/Overview';
+
+# Monitoring
+
+Die drei Betriebs-UIs der Pipeline sind auf der Kern-EC2 **selbst gehostet** und über Nginx mit einem Cloudflare-Origin-Zertifikat veröffentlicht (HTTPS, über Proxy). Mit ihnen lässt sich jederzeit prüfen, ob Scheduler, Worker und Message-Broker gesund sind.
+
+| Werkzeug | Was es überwacht | Link | Benutzer | Passwort |
+| --- | --- | --- | --- | --- |
+| **Airflow** | DAGs, Läufe, Task-Logs, Assets, Zeitplan | [airflow-buenavista.coderhivex.com](https://airflow-buenavista.coderhivex.com) | *noch einzutragen* | *noch einzutragen* |
+| **Flower (Celery)** | Celery-Worker `bronze`, `silver`, `gold`: online, aktive und fehlgeschlagene Tasks | [flower-buenavista.coderhivex.com](https://flower-buenavista.coderhivex.com) | *noch einzutragen* | *noch einzutragen* |
+| **RabbitMQ** | Celery-Broker: Queues, wartende Nachrichten, Verbindungen | [rabbitmq-buenavista.coderhivex.com](https://rabbitmq-buenavista.coderhivex.com) | *noch einzutragen* | *noch einzutragen* |
+
+<Note>
+Zugangsdaten werden auf dieser Seite nie veröffentlicht: beim Team erfragen oder diese Tabelle nur in einer privaten Kopie ausfüllen. Vor dem Teilen der Links die Standardpasswörter ändern.
+</Note>
+
+## Was in jeder UI zu prüfen ist
+
+- **Airflow** → *DAGs*: keine roten Läufe; *Assets*: letzte Aktualisierung jedes Bronze-/Silver-Assets; *Browse → Task instances* gefiltert nach *failed*. Scheduler und DAG-Processor zeigen ihren Heartbeat unter *Dashboard* (API `/api/v2/monitor/health`).
+- **Flower** → *Workers*: alle drei Worker `online`; *Tasks*: laufende, erfolgreiche und fehlgeschlagene Tasks mit Dauer und Worker; *Broker*: wartende Nachrichten pro Queue.
+- **RabbitMQ** → *Queues*: `bronze`, `silver`, `gold` mit *Ready* nahe 0 (eine wachsende Zahl bedeutet, dass ein Worker ausgefallen oder überlastet ist); *Connections*: eine pro Worker und für den Scheduler.
+
+## Netzwerk und Sicherheit
+
+Flower und RabbitMQ lauschen nur auf `127.0.0.1` des Kerns; Nginx ist der einzige öffentliche Zugang. Postgres (5432), AMQP (5672) und die Execution-API (8080) sind nur für die Security Group der Worker offen.

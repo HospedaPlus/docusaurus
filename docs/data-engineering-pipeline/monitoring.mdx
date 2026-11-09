@@ -1,0 +1,31 @@
+---
+sidebar_position: 8
+sidebar_label: Monitoring
+title: Monitoring
+---
+
+import {Note} from '@site/src/components/Overview';
+
+# Monitoring
+
+The three operational UIs of the pipeline are **self-hosted** on the core EC2 and published through Nginx with a Cloudflare origin certificate (HTTPS, proxied). They are used to check, at any moment, that the scheduler, the workers and the message broker are healthy.
+
+| Tool | What it monitors | Link | User | Password |
+| --- | --- | --- | --- | --- |
+| **Airflow** | DAGs, runs, task logs, Assets, schedule | [airflow-buenavista.coderhivex.com](https://airflow-buenavista.coderhivex.com) | *to be filled in* | *to be filled in* |
+| **Flower (Celery)** | Celery workers `bronze`, `silver`, `gold`: online, active and failed tasks | [flower-buenavista.coderhivex.com](https://flower-buenavista.coderhivex.com) | *to be filled in* | *to be filled in* |
+| **RabbitMQ** | Celery broker: queues, pending messages, connections | [rabbitmq-buenavista.coderhivex.com](https://rabbitmq-buenavista.coderhivex.com) | *to be filled in* | *to be filled in* |
+
+<Note>
+Credentials are never published on this site: ask the team, or fill in this table only in a private copy. Change the default passwords before sharing the links.
+</Note>
+
+## What to check in each UI
+
+- **Airflow** → *DAGs*: no red runs; *Assets*: last update of each bronze/silver asset; *Browse → Task instances* filtered by *failed*. The scheduler and DAG processor show their heartbeat under *Dashboard* (API `/api/v2/monitor/health`).
+- **Flower** → *Workers*: the three workers `online`; *Tasks*: running, succeeded and failed tasks, with time and worker; *Broker*: messages waiting per queue.
+- **RabbitMQ** → *Queues*: `bronze`, `silver`, `gold` with *Ready* close to 0 (a growing number means a worker is down or overloaded); *Connections*: one per worker and the scheduler.
+
+## Network and security
+
+Flower and RabbitMQ only listen on `127.0.0.1` of the core; Nginx is the only public entry. Postgres (5432), AMQP (5672) and the execution API (8080) are open only to the workers' security group.

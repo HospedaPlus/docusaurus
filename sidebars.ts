@@ -82,6 +82,7 @@ const sidebars: SidebarsConfig = {
         'data-engineering-pipeline/athena',
         'data-engineering-pipeline/dags',
         'data-engineering-pipeline/running-dags',
+        'data-engineering-pipeline/monitoring',
       ],
     },
   ],
