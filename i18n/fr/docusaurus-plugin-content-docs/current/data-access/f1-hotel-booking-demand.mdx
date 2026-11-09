@@ -8,35 +8,40 @@ import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/co
 
 # <SourceTitleIcon icon="file" tone="purple" />F1 · Hotel booking demand <SourceType>CSV</SourceType>
 
-Jeu de données public contenant l'historique des réservations d'un hôtel urbain et d'un hôtel de vacances au Portugal. Dans HospedaPlus, il sert d'historique pour deux hôtels de la chaîne.
+Jeu de données public avec l'historique des réservations d'un hôtel urbain et d'un hôtel de vacances au Portugal. Dans HospedaPlus, c'est l'historique de deux hôtels de la chaîne : `HP-PT-001` (City Hotel) et `HP-PT-002` (Resort Hotel). Ce sont des données réelles, elles ne sont donc pas simulées.
 
 <AccessTable>
 
 | Propriété | Valeur |
 | --- | --- |
 | Type | Données réelles, CSV Kaggle |
-| Emplacement | [kaggle.com/datasets/jessemostipak/hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand) |
-| Méthode d'accès | Téléchargement CSV, chargement historique unique |
+| Emplacement | [kaggle.com/datasets/jessemostipak/hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand) · copie dans [HospedaPlus/hospedaplus-csv](https://github.com/HospedaPlus/hospedaplus-csv) (`data/f1_historical/hotel_bookings.csv`) |
+| Méthode d'accès | Fichier CSV |
 | Fréquence | Chargement historique unique |
-| Volume | ~119 000 réservations |
+| Volume | 119 390 réservations × 32 colonnes |
+| Stockée d'abord dans | **S3 bronze, directement** : `bronze/f1_historical/hotel_bookings.csv` |
 
 </AccessTable>
 
+## Stockage
+
+Le fichier ne change jamais, il ne passe donc pas par Neon. Le DAG Airflow `bronze_f1_historical`, lancé une seule fois à la main, le télécharge depuis le dépôt `hospedaplus-csv` et l'envoie dans `s3://…/bronze/f1_historical/`. Si le fichier déjà présent dans S3 a le même hash, il n'est pas renvoyé. Ensuite, `silver_f1_historico` le nettoie dans `silver/historico_f1/`, la base de l'analyse des annulations par type de dépôt et délai de réservation (P1).
+
 ## Comment y accéder
 
-Téléchargez le jeu de données depuis la page Kaggle, ou avec la CLI Kaggle à l'aide d'un jeton d'API personnel :
+Téléchargez-le depuis Kaggle, ou avec la CLI Kaggle et un jeton d'API personnel (qui reste hors du dépôt) :
 
 ```bash
 kaggle datasets download -d jessemostipak/hotel-booking-demand --unzip
 ```
 
-Le téléchargement contient un seul fichier CSV, `hotel_bookings.csv`. Le jeton d'API Kaggle est un identifiant personnel : il reste donc en dehors du dépôt.
+Le dépôt `hospedaplus-csv` le profile aussi : `uv run -m buenavista_csv.f1_audit` écrit l'audit dans `output/f1_audit/`.
 
 ## Contenu
 
-Chaque ligne correspond à une réservation, avec sa date d'arrivée, son délai de réservation (lead time), son canal de distribution, son segment de marché, son ADR, son indicateur d'annulation et son type d'acompte. Les principales colonnes sont :
+Chaque ligne est une réservation, avec sa date d'arrivée, son délai de réservation, son canal de distribution, son segment de marché, son ADR, son indicateur d'annulation et son type de dépôt. Les colonnes principales sont :
 
-- `hotel` : `City Hotel` ou `Resort Hotel`.
+- `hotel` : `City Hotel` ou `Resort Hotel`.
 - `is_canceled`, `lead_time`, `deposit_type`.
 - `arrival_date_year`, `arrival_date_month`, `arrival_date_day_of_month`, `stays_in_weekend_nights`, `stays_in_week_nights`.
 - `adults`, `children`, `babies`.
@@ -46,7 +51,7 @@ Chaque ligne correspond à une réservation, avec sa date d'arrivée, son délai
 <AccessNote icon="alert" title="Problèmes de qualité de données connus">
 
 - `agent` et `company` contiennent le texte `"NULL"` au lieu de valeurs vides.
-- `adr` présente des valeurs négatives et extrêmes qui doivent être traitées.
-- Certaines réservations comptent zéro adulte, zéro enfant et zéro bébé.
+- `adr` a des valeurs négatives et extrêmes qui doivent être traitées (valeurs aberrantes par IQR).
+- Certaines réservations ont zéro adulte, zéro enfant et zéro bébé.
 
 </AccessNote>

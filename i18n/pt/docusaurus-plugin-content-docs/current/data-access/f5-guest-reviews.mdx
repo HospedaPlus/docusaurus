@@ -19,8 +19,9 @@ API simulada com as avaliações que os hóspedes deixam em plataformas de avali
 | Tipo | API simulada, construída pela equipe |
 | Localização | [api-reviews-buenavista.coderhivex.com/docs](https://api-reviews-buenavista.coderhivex.com/docs) · código-fonte em [HospedaPlus/api-reviews](https://github.com/HospedaPlus/api-reviews) |
 | Método de acesso | API REST paginada (JSON), sem autenticação |
-| Frequência | Diária |
+| Frequência | Contínua: avaliações novas a cada 15 minutos · o pipeline lê a cada hora |
 | Volume | ~300 avaliações/dia (~115.000 avaliações por ano) |
+| Armazenada primeiro em | O banco PostgreSQL próprio da API na AWS (não o Neon) · depois **S3 bronze** `bronze/f5_reviews/fecha=…/hora=HH.jsonl` |
 
 </AccessTable>
 
@@ -30,6 +31,22 @@ API simulada com as avaliações que os hóspedes deixam em plataformas de avali
   <Stat value="3">idiomas: es, en, pt</Stat>
   <Stat value="~300">avaliações por dia</Stat>
 </StatGrid>
+
+## Como é simulada
+
+A API roda no AWS ECS Fargate (us-east-1) como dois serviços com a mesma imagem: `api-reviews` serve a API e `api-reviews-simulator` executa `python -m src.seed --live` o tempo todo. A cada 15 minutos o simulador insere as avaliações do dia cujo horário de publicação já passou, no modo `full`: cerca de 300 avaliações por dia (variação diária de ±15%), distribuídas entre os 28 hotéis conforme o tamanho, com 5% de duplicadas em uma segunda plataforma. Começou em 2026-11-02 sem histórico carregado (`SEED_LIVE_START_DATE`) e, depois de uma parada, completa os 3 dias anteriores.
+
+- **Requisito "~300 avaliações/dia, diária":** cumprido no modo full, e as avaliações de um dia são publicadas durante esse dia, como em uma plataforma real.
+- **Reprodutível:** cada dia vem de uma semente fixa, então uma execução diária e uma recarga completa nunca divergem.
+
+## Onde é armazenada
+
+```text
+api-reviews-simulator ─► PostgreSQL da API (AWS) ─► GET /api/v1/reviews?updated_from=…
+                                                     └─► Airflow bronze_f5_reviews (a cada hora) ─► S3 bronze/f5_reviews/
+```
+
+A F5 não passa pelo Neon: como uma plataforma de avaliações real, guarda as avaliações no seu próprio banco e só as expõe pela API. A cada hora o DAG do Airflow `bronze_f5_reviews` pede as avaliações criadas ou editadas desde a execução anterior (`updated_from`), percorre todas as páginas e as grava no S3. Toda noite `silver_resenas_daily` mantém a última versão de cada avaliação e remove as duplicadas.
 
 ## Como acessar
 
@@ -67,6 +84,7 @@ A plataforma de dados só lê: usa `GET /api/v1/reviews` e `GET /api/v1/hotels`.
 | `language` | `es`, `en`, `pt` | Idioma da avaliação. |
 | `min_rating`, `max_rating` | inteiro 1–5 | Faixa de nota, com os dois extremos incluídos. |
 | `published_from`, `published_to` | data `YYYY-MM-DD` | Faixa de datas de publicação em UTC, com os dois extremos incluídos. |
+| `updated_from` | data e hora (ISO 8601) | Avaliações criadas ou editadas a partir deste instante. Usado na extração incremental. |
 | `order` | `asc`, `desc` | Ordem por `published_at` e depois por `id`. Padrão `asc`. |
 
 Os resultados são sempre ordenados por `published_at` e depois por `id`, então as páginas nunca se sobrepõem nem pulam avaliações enquanto os dados não mudam.
@@ -219,7 +237,7 @@ As avaliações são sintéticas: não são extraídas de nenhuma plataforma rea
 - **Volume configurável.** O modo `dev` gera 30 dias com cerca de 20 avaliações por dia. O modo `full` gera 365 dias com cerca de 300 avaliações por dia, com uma variação diária de ±15%.
 - **Defeitos configuráveis.** A proporção de avaliações duplicadas é um parâmetro, 5% por padrão.
 
-O seed também roda para um único dia, que é como o lote diário adiciona avaliações novas: `python -m src.seed --date 2026-10-01`.
+As avaliações continuam chegando pelo **simulador** (`python -m src.seed --live`), um segundo serviço do ECS que a cada 15 minutos insere as avaliações cujo horário de publicação já passou. Também é possível gerar um único dia à mão: `python -m src.seed --date 2026-10-01`.
 
 ## Como é usada
 

@@ -8,24 +8,27 @@ import {AccessTable, SourceTitleIcon, SourceType} from '@site/src/components/Ove
 
 # <SourceTitleIcon icon="currency" tone="teal" />F7 · Wechselkurse <SourceType>REST-API</SourceType>
 
-Tägliche Wechselkurse für 5 Währungen aus einer öffentlichen API.
+Tägliche Wechselkurse aus einer öffentlichen API. Es sind echte Daten. Die Berichtswährung ist der kolumbianische Peso (**COP**), daher werden alle Beträge der Kette in COP umgerechnet.
 
 <AccessTable>
 
 | Eigenschaft | Wert |
 | --- | --- |
 | Typ | Echte Daten, öffentliche API |
-| Speicherort | Öffentliche API [Frankfurter](https://frankfurter.dev) |
-| Zugriffsmethode | REST-API |
-| Frequenz | Täglich |
-| Volumen | 5 Währungen |
+| Speicherort | [Frankfurter](https://frankfurter.dev)-API v2 |
+| Zugriffsmethode | REST-API, ohne Schlüssel |
+| Frequenz | Täglich, 01:00 UTC |
+| Volumen | 5 Währungen: USD (Basis), COP, EUR, MXN, BRL |
+| Zuerst gespeichert in | **S3 Bronze, direkt**: `bronze/f7_fx/fecha=YYYY-MM-DD.json` |
 
 </AccessTable>
 
-## Zugriff
+## Speicherort
 
-Die Frankfurter-API benötigt keinen Schlüssel. Zum Beispiel die aktuellen Kurse mit dem Euro als Basiswährung:
+Der Airflow-DAG `bronze_f7_fx` ruft die API einmal am Tag auf und speichert die Antwort unverändert in S3:
 
 ```bash
-curl "https://api.frankfurter.dev/v1/latest?base=EUR"
+curl "https://api.frankfurter.dev/v2/rates?date=2026-11-09&base=USD&quotes=COP,EUR,MXN,BRL"
 ```
+
+Danach baut `silver_fx_daily` die Tabelle `silver/tasa_cambio_diaria/` (COP pro Einheit jeder Währung, für jeden Tag, an Tagen ohne Kurs mit dem letzten Kurs fortgeschrieben), mit der Silver jede Buchung in COP umrechnet.

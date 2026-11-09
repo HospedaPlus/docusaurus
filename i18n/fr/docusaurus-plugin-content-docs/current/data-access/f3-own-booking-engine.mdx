@@ -8,125 +8,89 @@ import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} fr
 
 # <SourceTitleIcon icon="database" tone="teal" />F3 · Moteur de réservation propre <SourceType>Base de données PostgreSQL</SourceType>
 
-Base de données opérationnelle simulée du moteur de réservation propre de la chaîne. Elle contient le catalogue des hôtels, l'inventaire des chambres, les tarifs par saison et les réservations directes et entreprises, afin que tous les autres composants soient construits et testés avec les mêmes données.
+Base opérationnelle simulée du moteur de réservation propre de la chaîne. Elle contient le catalogue des hôtels, l'inventaire des chambres, les tarifs par saison et les réservations directes et entreprises. C'est aussi là qu'aboutissent les réservations des autres canaux (OTA de F2, agences de F4), via une seule fonction de réservation.
 
 <AccessTable>
 
 | Propriété | Valeur |
 | --- | --- |
-| Type | Base de données simulée, générée par un seed |
-| Emplacement | PostgreSQL 16 sur Neon (AWS US East, Ohio) · code source dans [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
+| Type | Base simulée, générée par un seed et maintenue vivante par un simulateur |
+| Emplacement | Neon (PostgreSQL 16, AWS US East Ohio), base `hospedaplus`, schéma `operation` · code source dans [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
 | Méthode d'accès | Connexion à la base de données (SQL) |
-| Fréquence | Continue |
-| Volume | 28 hôtels dans 5 pays, 4 000 chambres |
+| Fréquence | Continue : 6 nouvelles réservations par minute |
+| Volume | 28 hôtels dans 5 pays, 4 000 chambres, 60 000+ clients, 365 nuits en vente |
+| Stockée d'abord dans | **Neon** `operation` |
 
 </AccessTable>
 
 <StatGrid>
   <Stat value="28">hôtels dans 5 pays</Stat>
   <Stat value="4 000">chambres</Stat>
-  <Stat value="9">tables</Stat>
-  <Stat value="21">canaux de vente</Stat>
+  <Stat value="14">tables</Stat>
+  <Stat value="6/min">nouvelles réservations</Stat>
 </StatGrid>
+
+## Simulation
+
+Deux tâches, toutes deux avec l'image du dépôt :
+
+1. **Seed** (`python -m seed all`). Charge le catalogue, 365 nuits d'inventaire et de tarifs à venir, 60 000+ clients et l'historique des réservations (`dev` : 90 nuits passées, `full` : 400). Les hôtels urbains reçoivent plus d'arrivées du dimanche au mardi, les resorts le week-end, la haute saison amène plus de clients et l'occupation future baisse à mesure qu'on regarde loin, comme dans une vraie courbe de réservation. Même graine + même date de début = les mêmes données, ligne par ligne.
+2. **Simulateur** (`python -m seed simulate`). Tourne en permanence sur AWS EC2. Toutes les 10 secondes, il réserve un séjour direct ou entreprise avec `operation.reservar()` (`rejected` quand l'hôtel est complet), annule de temps en temps une réservation avec `operation.cancelar()`, continue d'injecter des lignes défectueuses et, une fois par jour, met en vente une nouvelle nuit à 365 jours.
+
+### Fréquence et volume
+
+- `SIM_BOOKINGS_PER_MIN=6` : environ 8 600 tentatives de réservation par jour, donc F3 est une source continue et le pipeline trouve toujours de nouvelles lignes.
+- `SEED_MODE=full` charge l'historique complet ; `dev` est une petite version pour le développement.
+- `python -m seed check` exécute 24 contrôles de santé et d'intégrité et ne réussit que si tous réussissent (comptages, catalogue, pas d'orphelins, inventaire = réservations confirmées, aucune réservation antérieure au jour où elle a été faite).
+
+## Stockage
+
+```text
+seed + simulateur ─► Neon operation ◄─ consommateur F2 et chargeur F4 (le même reservar())
+Neon ─► Airflow bronze_neon_f2_f3 (toutes les heures, par updated_at) ─► S3 bronze/f3_reservations/, f3_anomalies/
+Neon ─► Airflow bronze_neon_full_load (instantané nocturne)         ─► S3 bronze/f3_*_full/
+Neon ─► Airflow bronze_neon_dims (catalogue nocturne)               ─► S3 bronze/neon_dims/
+```
+
+Neon est le stockage opérationnel. Le lac reçoit F3 de deux façons : toutes les heures, les lignes modifiées depuis la dernière exécution (`reservations.updated_at` est mis à jour par un trigger à chaque changement), et chaque nuit un instantané complet des réservations, anomalies, inventaire, relogements et refus, pris dans une seule transaction et marqué par `_SUCCESS`. La table `guests` n'est jamais copiée : les données personnelles restent dans Neon.
 
 ## Comment y accéder
 
-La base de données partagée de l'équipe tourne sur Neon (PostgreSQL 16 managé), chargée en mode `full` et vérifiée avec `python -m seed check`.
-
 | Propriété | Valeur |
 | --- | --- |
-| Hôte | `ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech` (pooled) · `ep-divine-cake-b48dsbxg.c-6.us-east-2.aws.neon.tech` (direct) |
+| Hôte | Endpoint Neon de la branche `production` (hôte avec `-pooler` pour les clients, hôte direct pour le seed) |
 | Port | `5432` |
 | Base de données | `hospedaplus` |
-| SSL | `sslmode=require`, `channel_binding=require` |
+| SSL | `sslmode=require` |
 
-### Rôles
-
-Chaque client se connecte avec son propre rôle et n'a que l'accès dont il a besoin : un bug ou une URL divulguée à un endroit ne peut pas effacer les données.
+Chaque client utilise son propre rôle. Demandez les chaînes de connexion à l'équipe : elles ne sont jamais écrites dans le dépôt ni sur ce site.
 
 | Rôle | Utilisé par | Peut |
 | --- | --- | --- |
-| `hospedaplus_owner` | Seed (`init`, `seed`, rechargements) | Tout. |
-| `hospedaplus_api` | FastAPI, consommateurs Kafka | Lire toutes les tables ; mettre à jour `inventory` ; insérer et mettre à jour `reservations` et `guests` ; jamais supprimer. |
-| `hospedaplus_reader` | Équipe (DBeaver, psql), worker bronze d'Airflow | Lecture seule. |
-
-### Chaînes de connexion
-
-Utilisez `hospedaplus_reader` sauf si vous devez écrire.
-
-```text title="hospedaplus_reader"
-postgresql://hospedaplus_reader:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
-```
-
-```text title="hospedaplus_api"
-postgresql://hospedaplus_api:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
-```
-
-```text title="hospedaplus_owner"
-postgresql://hospedaplus_owner:npg_edEG9kmaAOv3@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
-```
-
-Par exemple, avec `psql` :
-
-```bash
-psql "postgresql://hospedaplus_reader:Xk7pQ2mZr9LwT4vB8nYc@ep-divine-cake-b48dsbxg-pooler.c-6.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require"
-```
-
-### Hôte pooled ou direct
-
-L'hôte `-pooler` place PgBouncer devant la base : beaucoup de connexions clientes partagent quelques connexions réelles. Il fonctionne en mode transaction, donc tout ce qui a besoin d'une session fixe (un `SET` durable, des tables temporaires, de longs chargements en masse) passe par l'hôte direct.
-
-| Client | Hôte |
-| --- | --- |
-| FastAPI, consommateurs Kafka, Airflow | Pooled |
-| Seed (`init`, chargement `COPY`) | Direct (le même hôte sans `-pooler`) |
-| Équipe dans DBeaver ou psql | Pooled |
-
-- Dans DBeaver ou pgAdmin, créez une connexion PostgreSQL avec les informations ci-dessus et réglez le mode SSL sur `require`.
-- La base de données se met en veille après 5 minutes d'inactivité et se réveille à la requête suivante : la première requête peut donc prendre quelques secondes.
-- Pour exécuter le seed en local, le dépôt inclut un fichier Docker Compose avec PostgreSQL 16 sur le port `5437`, pour ne jamais entrer en conflit avec Neon.
+| `hospedaplus_owner` | Seed et migrations | Tout. |
+| `app_writer` | Consommateur F2, simulateur F3, chargeur F4, réécriture du pipeline | Lire et écrire les données ; ne modifie pas le schéma. |
+| `etl_reader` | Worker bronze d'Airflow, équipe (DBeaver, psql) | Lecture seule. |
 
 ## Contenu
 
 | Table | Contenu |
 | --- | --- |
-| `hotels` | 28 hôtels urbains et resorts, avec code (`HP-CO-001`…), ville, pays, fuseau horaire et devise. |
-| `room_types` | `SINGLE`, `DOUBLE`, `TWIN` et `SUITE`, avec leur nombre maximal de clients. |
-| `rooms` | Les 4 000 chambres physiques, par hôtel et type de chambre. |
+| `hotels`, `room_types`, `rooms` | 28 hôtels (`HP-CO-001`…) avec fuseau horaire et devise ; `SINGLE`, `DOUBLE`, `TWIN`, `SUITE` ; 4 000 chambres. |
 | `channels` | 21 canaux de vente avec leur commission (RN-02). |
-| `rates` | Prix par nuit par hôtel, type de chambre et saison (`LOW`, `MID`, `HIGH`, RN-05). |
-| `inventory` | Chambres totales et disponibles par hôtel, type de chambre et nuit. |
-| `guests` | Données personnelles des clients, pseudonymisées avant l'analyse (RN-11). |
-| `reservations` | Réservations directes et entreprises, avec annulations et no-shows. |
-| `reservation_anomalies` | Lignes avec les problèmes de qualité de données connus, mises à part volontairement. |
-
-Les hôtels, types de chambre et canaux viennent du **catalogue partagé** que F2, F4 et F5 lisent aussi, afin que le pipeline puisse croiser toutes les sources.
-
-## Seed de données
-
-Toutes les données sont générées par le seed du dépôt (`python -m seed`), jamais chargées à la main ni depuis un dump. Le seed :
-
-- **Est reproductible.** Le même seed et la même date de début produisent les mêmes données, ligne par ligne.
-- **Est idempotent.** Il remplace les données en une seule transaction : l'exécuter plusieurs fois laisse une seule copie, et en cas d'échec les données précédentes restent intactes.
-- **Propose deux volumes.** Le mode `dev` couvre 90 nuits passées et 30 futures ; le mode `full` couvre 400 passées et 180 futures.
-- **Simule une demande réaliste.** Les hôtels urbains reçoivent plus d'arrivées du dimanche au mardi, les resorts le week-end, et la haute saison amène plus de clients.
-- **Ne fait jamais de surréservation.** Le générateur refuse une réservation quand le type de chambre est complet, et la base rejette `available_rooms < 0`.
-- **Rejette les réservations dans le passé.** Un trigger rejette toute réservation dont le check-in est antérieur au jour où elle a été faite.
-- **Est sûr par défaut.** Les commandes destructives s'arrêtent sur les bases distantes, sauf avec `--allow-remote`.
-- **Se vérifie lui-même.** `python -m seed check` exécute 21 contrôles de santé et d'intégrité et ne réussit que si tous réussissent.
-
-| Commande | Ce qu'elle fait |
-| --- | --- |
-| `python -m seed init` | Crée les tables et les index. |
-| `python -m seed seed` | Vide les tables et charge un nouveau jeu de données. |
-| `python -m seed check` | Exécute les contrôles de santé et d'intégrité (lecture seule). |
-| `python -m seed all` | `init` + `seed` + `check`. |
+| `rates` | Prix par nuit par hôtel, type de chambre et saison (RN-05). |
+| `inventory` | Chambres totales, vendues et limite de surréservation par hôtel, type de chambre et nuit (RN-03). |
+| `guests` | Clients `G-0000001`…, avec le même `guest_ref` et niveau de fidélité que F2 (données personnelles, RN-11). |
+| `reservations` | Réservations de tous les canaux, avec annulations, no-shows et pénalités. |
+| `reservation_anomalies` | Lignes avec des problèmes de qualité connus, mises à part volontairement. |
+| `reservation_rejections`, `relocations` | Réservations refusées faute de chambres (RN-04), réservations relogées. |
+| `cancellation_policies`, `cancellation_rate_by_lead` | Politiques par canal (RN-07) ; taux d'annulation réécrits par le pipeline. |
+| `local_events` | Les événements locaux de F6. |
 
 <AccessNote icon="alert" title="Problèmes de qualité de données connus">
 
-Les lignes qui casseraient les contraintes vont dans `reservation_anomalies` au lieu de `reservations` (2 % chacune par défaut, configurable) :
+Les lignes qui violeraient les contraintes vont dans `reservation_anomalies` (2 % chacune par défaut, `SEED_ZERO_GUESTS_RATE` et `SEED_INVALID_DATES_RATE`), dans le seed comme dans le simulateur continu :
 
 - Réservations avec zéro client.
-- Dates de check-out antérieures à la date de check-in.
+- Dates de départ antérieures à la date d'arrivée.
 
 </AccessNote>

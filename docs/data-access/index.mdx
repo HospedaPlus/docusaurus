@@ -9,27 +9,27 @@ import {AccessTable, SourceName, AccessNote} from '@site/src/components/Overview
 
 # Where are the sources and how to access them?
 
-The data sources live in public platforms and in systems simulated by the team. Below is a summary of where each one is and how we connect to it. Open each source for its details.
+The data sources live in public platforms and in systems simulated by the team. Each source is stored first in one place, and from there the Airflow pipeline copies it, raw, to the **bronze** layer of the S3 lakehouse. Some sources land first in **Neon** (PostgreSQL), others go **straight to S3**. Open each source for its details.
 
 <AccessTable>
 
-| Source | Location | Access Method |
-| --- | --- | --- |
-| <SourceName icon="file" tone="purple">[F1 · Hotel booking demand](./f1-hotel-booking-demand.mdx)</SourceName> | Kaggle ([hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand)) | CSV download, one-time historical load |
-| <SourceName icon="stream" tone="blue">[F2 · Channel manager events](./f2-channel-manager-events.mdx)</SourceName> | Simulated event stream | JSON messages, continuous |
-| <SourceName icon="database" tone="teal">[F3 · Own booking engine](./f3-own-booking-engine.mdx)</SourceName> | Simulated PostgreSQL database, populated by a seed | Database connection (SQL) |
-| <SourceName icon="file" tone="sky">[F4 · Traditional agency files](./f4-traditional-agency-files.mdx)</SourceName> | Simulated weekly files from ~15 agencies | CSV / Excel files |
-| <SourceName icon="message" tone="purple">[F5 · Guest reviews](./f5-guest-reviews.mdx)</SourceName> | Simulated reviews API | Paginated REST API, daily |
-| <SourceName icon="calendar" tone="blue">[F6 · Holidays and events](./f6-holidays-and-events.mdx)</SourceName> | [Nager.Date](https://date.nager.at) public API + local events CSV | REST API + CSV file |
-| <SourceName icon="currency" tone="teal">[F7 · Exchange rates](./f7-exchange-rates.mdx)</SourceName> | [Frankfurter](https://frankfurter.dev) public API | REST API, daily |
+| Source | Location | Access method | Stored first in | Copied to S3 bronze |
+| --- | --- | --- | --- | --- |
+| <SourceName icon="file" tone="purple">[F1 · Hotel booking demand](./f1-hotel-booking-demand.mdx)</SourceName> | Kaggle CSV, kept in [hospedaplus-csv](https://github.com/HospedaPlus/hospedaplus-csv) | CSV file | **S3** directly | Once, by hand (`bronze_f1_historical`) |
+| <SourceName icon="stream" tone="blue">[F2 · Channel manager events](./f2-channel-manager-events.mdx)</SourceName> | Simulator + Kafka ([buenavista-streaming](https://github.com/HospedaPlus/buenavista-streaming)) | Kafka topic, JSON messages | **Neon** (`streaming` ledger + `operation`) | Every hour (`bronze_neon_f2_f3`) |
+| <SourceName icon="database" tone="teal">[F3 · Own booking engine](./f3-own-booking-engine.mdx)</SourceName> | Seed + simulator ([db_simulated](https://github.com/HospedaPlus/db_simulated)) | SQL (PostgreSQL) | **Neon** (`operation`) | Every hour + nightly snapshot |
+| <SourceName icon="file" tone="sky">[F4 · Traditional agency files](./f4-traditional-agency-files.mdx)</SourceName> | Weekly generator ([hospedaplus-csv](https://github.com/HospedaPlus/hospedaplus-csv)) | CSV / Excel files | **S3** directly (raw files) + **Neon** (bookings) | Weekly, uploaded by the generator |
+| <SourceName icon="message" tone="purple">[F5 · Guest reviews](./f5-guest-reviews.mdx)</SourceName> | Reviews API on AWS ([api-reviews](https://github.com/HospedaPlus/api-reviews)) | Paginated REST API | The API's own PostgreSQL | Every hour (`bronze_f5_reviews`) |
+| <SourceName icon="calendar" tone="blue">[F6 · Holidays and events](./f6-holidays-and-events.mdx)</SourceName> | Nager.Date API + team CSV | REST API + CSV | Holidays: **S3** directly · Events: **Neon** (`operation.local_events`) | Monthly (holidays) · daily (events) |
+| <SourceName icon="currency" tone="teal">[F7 · Exchange rates](./f7-exchange-rates.mdx)</SourceName> | [Frankfurter](https://frankfurter.dev) public API | REST API | **S3** directly | Daily (`bronze_f7_fx`) |
 
 </AccessTable>
 
 <AccessNote title="Access considerations">
 
-- No credential, key or password is stored in the repository or in container images.
-- Guest personal data (name, email, phone) is pseudonymized before it reaches the analytics layer.
-- Guest data is encrypted.
+- No credential, key or password is stored in the repository or in container images. Ask the team for the connection strings.
+- Each client connects to Neon with its own role: `app_writer` for the simulators and consumers, `etl_reader` (read-only) for the pipeline and the team.
+- Guest personal data (name, email, phone) stays in Neon: the `guests` table is never copied to the lake, and names in F4 and F5 are pseudonymized before the analytics layer.
 - Reviews are synthetic: we do not extract real reviews from review platforms.
 
 </AccessNote>

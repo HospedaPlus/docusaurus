@@ -8,31 +8,35 @@ import {AccessTable, SourceTitleIcon, SourceType} from '@site/src/components/Ove
 
 # <SourceTitleIcon icon="calendar" tone="blue" />F6 · Festivos y eventos <SourceType>API REST + CSV</SourceType>
 
-Festivos del país de cada hotel, más un archivo de eventos locales como congresos y conciertos.
+Festivos del país de cada hotel (F6a, datos reales de una API pública) más un archivo de eventos locales como congresos y conciertos (F6b, escrito por el equipo).
 
 <AccessTable>
 
 | Propiedad | Valor |
 | --- | --- |
-| Tipo | Datos reales, API pública + archivo |
-| Ubicación | API pública [Nager.Date](https://date.nager.at) + CSV de eventos locales |
+| Tipo | Datos reales, API pública + CSV del equipo |
+| Ubicación | F6a: API [Nager.Date](https://date.nager.at) v4 · F6b: `data/local_events.csv` en [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
 | Método de acceso | API REST + archivo CSV |
-| Frecuencia | Anual (festivos) / semanal (eventos) |
-| Volumen | < 1.000 filas/año |
+| Frecuencia | F6a: mensual · F6b: copia diaria, se recarga cuando cambia el CSV |
+| Volumen | 5 países × 2 años de festivos + 33 eventos locales (< 1.000 filas/año) |
+| Se almacena primero en | F6a: **S3 bronze, directo** · F6b: **Neon** `operation.local_events` |
 
 </AccessTable>
 
-## Cómo acceder
+## Dónde se almacena
 
-Los festivos vienen de la API de Nager.Date, por año y código de país. Por ejemplo, los festivos de Portugal en 2026:
+**F6a · Festivos → S3.** El día 1 de cada mes (02:00 UTC) el DAG de Airflow `bronze_f6_holidays` llama la API para Portugal, Colombia, México, Brasil y España, para el año actual y el siguiente (las reservas se hacen con meses de anticipación), y guarda cada respuesta tal como llega:
 
 ```bash
-curl https://date.nager.at/api/v3/PublicHolidays/2026/PT
+curl https://nagerholidays.com/api/v4/Holidays/PT/2026   # $NAGER_BASE_URL
+# -> s3://…/bronze/f6_holidays/anio=2026/pais=PT.json
 ```
 
-Los eventos locales vienen de un archivo CSV que se actualiza cada semana.
+**F6b · Eventos locales → Neon, luego S3.** Los 33 eventos viven en un CSV versionado en `db_simulated`. `python -m seed events` los carga en `operation.local_events` (el CI/CD los recarga cada vez que cambia el CSV), porque la base los necesita para fijar los límites de sobreventa. Todos los días a las 02:30 UTC el DAG `bronze_f6_events` copia la tabla a `s3://…/bronze/f6_events/`.
+
+Los dos alimentan `silver/calendario_hotel/` (hotel × día con festivo, evento y fin de semana).
 
 ## Cómo se usa
 
-- Un festivo o evento local en una fecha agrega un multiplicador de precio adicional de 1,15.
-- Nunca se permite sobreventa en fechas con un evento de categoría "alta".
+- Un festivo o evento local en una fecha agrega un multiplicador de precio extra de 1,15.
+- Nunca se permite sobreventa en fechas con un evento de categoría "alta" (`refresh_overbooking_limits()` deja el límite en 0).

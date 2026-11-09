@@ -9,7 +9,7 @@ import {CardGrid, DataSourceCard, Note, AccessNote} from '@site/src/components/O
 
 # Datenquellen
 
-HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7 sind echte öffentliche Daten. F2 bis F5 sind **simuliert**: Das Team erstellt sie gemäß der Projektspezifikation, und ihr internes Design liegt in der Verantwortung des Teams.
+HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7 sind echte öffentliche Daten. F2 bis F5 sind **simuliert**: Das Team hat für jede einen Generator gebaut, der ständig auf AWS läuft und Daten in der Frequenz und dem Volumen erzeugt, die das Projekt verlangt.
 
 <CardGrid columns={3}>
   <DataSourceCard
@@ -21,9 +21,10 @@ HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7
     meta={[
       {label: 'Zugriff', value: 'kaggle.com/datasets/jessemostipak/hotel-booking-demand'},
       {label: 'Frequenz', value: 'Einmaliger historischer Import'},
-      {label: 'Volumen', value: '~119.000 Buchungen'},
+      {label: 'Volumen', value: '119.390 Buchungen'},
+      {label: 'Zuerst gespeichert in', value: 'S3 Bronze (direkt)'},
     ]}>
-    Buchungen eines Stadthotels und eines Ferienhotels in Portugal, mit Anreisedatum, Vorlaufzeit, Kanal, Segment, ADR, Stornierung und Anzahlungsart. Dient als Buchungshistorie zweier Hotels der Kette.
+    Buchungen eines Stadthotels und eines Ferienhotels in Portugal, mit Anreisedatum, Vorlaufzeit, Kanal, Segment, ADR, Stornierung und Anzahlungsart. Dient als Historie von zwei Hotels der Kette.
   </DataSourceCard>
   <DataSourceCard
     id="F2"
@@ -33,11 +34,12 @@ HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7
     type="Stream"
     simulated
     meta={[
-      {label: 'Zugriff', value: 'JSON-Nachrichten: Buchung erstellt, geändert, storniert, No-Show, Check-in, Check-out'},
-      {label: 'Frequenz', value: 'Kontinuierlich'},
-      {label: 'Volumen', value: '≥ 10 Events/Sekunde zu Spitzenzeiten'},
+      {label: 'Zugriff', value: 'Kafka, JSON-Nachrichten: Buchung erstellt, geändert, storniert, No-Show, Check-in, Check-out'},
+      {label: 'Frequenz', value: 'Kontinuierlich, rund um die Uhr'},
+      {label: 'Volumen', value: 'Spitzen von 15 Events/Sekunde (≥ 10 gefordert), ~8.000 Events/Tag'},
+      {label: 'Zuerst gespeichert in', value: 'Neon (streaming + operation)'},
     ]}>
-    OTA-Buchungen mit mehrfachen Änderungen, kurzfristigen Stornierungen und No-Shows. Events treffen gelegentlich in falscher Reihenfolge ein.
+    OTA-Buchungen mit mehreren Änderungen, späten Stornierungen und No-Shows. Etwa 5 % der Events kommen in falscher Reihenfolge an.
   </DataSourceCard>
   <DataSourceCard
     id="F3"
@@ -47,11 +49,12 @@ HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7
     type="Datenbank"
     simulated
     meta={[
-      {label: 'Zugriff', value: 'PostgreSQL: Hotels, Zimmertypen, Bestand, Raten und Direktbuchungen, befüllt per Seed'},
-      {label: 'Frequenz', value: 'Kontinuierlich'},
-      {label: 'Volumen', value: '28 Hotels, ~4.000 Zimmer'},
+      {label: 'Zugriff', value: 'PostgreSQL: Hotels, Zimmertypen, Bestand, Raten und Direktbuchungen'},
+      {label: 'Frequenz', value: 'Kontinuierlich: 6 neue Buchungen pro Minute'},
+      {label: 'Volumen', value: '28 Hotels, 4.000 Zimmer, 60.000+ Gäste'},
+      {label: 'Zuerst gespeichert in', value: 'Neon (operation)'},
     ]}>
-    Bestand nach Hotel, Zimmertyp und Datum sowie Raten nach Saison.
+    Bestand pro Hotel, Zimmertyp und Nacht, Raten nach Saison sowie Direkt- und Firmenbuchungen.
   </DataSourceCard>
   <DataSourceCard
     id="F4"
@@ -61,11 +64,12 @@ HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7
     type="Datei"
     simulated
     meta={[
-      {label: 'Zugriff', value: 'Wöchentliche CSV- / Excel-Datei je Reisebüro'},
-      {label: 'Frequenz', value: 'Wöchentlich'},
-      {label: 'Volumen', value: '~15 Reisebüros'},
+      {label: 'Zugriff', value: 'Eine CSV- oder Excel-Datei pro Reisebüro und Woche'},
+      {label: 'Frequenz', value: 'Wöchentlich, Montag 06:00 UTC'},
+      {label: 'Volumen', value: '15 Reisebüros, ~183 Buchungen/Woche'},
+      {label: 'Zuerst gespeichert in', value: 'S3 Bronze (Dateien) + Neon (Buchungen)'},
     ]}>
-    Jedes Reisebüro nutzt ein anderes Format, und einige Buchungen existieren bereits über einen anderen Kanal (kanalübergreifende Duplikate).
+    Die Reisebüros nutzen drei verschiedene Formate, und einige Buchungen existieren bereits über einen anderen Kanal (kanalübergreifende Duplikate).
   </DataSourceCard>
   <DataSourceCard
     id="F5"
@@ -76,10 +80,11 @@ HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7
     simulated
     meta={[
       {label: 'Zugriff', value: 'Paginierte REST-API: Bewertung, Text, Datum, Hotel, Plattform'},
-      {label: 'Frequenz', value: 'Täglich'},
+      {label: 'Frequenz', value: 'Kontinuierlich: neue Bewertungen alle 15 Minuten'},
       {label: 'Volumen', value: '~300 Bewertungen/Tag'},
+      {label: 'Zuerst gespeichert in', value: 'Datenbank der API (PostgreSQL auf AWS)'},
     ]}>
-    Bewertungen auf Spanisch, Englisch und Portugiesisch, teils plattformübergreifend doppelt vorhanden. Die Bewertungen sind synthetisch: Es werden keine echten Bewertungen von Plattformen extrahiert.
+    Bewertungen auf Spanisch, Englisch und Portugiesisch, einige plattformübergreifend doppelt. Die Bewertungen sind synthetisch: Es werden keine echten Bewertungen von Plattformen extrahiert.
   </DataSourceCard>
   <DataSourceCard
     id="F6"
@@ -89,10 +94,11 @@ HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7
     type="Öffentliche API + Datei"
     meta={[
       {label: 'Zugriff', value: 'Nager.Date-API + CSV mit lokalen Veranstaltungen (Kongresse, Konzerte)'},
-      {label: 'Frequenz', value: 'Jährlich / wöchentlich'},
+      {label: 'Frequenz', value: 'Monatlich (Feiertage) / täglich (Veranstaltungen)'},
       {label: 'Volumen', value: '< 1.000 Zeilen/Jahr'},
+      {label: 'Zuerst gespeichert in', value: 'Feiertage: S3 · Veranstaltungen: Neon'},
     ]}>
-    Enthält die gesetzlichen Feiertage im Land des jeweiligen Hotels.
+    Enthält die Feiertage des Landes jedes Hotels und 33 lokale Veranstaltungen.
   </DataSourceCard>
   <DataSourceCard
     id="F7"
@@ -101,26 +107,44 @@ HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7
     title="Wechselkurse"
     type="Öffentliche API"
     meta={[
-      {label: 'Zugriff', value: 'Frankfurter-API'},
+      {label: 'Zugriff', value: 'Frankfurter-API v2'},
       {label: 'Frequenz', value: 'Täglich'},
-      {label: 'Volumen', value: '5 Währungen'},
+      {label: 'Volumen', value: '5 Währungen (USD, COP, EUR, MXN, BRL)'},
+      {label: 'Zuerst gespeichert in', value: 'S3 Bronze (direkt)'},
     ]}
   />
 </CardGrid>
 
+## Wo jede Quelle zuerst gespeichert wird
+
+```text
+Simulatoren auf AWS                         Zuerst gespeichert in              Lake (S3)
+F2-Producer ─► Kafka ─► Consumer ──────────► Neon · streaming + operation ─┐
+F3-Seed + Simulator ───────────────────────► Neon · operation ─────────────┤ Airflow, stündlich
+F6-CSV lokaler Veranstaltungen ────────────► Neon · operation.local_events ┤ und nächtlich
+F4-Wochengenerator ──┬─ reservar() ────────► Neon · operation ─────────────┤
+                     └─ Rohdateien ─────────────────────────────────────────┼─► S3 Bronze ─► Silver ─► Gold
+F5-Bewertungs-API ─────────────────────────► PostgreSQL der API ─ Airflow ─┤
+F1-CSV, F6-Feiertags-API, F7-Kurs-API ── Airflow ───────────────────────────┘
+```
+
+- **Zuerst Neon (F2, F3, F6-Veranstaltungen, F4-Buchungen).** Das sind operative Daten: Jede Buchung, egal aus welchem Kanal, läuft über dieselbe Funktion `operation.reservar()`, daher teilen sich alle Kanäle einen Bestand und es gibt nie eine Überbuchung. Die Pipeline liest Neon mit einer Nur-Lese-Rolle und kopiert die Änderungen stündlich nach S3, dazu jede Nacht einen vollständigen Snapshot.
+- **Zuerst S3 (F1, F4-Dateien, F6-Feiertage, F7).** Das sind Dateien oder öffentliche APIs ohne operative Logik, daher gehen sie unverändert nach `s3://…/bronze/`.
+- **F5** speichert ihre Bewertungen in der eigenen Datenbank der API, wie es eine echte Plattform tun würde; die Pipeline liest die API stündlich.
+
 <Note>
-  **Daten-Seed.** Alle Daten in den simulierten Datenbanken werden von einem im Repository versionierten Seed erzeugt. Der Seed verwendet einen festen Zufalls-Seed, damit die Daten reproduzierbar sind, ist idempotent, erlaubt die Wahl des Volumens (kleiner Entwicklungsmodus oder Vollmodus), wahrt die referenzielle Integrität mit den simulierten APIs und Events, fügt die bekannten Datenqualitätsprobleme mit einer konfigurierbaren Rate ein und läuft sowohl lokal als auch gegen die Datenbank in AWS.
+  **Daten-Seed.** Alle Daten der simulierten Quellen erzeugt Code, der in jedem Repository versioniert ist. Die Generatoren verwenden einen festen Zufalls-Seed, damit die Daten reproduzierbar sind, sind idempotent, erlauben die Wahl des Volumens (kleiner Entwicklungsmodus oder vollständiger Modus), halten die referenzielle Integrität über einen gemeinsamen Katalog (überall dieselben Codes für Hotel, Zimmertyp, Kanal und Gast), injizieren die bekannten Qualitätsprobleme mit einer konfigurierbaren Rate und laufen sowohl lokal mit Docker als auch auf AWS.
 </Note>
 
 <AccessNote icon="alert" title="Bekannte Datenqualitätsprobleme">
 
-Die Daten weisen die folgenden Mängel auf, die von den simulierten Quellen gezielt eingefügt werden:
+Die Daten kommen mit folgenden Fehlern an, und die simulierten Quellen injizieren sie absichtlich:
 
-- F1 enthält `"NULL"` als Text in den Feldern für Agent und Firma sowie negative oder extreme ADR-Werte.
-- Buchungen mit null Erwachsenen, null Kindern und null Babys.
-- Abreisedaten, die vor dem Anreisedatum liegen.
-- Fehlende Währungsangaben in Reisebürodateien.
-- Kanalübergreifend doppelte Buchungen mit leichten Abweichungen im Gästenamen.
-- Änderungs-Events, die vor dem Erstellungs-Event eintreffen.
+- F1 enthält `"NULL"` als Text in den Feldern agent und company sowie negative oder extreme ADR-Werte.
+- Buchungen mit null Erwachsenen, null Kindern und null Babys (F1, F3).
+- Abreisedaten vor dem Anreisedatum (F3).
+- Fehlende Währungen in den Reisebürodateien (F4, ~10 %).
+- Kanalübergreifend doppelte Buchungen mit leichten Unterschieden im Gastnamen (F4, ~10 %) und plattformübergreifend doppelte Bewertungen (F5, ~5 %).
+- Änderungs-Events, die vor dem Erstellungs-Event ankommen (F2, ~5 %).
 
 </AccessNote>

@@ -9,27 +9,27 @@ import {AccessTable, SourceName, AccessNote} from '@site/src/components/Overview
 
 # Wo liegen die Quellen und wie greift man darauf zu?
 
-Die Datenquellen befinden sich auf öffentlichen Plattformen und in vom Team simulierten Systemen. Im Folgenden eine Übersicht, wo jede Quelle liegt und wie wir uns damit verbinden. Öffnen Sie eine Quelle, um die Details zu sehen.
+Die Datenquellen liegen auf öffentlichen Plattformen und in Systemen, die das Team simuliert. Jede Quelle wird zuerst an einem Ort gespeichert, und von dort kopiert die Airflow-Pipeline sie unverändert in die **Bronze**-Schicht des S3-Lakehouse. Einige Quellen landen zuerst in **Neon** (PostgreSQL), andere gehen **direkt nach S3**. Öffne jede Quelle für die Details.
 
 <AccessTable>
 
-| Quelle | Speicherort | Zugriffsmethode |
-| --- | --- | --- |
-| <SourceName icon="file" tone="purple">[F1 · Hotel booking demand](./f1-hotel-booking-demand.mdx)</SourceName> | Kaggle ([hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand)) | CSV-Download, einmaliger historischer Import |
-| <SourceName icon="stream" tone="blue">[F2 · Channel-Manager-Events](./f2-channel-manager-events.mdx)</SourceName> | Simulierter Event-Stream | JSON-Nachrichten, kontinuierlich |
-| <SourceName icon="database" tone="teal">[F3 · Eigene Buchungsmaschine](./f3-own-booking-engine.mdx)</SourceName> | Simulierte PostgreSQL-Datenbank, befüllt per Seed | Datenbankverbindung (SQL) |
-| <SourceName icon="file" tone="sky">[F4 · Dateien klassischer Reisebüros](./f4-traditional-agency-files.mdx)</SourceName> | Simulierte wöchentliche Dateien von ~15 Reisebüros | CSV- / Excel-Dateien |
-| <SourceName icon="message" tone="purple">[F5 · Gästebewertungen](./f5-guest-reviews.mdx)</SourceName> | Simulierte Bewertungs-API | Paginierte REST-API, täglich |
-| <SourceName icon="calendar" tone="blue">[F6 · Feiertage und Veranstaltungen](./f6-holidays-and-events.mdx)</SourceName> | Öffentliche API [Nager.Date](https://date.nager.at) + CSV mit lokalen Veranstaltungen | REST-API + CSV-Datei |
-| <SourceName icon="currency" tone="teal">[F7 · Wechselkurse](./f7-exchange-rates.mdx)</SourceName> | Öffentliche API [Frankfurter](https://frankfurter.dev) | REST-API, täglich |
+| Quelle | Speicherort | Zugriffsmethode | Zuerst gespeichert in | Kopie nach S3 Bronze |
+| --- | --- | --- | --- | --- |
+| <SourceName icon="file" tone="purple">[F1 · Hotel booking demand](./f1-hotel-booking-demand.mdx)</SourceName> | Kaggle-CSV, abgelegt in [hospedaplus-csv](https://github.com/HospedaPlus/hospedaplus-csv) | CSV-Datei | **S3** direkt | Einmal, von Hand (`bronze_f1_historical`) |
+| <SourceName icon="stream" tone="blue">[F2 · Channel-Manager-Events](./f2-channel-manager-events.mdx)</SourceName> | Simulator + Kafka ([buenavista-streaming](https://github.com/HospedaPlus/buenavista-streaming)) | Kafka-Topic, JSON-Nachrichten | **Neon** (Ledger `streaming` + `operation`) | Stündlich (`bronze_neon_f2_f3`) |
+| <SourceName icon="database" tone="teal">[F3 · Eigene Buchungsmaschine](./f3-own-booking-engine.mdx)</SourceName> | Seed + Simulator ([db_simulated](https://github.com/HospedaPlus/db_simulated)) | SQL (PostgreSQL) | **Neon** (`operation`) | Stündlich + nächtlicher Snapshot |
+| <SourceName icon="file" tone="sky">[F4 · Dateien klassischer Reisebüros](./f4-traditional-agency-files.mdx)</SourceName> | Wöchentlicher Generator ([hospedaplus-csv](https://github.com/HospedaPlus/hospedaplus-csv)) | CSV- / Excel-Dateien | **S3** direkt (Rohdateien) + **Neon** (Buchungen) | Wöchentlich, vom Generator hochgeladen |
+| <SourceName icon="message" tone="purple">[F5 · Gästebewertungen](./f5-guest-reviews.mdx)</SourceName> | Bewertungs-API auf AWS ([api-reviews](https://github.com/HospedaPlus/api-reviews)) | Paginierte REST-API | Eigene PostgreSQL-Datenbank der API | Stündlich (`bronze_f5_reviews`) |
+| <SourceName icon="calendar" tone="blue">[F6 · Feiertage und Veranstaltungen](./f6-holidays-and-events.mdx)</SourceName> | Nager.Date-API + CSV des Teams | REST-API + CSV | Feiertage: **S3** direkt · Veranstaltungen: **Neon** (`operation.local_events`) | Monatlich (Feiertage) · täglich (Veranstaltungen) |
+| <SourceName icon="currency" tone="teal">[F7 · Wechselkurse](./f7-exchange-rates.mdx)</SourceName> | Öffentliche [Frankfurter](https://frankfurter.dev)-API | REST-API | **S3** direkt | Täglich (`bronze_f7_fx`) |
 
 </AccessTable>
 
 <AccessNote title="Hinweise zum Zugriff">
 
-- Zugangsdaten, Schlüssel oder Passwörter werden weder im Repository noch in Container-Images gespeichert.
-- Personenbezogene Gästedaten (Name, E-Mail, Telefon) werden pseudonymisiert, bevor sie die Analyseschicht erreichen.
-- Gästedaten werden verschlüsselt.
-- Die Bewertungen sind synthetisch: Wir extrahieren keine echten Bewertungen von Bewertungsplattformen.
+- Keine Zugangsdaten, Schlüssel oder Passwörter liegen im Repository oder in Container-Images. Frag das Team nach den Verbindungs-Strings.
+- Jeder Client verbindet sich mit Neon über eine eigene Rolle: `app_writer` für Simulatoren und Consumer, `etl_reader` (nur Lesen) für die Pipeline und das Team.
+- Personenbezogene Gästedaten (Name, E-Mail, Telefon) bleiben in Neon: Die Tabelle `guests` wird nie in den Lake kopiert, und die Namen aus F4 und F5 werden vor der Analyseschicht pseudonymisiert.
+- Die Bewertungen sind synthetisch: Wir extrahieren keine echten Bewertungen von Plattformen.
 
 </AccessNote>
