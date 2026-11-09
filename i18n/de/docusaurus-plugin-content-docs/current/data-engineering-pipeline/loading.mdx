@@ -1,0 +1,123 @@
+---
+sidebar_position: 4
+sidebar_label: Inkrementelles und Batch-Laden
+title: Inkrementelles und Batch-Laden
+---
+
+# Inkrementelles und Batch-Laden
+
+Die Pipeline nutzt **beides**: inkrementelles Laden, wo sich Daten ständig ändern und schnell ankommen müssen, und Batch-Laden, wo ein vollständiges, konsistentes Bild wichtiger ist als Geschwindigkeit. Diese Seite zeigt, was jeder Schritt verwendet, den Code dazu und warum.
+
+| Schritt | Art | Fenster | Warum |
+| --- | --- | --- | --- |
+| `bronze_neon_f2_f3` | Inkrementell | stündlich, geänderte Zeilen in `[Start, Ende)` | Buchungen ändern sich den ganzen Tag; Silver bleibt ~1 h hinter Neon |
+| `bronze_f5_reviews` | Inkrementell | stündlich, `updated_from` = Beginn der Stunde | Neue und bearbeitete Bewertungen alle 15 min; nur das Delta wird geladen |
+| `bronze_f7_fx` | Inkrementell (täglich) | eine Datei pro Tag | Eine Kursveröffentlichung pro Tag |
+| `bronze_neon_full_load` | Batch (Voll-Snapshot) | jede Nacht, ganze Tabellen | Seed-Historie + gleicht den Lake mit Neon ab; konsistenter Bestand |
+| `bronze_neon_dims`, `bronze_f6_events` | Batch (Vollkopie) | jede Nacht | Kleine Kataloge: alles kopieren ist billiger als Änderungen verfolgen |
+| `bronze_f6_holidays` | Batch | monatlich, aktuelles + nächstes Jahr | Feiertage ändern sich kaum |
+| `bronze_f4_agencias` | Batch | wöchentlich (Montag) | Agenturen schicken eine Datei pro Woche |
+| `bronze_f1_historical` | Batch (einmalig) | einmal | Feste Historie 2015–2017 |
+| Silver und Gold | Batch (vollständiger Neuaufbau) | nach ihren Eingaben, überschreiben | ~2 min bei diesem Volumen; immer korrekt und wiederholbar |
+| `gold_neon_writeback` | Inkrementeller Upsert | nach Gold | Aktualisiert nur die Zeilen (Hotel, Klasse) in Neon |
+
+## 1. Inkrementell nach Zeitfenster (Neon → Bronze, stündlich)
+
+Airflow gibt jedem stündlichen Lauf sein eigenes Datenintervall `[data_interval_start, data_interval_end)`. Die Abfrage nimmt genau diese Zeilen, und die Datei ist nach dem Intervall benannt. **Was es tut:** kopiert nur, was sich in dieser Stunde geändert hat. **Warum:** kleine, schnelle Abfragen auf Neon; keine Zeile wird doppelt kopiert; eine fehlgeschlagene Stunde wird einzeln wiederholt (Clear) und überschreibt dieselbe Datei. `updated_at` setzt ein Trigger bei jeder Änderung, sodass eine Stornierung Tage später in ihrer eigenen Stunde erfasst wird.
+
+```python title="dags/bronze_neon_f2_f3.py"
+F2_SQL = """
+SELECT * FROM streaming.reservation_event_ledger
+ WHERE received_at >= %s AND received_at < %s
+"""
+F3_SQL = """
+SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s
+"""
+
+def _key(prefix, start):          # one file per hour: re-running the hour overwrites it
+    return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
+
+@dag(schedule="@hourly", catchup=False, default_args={"retries": 3, "retry_exponential_backoff": True})
+def bronze_neon_f2_f3():
+    @task(queue="bronze", outlets=[BRONZE_F3_RESERVATIONS])
+    def f3_reservations(data_interval_start=None, data_interval_end=None):
+        body, n = dump(F3_SQL, (data_interval_start, data_interval_end))
+        put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
+```
+
+## 2. Inkrementell über eine API (F5-Bewertungen)
+
+**Was es tut:** fragt die API nur nach Bewertungen, die seit Beginn der Stunde erstellt oder bearbeitet wurden, Seite für Seite. **Warum:** jede Stunde die ganze Bewertungshistorie zu laden würde endlos wachsen; der Filter `updated_from` hält jeden Aufruf klein, und bearbeitete Bewertungen kommen zurück, damit Silver die neueste Version behält.
+
+```python title="dags/bronze_f5_reviews.py"
+items, page = [], 1
+while True:
+    r = requests.get(f"{base}/api/v1/reviews", params={
+        "updated_from": data_interval_start.isoformat(), "page": page, "page_size": 100})
+    body = r.json()
+    items += body["items"]
+    if page >= body.get("total_pages", 1):
+        break
+    page += 1
+# the API only filters "from": keep [start, end) so two hours never overlap
+items = [i for i in items if pendulum.parse(i["updated_at"]) < data_interval_end]
+```
+
+## 3. Batch: nächtlicher Voll-Snapshot (Neon → Bronze)
+
+**Was es tut:** kopiert ganze Tabellen in einer einzigen schreibgeschützten `REPEATABLE READ`-Transaktion, in Seiten zu 50.000 Zeilen nach `id`, und schreibt `_SUCCESS` erst am Ende. **Warum:** die stündliche Kopie kann die vor der Pipeline entstandene Historie nicht liefern, und der Bestand muss zum selben Zeitpunkt zu den Buchungen passen. Keyset-Paging (`id > letzte`) hält den Speicher flach, und `_SUCCESS` sagt Silver, dass der Snapshot vollständig ist.
+
+```python title="dags/bronze_neon_full_load.py"
+with psycopg2.connect(neon_url()) as conn:
+    conn.set_session(isolation_level="REPEATABLE READ", readonly=True)   # one instant for all tables
+    with conn.cursor() as cur:
+        for table, prefix in TABLES.items():
+            counts[table], parts[prefix] = _copy(cur, table, prefix, day)
+
+def _copy(cur, table, prefix, day):            # keyset pagination, 50,000 rows per part
+    last, part = 0, 0
+    while True:
+        cur.execute(f"SELECT * FROM operation.{table} WHERE id > %s ORDER BY id LIMIT %s", (last, PAGE))
+        body, n = _jsonl(cur)
+        if n == 0:
+            break
+        put(f"bronze/{prefix}/fecha={day}/part-{part:05d}.jsonl", body)
+        last = json.loads(body.rstrip(b"\n").rsplit(b"\n", 1)[-1])["id"]
+        part += 1
+    ...
+for prefix, n in parts.items():                # only when everything was copied
+    _clean(prefix, day, n)                     # delete parts left by an older run of the same day
+    put(f"bronze/{prefix}/fecha={day}/_SUCCESS", json.dumps(counts).encode())
+```
+
+## 4. Beides kombiniert in Silver (Batch-Neuaufbau über Snapshot + Inkremente)
+
+**Was es tut:** liest den neuesten vollständigen Snapshot plus die stündlichen Dateien ab dem Tag davor, behält die neueste Version jeder Buchung und **überschreibt** die Silver-Tabelle. **Warum:** der Snapshot garantiert Vollständigkeit, die Inkremente ergänzen, was sich seitdem geändert hat, und das vollständige Überschreiben macht Silver idempotent: ein erneuter Lauf ergibt dieselbe Tabelle, ohne Merge-Logik, die abdriften könnte.
+
+```python title="spark_jobs/silver_reservas.py"
+# silver_reservas: newest snapshot + hourly increments, deduplicated, then full overwrite
+full_d, hour_d = plan_days(partitions("bronze", "f3_reservations_full", complete=True),
+                           partitions("bronze", "f3_reservations"))
+raw = _union(_with_src(_read_days(s, "f3_reservations_full", full_d, RES_COLS), 0),
+             _with_src(_read_days(s, "f3_reservations", hour_d, RES_COLS), 1))
+reservas = transform(raw, hotels, channels, room_types, fx)
+check(reservas, cancel)
+reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
+```
+
+## 5. Inkrementeller Upsert zurück nach Neon
+
+**Was es tut:** fügt in einer einzigen Transaktion eine Zeile pro Hotel und Vorlaufklasse ein oder aktualisiert sie. **Warum:** Neon ist die laufende operative Datenbank; ein Upsert ändert nur diese Zeilen und hinterlässt die Tabelle nie halb geschrieben.
+
+```python title="dags/gold_neon_writeback.py"
+UPSERT = """
+INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+VALUES (%s, %s, %s, NOW())
+ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
+"""
+with psycopg2.connect(url) as conn, conn.cursor() as cur:   # one transaction: all rows or none
+    cur.executemany(UPSERT, rows)
+```
+
+**Kurz gesagt:** Bronze ist inkrementell, wo die Daten heiß sind (Buchungen, Events, Bewertungen), und Batch, wo Vollständigkeit zählt (Snapshot, Kataloge, Dateien); Silver und Gold sind Batch-Neuaufbauten, die beides lesen.

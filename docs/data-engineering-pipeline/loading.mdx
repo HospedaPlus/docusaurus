@@ -1,0 +1,123 @@
+---
+sidebar_position: 4
+sidebar_label: Incremental and batch loading
+title: Incremental and batch loading
+---
+
+# Incremental and batch loading
+
+The pipeline uses **both**: incremental loads where data changes all the time and must arrive quickly, and batch loads where a complete, consistent picture matters more than speed. This page shows which one each step uses, the code that does it, and why.
+
+| Step | Type | Window | Why |
+| --- | --- | --- | --- |
+| `bronze_neon_f2_f3` | Incremental | every hour, rows changed in `[start, end)` | Bookings change all day; silver stays ~1 h behind Neon |
+| `bronze_f5_reviews` | Incremental | every hour, `updated_from` = start of the hour | New and edited reviews every 15 min; only the delta is downloaded |
+| `bronze_f7_fx` | Incremental (daily) | one file per day | One rate publication per day |
+| `bronze_neon_full_load` | Batch (full snapshot) | every night, whole tables | Seed history + squares the lake with Neon; consistent inventory |
+| `bronze_neon_dims`, `bronze_f6_events` | Batch (full copy) | every night | Small catalogs: copying everything is cheaper than tracking changes |
+| `bronze_f6_holidays` | Batch | monthly, current + next year | Holidays rarely change |
+| `bronze_f4_agencias` | Batch | weekly (Monday) | Agencies send one file per week |
+| `bronze_f1_historical` | Batch (once) | one time | Fixed 2015–2017 history |
+| Silver and gold | Batch (full rebuild) | after their inputs, overwrite | ~2 min at this volume; always correct and re-runnable |
+| `gold_neon_writeback` | Incremental upsert | after gold | Updates only the (hotel, bucket) rows in Neon |
+
+## 1. Incremental by time window (Neon → bronze, every hour)
+
+Airflow gives every hourly run its own data interval `[data_interval_start, data_interval_end)`. The query takes exactly those rows, and the file is named after the interval. **What it does:** copies only what changed in that hour. **Why:** small, fast queries on Neon; no row is copied twice; a failed hour is re-run alone (Clear) and overwrites the same file. `updated_at` is set by a trigger on every change, so a cancellation days later is picked up in its own hour.
+
+```python title="dags/bronze_neon_f2_f3.py"
+F2_SQL = """
+SELECT * FROM streaming.reservation_event_ledger
+ WHERE received_at >= %s AND received_at < %s
+"""
+F3_SQL = """
+SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s
+"""
+
+def _key(prefix, start):          # one file per hour: re-running the hour overwrites it
+    return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
+
+@dag(schedule="@hourly", catchup=False, default_args={"retries": 3, "retry_exponential_backoff": True})
+def bronze_neon_f2_f3():
+    @task(queue="bronze", outlets=[BRONZE_F3_RESERVATIONS])
+    def f3_reservations(data_interval_start=None, data_interval_end=None):
+        body, n = dump(F3_SQL, (data_interval_start, data_interval_end))
+        put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
+```
+
+## 2. Incremental through an API (F5 reviews)
+
+**What it does:** asks the reviews API only for reviews created or edited since the start of the hour, page by page. **Why:** downloading the full review history every hour would grow forever; the `updated_from` filter keeps each call small, and edited reviews come back so silver can keep the newest version.
+
+```python title="dags/bronze_f5_reviews.py"
+items, page = [], 1
+while True:
+    r = requests.get(f"{base}/api/v1/reviews", params={
+        "updated_from": data_interval_start.isoformat(), "page": page, "page_size": 100})
+    body = r.json()
+    items += body["items"]
+    if page >= body.get("total_pages", 1):
+        break
+    page += 1
+# the API only filters "from": keep [start, end) so two hours never overlap
+items = [i for i in items if pendulum.parse(i["updated_at"]) < data_interval_end]
+```
+
+## 3. Batch: nightly full snapshot (Neon → bronze)
+
+**What it does:** copies whole tables in one read-only `REPEATABLE READ` transaction, in pages of 50,000 rows by `id`, and writes `_SUCCESS` only at the end. **Why:** the hourly copy cannot bring the history created before the pipeline, and inventory must match bookings at one instant. Keyset paging (`id > last`) keeps memory flat, and `_SUCCESS` tells silver the snapshot is complete.
+
+```python title="dags/bronze_neon_full_load.py"
+with psycopg2.connect(neon_url()) as conn:
+    conn.set_session(isolation_level="REPEATABLE READ", readonly=True)   # one instant for all tables
+    with conn.cursor() as cur:
+        for table, prefix in TABLES.items():
+            counts[table], parts[prefix] = _copy(cur, table, prefix, day)
+
+def _copy(cur, table, prefix, day):            # keyset pagination, 50,000 rows per part
+    last, part = 0, 0
+    while True:
+        cur.execute(f"SELECT * FROM operation.{table} WHERE id > %s ORDER BY id LIMIT %s", (last, PAGE))
+        body, n = _jsonl(cur)
+        if n == 0:
+            break
+        put(f"bronze/{prefix}/fecha={day}/part-{part:05d}.jsonl", body)
+        last = json.loads(body.rstrip(b"\n").rsplit(b"\n", 1)[-1])["id"]
+        part += 1
+    ...
+for prefix, n in parts.items():                # only when everything was copied
+    _clean(prefix, day, n)                     # delete parts left by an older run of the same day
+    put(f"bronze/{prefix}/fecha={day}/_SUCCESS", json.dumps(counts).encode())
+```
+
+## 4. Combining both in silver (batch rebuild over snapshot + increments)
+
+**What it does:** reads the newest complete snapshot plus the hourly files from the day before it on, keeps the newest version of each booking, and **overwrites** the silver table. **Why:** the snapshot guarantees completeness, the increments add what changed since, and a full overwrite makes silver idempotent: re-running gives the same table, with no merge logic that could drift.
+
+```python title="spark_jobs/silver_reservas.py"
+# silver_reservas: newest snapshot + hourly increments, deduplicated, then full overwrite
+full_d, hour_d = plan_days(partitions("bronze", "f3_reservations_full", complete=True),
+                           partitions("bronze", "f3_reservations"))
+raw = _union(_with_src(_read_days(s, "f3_reservations_full", full_d, RES_COLS), 0),
+             _with_src(_read_days(s, "f3_reservations", hour_d, RES_COLS), 1))
+reservas = transform(raw, hotels, channels, room_types, fx)
+check(reservas, cancel)
+reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
+```
+
+## 5. Incremental upsert back to Neon
+
+**What it does:** inserts or updates one row per hotel and lead bucket in a single transaction. **Why:** Neon is the live operational database; an upsert changes only those rows and never leaves the table half-written.
+
+```python title="dags/gold_neon_writeback.py"
+UPSERT = """
+INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+VALUES (%s, %s, %s, NOW())
+ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
+"""
+with psycopg2.connect(url) as conn, conn.cursor() as cur:   # one transaction: all rows or none
+    cur.executemany(UPSERT, rows)
+```
+
+**In short:** bronze is incremental where data is hot (bookings, events, reviews) and batch where completeness matters (snapshot, catalogs, files); silver and gold are batch rebuilds that read both.

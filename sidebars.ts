@@ -68,6 +68,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'data-engineering-pipeline/technical-decisions',
         'data-engineering-pipeline/neon-connection',
+        'data-engineering-pipeline/loading',
         {
           type: 'category',
           label: 'Medallion architecture',
