@@ -6,6 +6,7 @@ slug: /data-engineering-pipeline
 ---
 
 import {StatGrid, Stat, Note} from '@site/src/components/Overview';
+import PipelineFlow from '@site/src/components/PipelineFlow';
 
 # Pipeline de ingeniería de datos
 
@@ -22,20 +23,7 @@ Código fuente: [HospedaPlus/hospedaplus-pipeline](https://github.com/HospedaPlu
 
 ## El pipeline de inicio a fin
 
-```text
- FUENTES                      BRONZE (copia cruda)        SILVER (limpio)             GOLD (modelo)             CONSUMIDORES
- ───────                      ────────────────────        ───────────────             ─────────────             ────────────
- F2 eventos OTA ─┐
- F3 motor propio ┼─► Neon ──► bronze_neon_f2_f3 (cada h) ─┐
- F4 agencias    ─┘   (operation)  bronze_neon_full_load ──┼► silver_reservas ──────┐
-                                  bronze_neon_dims ───────┤  silver_ocupacion ─────┤
- F6 eventos locales ► Neon ─────► bronze_f6_events ───────┤  silver_calendario ────┼► gold_modelo_daily ──► Athena ──► Power BI
- F6 festivos (API) ─────────────► bronze_f6_holidays ─────┘                        │     │
- F7 tasas (API) ────────────────► bronze_f7_fx ────────────► silver_fx ────────────┤     └► gold_neon_writeback ──► Neon
- F5 reseñas (API) ──────────────► bronze_f5_reviews ─────────► silver_resenas ─────┤        (tasas de cancelación)
- F1 CSV Kaggle ─────────────────► bronze_f1_historical ──────► silver_f1_historico ┘
- F4 archivos crudos ──► S3 bronze/f4_agencias (los sube el job de F4, los verifica bronze_f4_agencias)
-```
+<PipelineFlow />
 
 Paso a paso, esto es lo que pasa cada día:
 
@@ -45,6 +33,20 @@ Paso a paso, esto es lo que pasa cada día:
 4. **Gold construye el modelo analítico.** Cuando las cuatro tablas silver de la noche están listas (hacia las 03:35 UTC, 22:35 en Colombia), `gold_modelo_daily` reconstruye un **esquema estrella** (4 dimensiones, 4 hechos) más un mart por pregunta de negocio (P1 a P5), incluido un precio sugerido por noche.
 5. **Gold devuelve datos a la operación.** `gold_neon_writeback` escribe en Neon la tasa de cancelación por hotel y anticipación, para que la operación use los mismos números que ve el negocio.
 6. **Athena expone las tablas y Power BI las lee.** Las tablas silver y gold se registran en el Glue Data Catalog con DDL de Athena, y Power BI las consulta a través de Athena. Los tableros están frescos antes de las 06:00 hora local en cada hotel.
+
+## Por qué un lakehouse
+
+Sí: el almacenamiento es un **lakehouse**. Los datos viven como archivos abiertos (JSON en bronze, Parquet en silver y gold) en **un solo bucket de S3**, como un data lake, pero se usan como un data warehouse: cada tabla tiene un esquema fijo, se valida antes de escribirse, se registra en el **Glue Data Catalog** y Power BI la consulta con **SQL en Athena**. No hay una base de warehouse aparte a la que copiar.
+
+| Necesidad | Solo data lake | Solo warehouse | Lakehouse (lo que usamos) |
+| --- | --- | --- | --- |
+| Guardar el dato crudo en cualquier formato (JSON, CSV, Excel) para reprocesarlo | ✅ | ❌ | ✅ bronze |
+| Tablas tipadas, reglas de calidad, SQL para BI | ❌ | ✅ | ✅ silver / gold + Athena |
+| Pagar solo almacenamiento y por consulta, sin servidor encendido | ✅ | ❌ (clúster siempre encendido) | ✅ S3 + Athena serverless |
+| Una sola copia de los datos, sin ETL a una segunda base | – | ❌ | ✅ |
+| Spark y SQL leen los mismos archivos | – | – | ✅ |
+
+**Por qué encaja en HospedaPlus:** las fuentes son muy distintas (filas de base de datos, JSON de APIs, Excel de agencias, un CSV de Kaggle), el volumen es lo bastante pequeño para Spark en modo local, el presupuesto es una cuenta AWS de estudiante y el negocio solo necesita unos tableros que leen tablas agregadas. Un lakehouse guarda barato el historial crudo y aun así le da a Power BI tablas limpias y tipadas.
 
 ## ETL, OLTP y OLAP: dónde ocurre cada paso
 
