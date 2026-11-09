@@ -17,7 +17,7 @@ Base opérationnelle simulée du moteur de réservation propre de la chaîne. El
 | Type | Base simulée, générée par un seed et maintenue vivante par un simulateur |
 | Emplacement | Neon (PostgreSQL 16, AWS US East Ohio), base `hospedaplus`, schéma `operation` · code source dans [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
 | Méthode d'accès | Connexion à la base de données (SQL) |
-| Fréquence | Continue : 6 nouvelles réservations par minute |
+| Fréquence | Continue : 1 nouvelle réservation par minute |
 | Volume | 28 hôtels dans 5 pays, 4 000 chambres, 60 000+ clients, 365 nuits en vente |
 | Stockée d'abord dans | **Neon** `operation` |
 
@@ -27,7 +27,7 @@ Base opérationnelle simulée du moteur de réservation propre de la chaîne. El
   <Stat value="28">hôtels dans 5 pays</Stat>
   <Stat value="4 000">chambres</Stat>
   <Stat value="14">tables</Stat>
-  <Stat value="6/min">nouvelles réservations</Stat>
+  <Stat value="1/min">nouvelle réservation</Stat>
 </StatGrid>
 
 ## Simulation
@@ -35,11 +35,11 @@ Base opérationnelle simulée du moteur de réservation propre de la chaîne. El
 Deux tâches, toutes deux avec l'image du dépôt :
 
 1. **Seed** (`python -m seed all`). Charge le catalogue, 365 nuits d'inventaire et de tarifs à venir, 60 000+ clients et l'historique des réservations (`dev` : 90 nuits passées, `full` : 400). Les hôtels urbains reçoivent plus d'arrivées du dimanche au mardi, les resorts le week-end, la haute saison amène plus de clients et l'occupation future baisse à mesure qu'on regarde loin, comme dans une vraie courbe de réservation. Même graine + même date de début = les mêmes données, ligne par ligne.
-2. **Simulateur** (`python -m seed simulate`). Tourne en permanence sur AWS EC2. Toutes les 10 secondes, il réserve un séjour direct ou entreprise avec `operation.reservar()` (`rejected` quand l'hôtel est complet), annule de temps en temps une réservation avec `operation.cancelar()`, continue d'injecter des lignes défectueuses et, une fois par jour, met en vente une nouvelle nuit à 365 jours.
+2. **Simulateur** (`python -m seed simulate`). Tourne en permanence sur AWS EC2. Chaque minute, il réserve un séjour direct ou entreprise avec `operation.reservar()` (`rejected` quand l'hôtel est complet), annule de temps en temps une réservation avec `operation.cancelar()`, continue d'injecter des lignes défectueuses et, une fois par jour, met en vente une nouvelle nuit à 365 jours.
 
 ### Fréquence et volume
 
-- `SIM_BOOKINGS_PER_MIN=6` : environ 8 600 tentatives de réservation par jour, donc F3 est une source continue et le pipeline trouve toujours de nouvelles lignes.
+- `SIM_BOOKINGS_PER_MIN=1` (réglé ainsi sur l'EC2) : environ 1 440 tentatives de réservation par jour, donc F3 est une source continue et le pipeline trouve toujours de nouvelles lignes.
 - `SEED_MODE=full` charge l'historique complet ; `dev` est une petite version pour le développement.
 - `python -m seed check` exécute 24 contrôles de santé et d'intégrité et ne réussit que si tous réussissent (comptages, catalogue, pas d'orphelins, inventaire = réservations confirmées, aucune réservation antérieure au jour où elle a été faite).
 

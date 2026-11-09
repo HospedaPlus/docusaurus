@@ -1,0 +1,27 @@
+---
+sidebar_position: 1
+sidebar_label: Overview
+title: Medallion architecture
+---
+
+# Medallion architecture
+
+The lake is split into three layers. Data only moves forward (bronze → silver → gold), each layer is written by its own DAGs and its own Celery worker, and each one has a clear contract.
+
+| Layer | Question it answers | Format | Who writes it | Rule |
+| --- | --- | --- | --- | --- |
+| [**Bronze**](./bronze.mdx) | *What exactly did each source send?* | Raw: JSON Lines, JSON, CSV, Excel | Bronze DAGs (queue `bronze`), plain Python, no Spark | Never modified. One object per source and date/hour. |
+| [**Silver**](./silver.mdx) | *What is the clean, trustworthy version of each entity?* | Parquet | Silver DAGs (queue `silver`), Spark | One row per entity, defects handled, amounts in COP, checks before writing. |
+| [**Gold**](./gold.mdx) | *What does the business need to decide?* | Parquet (one JSON file for Neon) | `gold_modelo_daily` (queue `gold`), Spark | Star schema + one mart per pain, rebuilt every night. |
+
+```text
+ bronze/  ── raw, replayable ──►  silver/  ── clean, conformed ──►  gold/  ── modelled, ready ──►  Athena / Power BI
+ (as it came)                     (one truth per entity)           (star + marts P1–P5)
+```
+
+## Why three layers
+
+- **Replay.** Because bronze keeps the raw data, a bug in silver or gold is fixed in code and the layer is rebuilt from bronze. No source has to send its data again.
+- **Separation of concerns.** Bronze only moves data, silver only cleans it, gold only models it. A change in one layer does not break the others.
+- **Trust.** Every silver and gold job runs its quality checks before writing. If one fails, the previous version stays, so Power BI never sees half-processed data.
+- **Cost.** Athena and Power BI read compact Parquet from silver and gold, never the raw JSON.

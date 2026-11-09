@@ -1,0 +1,100 @@
+---
+sidebar_position: 4
+sidebar_label: Gold e modelo de dados
+title: Camada gold e modelo de dados
+---
+
+# Camada gold e modelo de dados
+
+O gold é a camada analítica. Uma vez por noite `gold_modelo_daily` (`spark_jobs/gold_modelo.py`, fila `gold`) lê as tabelas silver e os últimos catálogos do Neon, reconstrói **todas** as tabelas gold por inteiro, verifica todas e as sobrescreve. Todos os valores estão em **COP** e reservas duplicadas (F4) nunca contam.
+
+## Modelo de dados
+
+### Qual modelo é: um esquema estrela
+
+O modelo é um **esquema estrela**, não um floco de neve. Cada tabela de fatos se liga **diretamente** às suas dimensões, e nenhuma dimensão depende de outra: o país, a cidade e a categoria do hotel ficam dentro de `dim_hotel`, não em tabelas separadas `dim_pais` ou `dim_ciudad`. Algumas colunas descritivas (`channel_type`, `hotel_pais`) também são copiadas nos fatos para que os filtros mais comuns não precisem de nenhuma junção.
+
+**Por que estrela e não floco de neve:** o motor do Power BI é feito para estrelas (relações um para muitos de cada dimensão para cada fato, filtros em um só sentido); as dimensões são pequenas (28 hotéis, poucos canais e tipos de quarto), então normalizá-las adicionaria junções sem economizar espaço; e o modelo fica fácil de ler para o negócio.
+
+### Como ele é
+
+```text
+                              ┌──────────────────────┐
+                              │      dim_fecha       │
+                              │ PK fecha             │
+                              │ anio, mes, semana…   │
+                              └──────────┬───────────┘
+                                         │
+ ┌──────────────────────┐     ┌──────────┴───────────┐     ┌──────────────────────┐
+ │      dim_canal       │     │        FATOS         │     │ dim_tipo_habitacion  │
+ │ PK channel_code      ├─────┤ fact_reservas        ├─────┤ PK room_type         │
+ │ channel_type, comis. │     │ fact_cancelaciones   │     │ nombre, capacidad    │
+ └──────────────────────┘     │ fact_ocupacion_diaria│     └──────────────────────┘
+                              │ fact_resenas         │
+                              └──────────┬───────────┘
+                                         │
+                              ┌──────────┴───────────┐
+                              │      dim_hotel       │
+                              │ PK hotel_code        │
+                              │ ciudad, pais, categ. │
+                              └──────────────────────┘
+                    os marts P1–P5 são construídos a partir dos fatos
+```
+
+Relações (todas um para muitos, da dimensão para o fato):
+
+| Fato | `dim_fecha` | `dim_hotel` | `dim_canal` | `dim_tipo_habitacion` |
+| --- | --- | --- | --- | --- |
+| `fact_reservas` | `check_in`, `fecha_reserva`, `check_out` | `hotel_code` | `channel_code` | `room_type` |
+| `fact_cancelaciones` | `check_in`, `fecha_cancelacion` | `hotel_code` | `channel_code` | `room_type` |
+| `fact_ocupacion_diaria` | `fecha` (noite) | `hotel_code` | – | `room_type` |
+| `fact_resenas` | `fecha_publicacion`, `fecha_estadia` | `hotel_code` | – | – |
+
+`dim_fecha` é uma dimensão de **papel múltiplo** (*role-playing*): a mesma tabela serve para a data de check-in, a da reserva, a do cancelamento, a noite de ocupação e a data de publicação de uma avaliação. Os feriados não estão em `dim_fecha` porque dependem do país do hotel: estão em `fact_ocupacion_diaria` (a partir de `silver/calendario_hotel`).
+
+### Dimensões
+
+| Tabela | Granularidade (PK) | Colunas |
+| --- | --- | --- |
+| `dim_fecha` | um dia (`fecha`) | `fecha_key` (yyyyMMdd), `anio`, `trimestre`, `mes`, `nombre_mes`, `semana_iso`, `dia_semana`, `es_fin_de_semana`, `anio_mes`. De um ano atrás até o último check-out. |
+| `dim_hotel` | `hotel_code` | `nombre`, `categoria`, `ciudad`, `pais`, `moneda`, `zona_horaria`, `habitaciones` (máximo de quartos em uma noite) |
+| `dim_canal` | `channel_code` | `nombre`, `channel_type` (ota, direct, corporate, agency), `comision_pct` |
+| `dim_tipo_habitacion` | `room_type` | `nombre`, `capacidad` |
+
+### Fatos
+
+| Tabela | Granularidade | Chaves para dimensões | Medidas |
+| --- | --- | --- | --- |
+| `fact_reservas` | uma reserva (`code`), sem duplicados | `hotel_code`, `channel_code`, `room_type`, `fecha_reserva`, `check_in`, `check_out` | `noches`, `habitaciones`, `huespedes`, `lead_time_dias`, `total_cop`, `comision_cop`, `neto_cop`, `penalidad_cop`; indicadores `es_cancelada`, `reembolsable`, `fx_estimada`; `rango_anticipacion`, `status`, `source` |
+| `fact_cancelaciones` | uma reserva cancelada / no-show | `hotel_code`, `channel_code`, `room_type`, `check_in`, `fecha_cancelacion` | `horas_antes_checkin`, `total_cop`, `penalidad_cop`, `ingreso_perdido_cop` (total − multa); `rango_anticipacion` |
+| `fact_ocupacion_diaria` | hotel × tipo de quarto × noite | `hotel_code`, `room_type`, `fecha` | `habitaciones`, `vendidas`, `limite_sobreventa`, `disponibles`, `sobrevendidas`, `reubicadas`, `habitaciones_rechazadas`, `ocupacion_pct`, `ingreso_cop`; `es_festivo`, `nombre_festivo`, `hay_evento`, `evento`, `categoria_evento` |
+| `fact_resenas` | uma avaliação (só originais) | `hotel_code`, `fecha_publicacion`, `fecha_estadia` | `puntaje`, `sentimiento`, `duplicados`; `plataforma`, `idioma`, `pais_huesped` |
+
+### Marts (um por pain do negócio)
+
+Os marts são respostas já agregadas a partir dos fatos, então cada página do painel lê uma tabela pequena.
+
+| Mart | Pain | Granularidade | O que entrega |
+| --- | --- | --- | --- |
+| `mart_p1_cancelacion` | P1 cancelamentos | canal × faixa de antecedência × reembolsável × mês de check-in | reservas, canceladas, `tasa_cancelacion`, multa e receita perdida em COP |
+| `mart_p1_historico_f1` | P1 (histórico) | tipo de hotel × tipo de canal × faixa de antecedência × tipo de depósito | taxa de cancelamento da F1 2015–2017 |
+| `mart_p2_sobreventa` | P2 overbooking | hotel × noite | quartos, vendidos, limite de overbooking, vendidos a mais, realocados, recusados, `% realocação` |
+| `mart_p3_revenue` | P3 receita | hotel × noite | ocupação %, **ADR**, **RevPAR**, quartos em carteira 14 dias antes vs o ano anterior (**pickup %**), indicadores de feriado e evento |
+| `mart_p3_precio_sugerido` | P3 preços | hotel × tipo de quarto × noite, próximas 90 noites | preço sugerido = tarifa × fator de pickup (1,10 / 0,92 quando o pickup passa de ±15 %) × fator de evento (1,15 em feriado ou evento), entre 0,75 e 1,60 da tarifa base (RN-05/RN-06), também em COP |
+| `mart_p4_comisiones` | P4 custo de canal | canal × hotel × mês | receita bruta, comissão e líquida em COP, % de comissão efetiva |
+| `mart_p5_reputacion` | P5 reputação | hotel × dia | nota RN-10 dos últimos 90 dias com os últimos 30 valendo o dobro, avaliações em 90 dias, % positivas, % negativas |
+
+Além disso, `neon_cancellation_rate_by_lead` (hotel × faixa de antecedência), um arquivo JSON pequeno que `gold_neon_writeback` carrega no Neon. Veja [Conexão com o Neon](../neon-connection.mdx).
+
+## Verificações de qualidade antes de gravar
+
+- Cada dimensão, fato e mart principal não está vazio e é único na sua chave.
+- Nenhuma linha de `fact_reservas` sem seu hotel ou canal nas dimensões (sem órfãos).
+- Taxas de cancelamento para o Neon entre 0 e 1.
+- Preços sugeridos dentro da faixa RN-06.
+
+Se uma verificação falha nada é gravado e o gold de ontem continua no lugar. `fact_resenas`, `mart_p5_reputacion`, `mart_p1_historico_f1` e `mart_p3_precio_sugerido` só são construídos quando suas entradas existem, então uma fonte opcional ausente nunca para P1 a P4.
+
+## Armazenamento
+
+Parquet em `s3://hospedaplus-lakehouse-buenavista/gold/<tabela>/`, **sem partições**: cada execução regrava a pasta inteira, então o Athena sempre lê a última execução. Registradas no Athena no banco `hospedaplus_gold` (veja [Configuração do Athena](../athena.mdx)).

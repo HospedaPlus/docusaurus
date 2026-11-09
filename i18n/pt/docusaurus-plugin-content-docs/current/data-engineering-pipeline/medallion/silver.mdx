@@ -1,0 +1,98 @@
+---
+sidebar_position: 3
+sidebar_label: Silver
+title: Camada silver
+---
+
+# Camada silver
+
+O silver transforma as cópias brutas do bronze em **uma tabela limpa e confiável por entidade**. Cada job é escrito em PySpark (`spark_jobs/silver_*.py`), roda no worker `silver`, lê o bronze com um esquema explícito (sem passada de inferência), roda suas verificações de qualidade e só então sobrescreve sua pasta Parquet.
+
+| Tabela silver | Construída a partir de | Uma linha por | Uso principal |
+| --- | --- | --- | --- |
+| `tasa_cambio_diaria` | F7 | dia × moeda | Converter todo valor para COP |
+| `reservas` | Reservas no Neon (F2, F3, F4) + catálogos + câmbio | código de reserva | P1, P3, P4 |
+| `cancelaciones` | `reservas` | reserva cancelada / no-show | P1 |
+| `reservas_rechazadas` | Anomalias no Neon | reserva recusada | Qualidade de dados (defeitos 5.3) |
+| `ocupacion_diaria` | Foto do Neon: inventário, realocações, recusas | hotel × tipo de quarto × noite | P2, P3 |
+| `calendario_hotel` | Feriados F6 + eventos F6 + hotéis | hotel × dia | P3 |
+| `resenas` | Avaliações F5 + hotéis | avaliação (original) | P5 |
+| `historico_f1` | CSV Kaggle F1 | reserva histórica | P1 |
+
+## Transformações: como e por quê
+
+### `tasa_cambio_diaria` (F7)
+
+1. Lê todas as respostas do Frankfurter (linhas `date, base, quote, rate`, base USD) e adiciona USD = 1.
+2. Monta uma **grade diária** da primeira à última data para cada moeda e preenche cada dia com a **última taxa conhecida** (preenchimento para frente).
+3. Calcula `cop_por_unidad = taxa(USD→COP) / taxa(USD→moeda)`.
+
+**Por quê:** não há taxas nos fins de semana e feriados, mas há reservas, então cada dia do calendário precisa de uma taxa. O Frankfurter v2 pode datar cada moeda de forma diferente (EUR ou MXN podem vir com outra data que COP), então cada moeda é preenchida na sua própria grade **antes** de dividir por COP; senão, dias inteiros se perderiam.
+**Verificações:** não vazia, sem nulos, `(fecha, moneda)` único, taxa > 0, sem dias faltando.
+
+### `reservas`, `cancelaciones`, `reservas_rechazadas` (F2, F3, F4)
+
+Todos os canais gravam em `operation.reservations` com `reservar()`, então um só job trata todas as reservas.
+
+1. **Ler só o necessário:** a foto completa mais recente (com `_SUCCESS`) mais os arquivos horários a partir do dia anterior a essa foto.
+2. **Versão mais recente por código.** A mesma reserva aparece várias vezes (criada, modificada, cancelada). Uma janela por `code` mantém a linha com o `updated_at` mais recente (ou, em arquivos antigos, o mais recente entre criada/cancelada/último evento); em empate, o arquivo horário vence a foto.
+   **Por quê:** o silver deve mostrar o estado atual de cada reserva, exatamente uma vez.
+3. **Juntar os catálogos** (última cópia de hotéis, canais, tipos de quarto) para obter código do hotel, país, categoria, fuso horário, tipo de canal e comissão.
+4. **Campos derivados:** `noches`, `huespedes`, `fecha_reserva`, `lead_time_dias` (check-in − data da reserva), `es_cancelada` (cancelada ou no-show), `es_duplicado` (status `duplicate`).
+5. **Moeda para COP** com a taxa do dia da reserva. Reservas anteriores à primeira taxa publicada usam a mais antiga e são marcadas `fx_estimada = true`.
+   **Por quê:** o negócio reporta em COP, e os hotéis vendem em EUR, COP, MXN e BRL.
+6. **Comissão e líquido:** `comision_cop = total_cop × % de comissão do canal` e `neto_cop = total_cop − comision_cop` (P4).
+7. **`cancelaciones`:** só reservas canceladas / no-show que não são duplicadas, com `horas_antes_checkin` (do cancelamento até o check-in às 15:00) e uma faixa de antecedência (`0-1`, `1-3`, `3-7`, `7-30`, `30-90`, `90+` dias) para P1.
+8. **`reservas_rechazadas`:** reservas que o Neon recusou (zero hóspedes, check-out antes do check-in), uma por código.
+
+Como cada defeito de qualidade das fontes é tratado:
+
+| Defeito | Onde é tratado | Resultado no silver |
+| --- | --- | --- |
+| F3 zero hóspedes / check-out antes do check-in | Recusado pelo Neon, registrado em `reservation_anomalies` | `reservas_rechazadas`, nunca nas métricas |
+| F4 reserva duplicada | Marcada `duplicate` no Neon | `es_duplicado = true`, excluída de toda métrica do gold |
+| F4 moeda ausente | O carregador usa a moeda do hotel | Mantida |
+| F2 eventos fora de ordem | Resolvido no Neon (`last_event_at`) | Já em ordem |
+
+**Verificações:** não vazia, `code` único, nenhuma linha sem `total_cop` (o erro diz qual fonte/moeda está sem taxa), sem nulos nas colunas chave, `check_out > check_in`, pelo menos um adulto, sem valores negativos, códigos únicos em `cancelaciones`. A tabela é particionada por `source` (F2, F3, F4).
+
+### `ocupacion_diaria` (inventário F3)
+
+1. Pega a foto de inventário mais recente: quartos, vendidos e limite de overbooking por hotel, tipo de quarto e noite.
+2. Adiciona **realocações** por noite e **quartos recusados** por noite (cada reserva recusada é aberta em suas noites).
+3. Calcula `disponibles = quartos + limite de overbooking − vendidos`, `ocupacion_pct` e `sobrevendidas` (vendidos acima dos quartos físicos).
+
+**Por quê:** P2 (overbooking) e P3 (receita) precisam de uma visão densa noite a noite da capacidade e de quantas vezes o overbooking afetou um hóspede.
+**Verificações:** `(hotel, tipo de quarto, noite)` único, sem nulos, e nunca vendido acima de quartos + limite de overbooking.
+
+### `calendario_hotel` (F6)
+
+1. Lê os feriados do Nager (tolerante ao formato da resposta) e pega o país do nome do arquivo.
+2. Monta uma linha por **hotel × dia** e marca `es_festivo` com o nome do feriado do país do hotel.
+3. Adiciona os **eventos locais** do hotel (eventos de vários dias são abertos em cada dia; se vários se sobrepõem, vence a categoria mais alta: low < medium < high).
+4. Adiciona ano, mês, dia da semana e fim de semana.
+
+**Por quê:** os feriados dependem do país e os eventos do hotel, então o calendário deve ser por hotel. O gold o junta com a ocupação e o preço (P3).
+**Verificações:** `(hotel, dia)` único, sem nulos, sem dias faltando.
+
+### `resenas` (F5)
+
+1. **Última versão** de cada id de avaliação (avaliações editadas voltam com um `updated_at` mais novo).
+2. **Duplicados entre plataformas:** o mesmo hóspede publica a mesma avaliação em outra plataforma minutos ou horas depois, com uma variação do nome e às vezes sem o ponto final. Mesmo hotel + data da estadia + nota + texto normalizado (minúsculas, sem espaços nas pontas, sem pontuação final) = a mesma avaliação. Fica a primeira publicada e `copias_en` / `duplicados` dizem onde foi copiada.
+3. País do hotel pelo catálogo e **sentimento** pela nota: 4–5 positivo, 3 neutro, 1–2 negativo.
+
+**Por quê:** sem remover duplicados, uma mesma opinião contaria várias vezes na reputação (P5).
+**Verificações:** `review_id` único, sem nulos, nota entre 1 e 5, hotel conhecido. Particionada por `fecha_publicacion`.
+
+### `historico_f1` (F1)
+
+1. Renomeia e tipa as colunas do Kaggle, monta a data de chegada, noites, hóspedes e receita (`adr × noites`, em EUR).
+2. Traduz `market_segment` para os tipos de canal do projeto (Online TA → `ota`, Offline TA/TO e Groups → `agency`, Corporate e Aviation → `corporate`, Direct e Complementary → `direct`).
+3. Mesmas faixas de antecedência de `cancelaciones`.
+4. Descarta linhas sem hóspedes, sem noites, com ADR negativo ou sem data de chegada, e as conta.
+
+**Por quê:** a F1 é o histórico longo (2015–2017) que explica como o cancelamento depende da antecedência e do tipo de depósito, algo que os dados ao vivo não têm. Os valores ficam em EUR porque as taxas só começam em 2026.
+
+## Quanto demora
+
+Toda a camada silver roda em cerca de 2 minutos. `silver_reservas_daily` também roda depois de cada cópia horária do bronze, então o silver fica uma hora atrás do Neon.

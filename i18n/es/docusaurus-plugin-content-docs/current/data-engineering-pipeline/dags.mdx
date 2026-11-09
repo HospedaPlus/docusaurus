@@ -1,0 +1,79 @@
+---
+sidebar_position: 6
+sidebar_label: DAGs y horarios
+title: DAGs y horarios
+---
+
+# DAGs y horarios
+
+Hay 17 DAGs: 9 de bronze, 6 de silver y 2 de gold. Los DAGs de bronze corren por **reloj** (cada fuente tiene su propio ritmo). Los de silver y gold corren por **datos**: se programan sobre **Assets** de Airflow y arrancan solos cuando se escribieron los datos de bronze o silver que leen. Las horas están en UTC; Colombia (COT) es UTC−5.
+
+## Qué hace cada DAG
+
+### Bronze (cola `bronze`)
+
+| DAG | Cuándo (UTC / COT) | Qué hace |
+| --- | --- | --- |
+| `bronze_neon_f2_f3` | cada hora en punto | Copia desde Neon los eventos del ledger F2 recibidos y las reservas y anomalías que cambiaron en la última hora. |
+| `bronze_f5_reviews` | cada hora en punto | Trae de la API de F5 todas las páginas de reseñas creadas o editadas en la última hora. |
+| `bronze_f7_fx` | 01:00 / 20:00 | Descarga las tasas de cambio del día (base USD → COP, EUR, MXN, BRL). |
+| `bronze_f6_holidays` | 02:00 el día 1 de cada mes / 21:00 | Descarga los festivos de PT, CO, MX, BR, ES del año actual y el siguiente. |
+| `bronze_f6_events` | 02:30 / 21:30 | Copia la tabla de eventos locales desde Neon. |
+| `bronze_neon_full_load` | 03:00 / 22:00 | Foto completa y consistente de reservas, anomalías, inventario, reubicaciones y rechazos, cerrada con `_SUCCESS`. |
+| `bronze_neon_dims` | 03:15 / 22:15 | Copia los catálogos: hoteles, tipos de habitación, canales, políticas de cancelación, tarifas. |
+| `bronze_f4_agencias` | lunes 07:00 / 02:00 | Verifica que los 15 archivos de agencias de la semana y el resumen llegaron a S3 (el job de F4 los sube a las 06:00). |
+| `bronze_f1_historical` | manual, una vez | Sube el CSV histórico de Kaggle. |
+
+### Silver (cola `silver`)
+
+| DAG | Arranca cuando | Qué hace |
+| --- | --- | --- |
+| `silver_fx_daily` | escribió `bronze_f7_fx` | Tasa diaria en COP por moneda, todos los días del calendario. |
+| `silver_reservas_daily` | (FX silver **y** foto completa **y** catálogos) **o** cada copia horaria de reservas | Reservas en COP con comisión, cancelaciones, reservas rechazadas. |
+| `silver_ocupacion_daily` | foto completa **y** catálogos | Ocupación por hotel, tipo de habitación y noche. |
+| `silver_calendario_daily` | (eventos **y** catálogos) **o** festivos nuevos | Calendario por hotel y día con festivos y eventos. |
+| `silver_resenas_daily` | reloj, 03:30 / 22:30 | Reseñas limpias sin duplicados entre plataformas. |
+| `silver_f1_historico` | escribió `bronze_f1_historical` | Histórico F1 limpio. |
+
+### Gold (cola `gold`)
+
+| DAG | Arranca cuando | Qué hace |
+| --- | --- | --- |
+| `gold_modelo_daily` | `silver_ocupacion` **y** `silver_calendario` **y** `silver_reservas` **y** `silver_resenas` se refrescaron | Reconstruye el modelo estrella y los marts P1–P5 (~03:35 / 22:35). |
+| `gold_neon_writeback` | `gold_modelo_daily` escribió el archivo para Neon | Inserta o actualiza las tasas de cancelación en Neon (y, si está activado, los límites de sobreventa). |
+
+## Una noche en el pipeline
+
+```text
+UTC    COT     ───────────────────────────────────────────────────────────────────────────
+cada   cada    bronze_neon_f2_f3 ─► silver_reservas_daily (refresco horario, silver ≈ 1 h detrás de Neon)
+hora   hora    bronze_f5_reviews (acumula las reseñas del día)
+01:00  20:00   bronze_f7_fx ─► silver_fx_daily ··················┐
+02:00  21:00   (día 1) bronze_f6_holidays ─► silver_calendario   │
+02:30  21:30   bronze_f6_events ·································┼──┐
+03:00  22:00   bronze_neon_full_load ····························┤  │
+03:15  22:15   bronze_neon_dims ─────────────────────────────────┴──┴─► silver_reservas_daily
+                                                                      ─► silver_ocupacion_daily
+                                                                      ─► silver_calendario_daily
+03:30  22:30   silver_resenas_daily
+~03:35 22:35   las cuatro silver refrescadas ─► gold_modelo_daily ─► gold_neon_writeback
+05:00  00:00   06:00 en Madrid (invierno), la primera mañana de hotel: gold ya está ahí
+```
+
+## Por qué este orden
+
+1. **Primero FX (01:00).** Cada monto de silver se convierte a COP, así que la tasa del día debe existir antes de procesar las reservas.
+2. **Festivos y eventos antes de la foto (02:00, 02:30).** El calendario debe estar listo para el gold de esa misma noche.
+3. **Foto completa a las 03:00.** Es la última imagen completa del día antes de gold, tomada cuando ya están FX, festivos y eventos. Corre en una sola transacción para que inventario y reservas cuadren.
+4. **Catálogos justo después (03:15).** Silver necesita el hotel, el canal y el tipo de habitación de cada reserva; copiarlos después de la foto garantiza que cualquier hotel o canal nuevo que aparezca en la foto también esté en el catálogo.
+5. **Silver espera todas sus entradas (`&`).** Por ejemplo `silver_reservas_daily` espera FX **y** foto **y** catálogos, así nunca convierte con una tasa faltante ni une contra un catálogo viejo. El `|` (o) con la copia horaria refresca las reservas durante el día sin esperar la noche.
+6. **Reseñas por reloj (03:30), no por el asset horario.** Las reseñas llegan cada hora; programar silver sobre ese asset lo reconstruiría 24 veces al día. Una vez al día, después de los catálogos, basta para P5.
+7. **Gold espera las cuatro tablas silver (`&`).** `silver_reservas` también cambia cada hora, pero el `&` hace que gold espere a las otras tres, que solo cambian de noche: gold corre **una vez por noche**, con un conjunto de entradas consistente.
+8. **El write-back al final.** Neon recibe las nuevas tasas de cancelación solo después de que gold pasó todos sus controles.
+
+## Configuración común
+
+- `catchup=False`: cuando se activa un DAG no repite los días pasados.
+- `max_active_runs=1` en silver y gold: dos corridas nunca sobrescriben la misma tabla a la vez.
+- Reintentos: bronze de 2 a 6 veces según la fuente; silver y gold 2 veces, con 10 minutos entre una y otra y un límite de 45 minutos.
+- Los DAGs nuevos no quedan pausados al crearse, así después de un despliegue todo sigue corriendo.

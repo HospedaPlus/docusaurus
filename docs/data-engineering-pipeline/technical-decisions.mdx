@@ -1,0 +1,32 @@
+---
+sidebar_position: 2
+sidebar_label: Technical decisions
+title: Technical decisions
+---
+
+# Technical decisions
+
+Each decision below answers a concrete need of the project. They are listed with the alternative that was discarded and the reason.
+
+| # | Decision | Alternative discarded | Why |
+| --- | --- | --- | --- |
+| 1 | **Airflow 3 with CeleryExecutor** and RabbitMQ as broker | LocalExecutor on one machine | Tasks run on separate worker machines, so the scheduler stays light and the work scales by adding workers. RabbitMQ is only the Celery queue; Kafka carries the F2 events. |
+| 2 | **One Celery queue per layer** (`bronze`, `silver`, `gold`), one worker each | One shared queue | A 10-minute gold job never delays the hourly bronze copy, and each worker can be sized for its layer. |
+| 3 | **Spark in local mode inside the worker** | A Spark cluster (EMR, standalone) | About 200,000 bookings fit in one machine. Local mode avoids a cluster to run and pay for; the same code can move to a cluster by changing `SPARK_MASTER`. Shuffle partitions are set to 8 instead of the default 200. |
+| 4 | **One bronze DAG per source**, and silver/gold DAGs per topic | Three DAGs, one per layer | Each source has its own rhythm (hourly, daily, weekly, monthly, once). One DAG per source lets each run on its own clock and fail without stopping the others. |
+| 5 | **DAGs chained by Assets** (data-aware scheduling) | Fixed clock times for everything, or `TriggerDagRunOperator` | Silver starts when its bronze data was actually written, not at a guessed time. If bronze is late, silver waits; if it fails, silver does not run on stale data. |
+| 6 | **Every booking goes through Neon** (`operation.reservar()`) and the lake reads bookings only from Neon | Each channel written to the lake on its own | One source of truth for bookings and inventory, overbooking control in one place, and one silver job for every channel. |
+| 7 | **Hourly incremental copy + nightly full snapshot** of Neon | Only full copies, or only incremental | The hourly copy keeps silver about an hour behind Neon; the nightly snapshot brings the seed history and squares the lake with Neon every night, whatever the hourly copy may have missed. |
+| 8 | **Bronze is a raw copy**, named by source and date | Cleaning on the way in | Any silver bug can be fixed and replayed from bronze. Re-running a bronze task overwrites the same object (idempotent). |
+| 9 | **Silver and gold rebuilt in full** and overwritten | Incremental merges (MERGE/upsert) | At this size a full rebuild takes 1 to 2 minutes, it is always correct and re-runnable, and no state can drift. |
+| 10 | **Quality checks before writing** (`spark_jobs/quality.py`) | Checks after loading, or none | If a check fails the task fails and the previous version stays intact: dashboards never show half-broken data. |
+| 11 | **Parquet** in silver and gold | CSV or JSON | Columnar, compressed and typed: Athena reads only the columns it needs and scans less (lower cost). |
+| 12 | **Star schema in gold** plus one mart per question | Snowflake schema, or only flat marts | Power BI works best with a star; marts give each pain (P1 to P5) a ready answer. See [Gold and data model](./medallion/gold.mdx). |
+| 13 | **COP as reporting currency**, with Frankfurter v2 | EUR (Frankfurter v1 has no COP) | The business reports in Colombian pesos; v2 publishes COP. |
+| 14 | **Glue Data Catalog filled with Athena DDL** | Glue crawler | Crawlers are blocked at account level; DDL gives exact names and types taken from the code. See [Athena](./athena.mdx). |
+| 15 | **No guest personal data in the lake** | Copy `guests` | Privacy by design: `guests` stays in Neon; the lake keeps only ids. |
+| 16 | **Gold writes back to Neon** with its own role (`app_writer`) | Operation computing its own rates | The cancellation rates used to set overbooking limits are the same ones the business sees in Power BI. |
+
+## Times and time zones
+
+Airflow runs in **UTC**; the UI shows Colombia time (UTC−5). Every schedule on this site is given in UTC and COT. Gold is planned to finish around 03:35 UTC (22:35 COT), so the data is ready long before 06:00 local time in every hotel (Portugal, Spain, Colombia, Mexico and Brazil).

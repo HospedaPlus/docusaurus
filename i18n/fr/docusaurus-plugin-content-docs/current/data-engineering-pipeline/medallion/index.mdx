@@ -1,0 +1,27 @@
+---
+sidebar_position: 1
+sidebar_label: Vue d'ensemble
+title: Architecture médaillon
+---
+
+# Architecture médaillon
+
+Le lac est découpé en trois couches. Les données ne font qu'avancer (bronze → silver → gold), chaque couche est écrite par ses propres DAGs et son propre worker Celery, et chacune a un contrat clair.
+
+| Couche | Question à laquelle elle répond | Format | Qui l'écrit | Règle |
+| --- | --- | --- | --- | --- |
+| [**Bronze**](./bronze.mdx) | *Qu'a envoyé exactement chaque source ?* | Brut : JSON Lines, JSON, CSV, Excel | DAGs bronze (file `bronze`), Python simple, sans Spark | Jamais modifiée. Un objet par source et date/heure. |
+| [**Silver**](./silver.mdx) | *Quelle est la version propre et fiable de chaque entité ?* | Parquet | DAGs silver (file `silver`), Spark | Une ligne par entité, défauts traités, montants en COP, contrôles avant écriture. |
+| [**Gold**](./gold.mdx) | *De quoi le métier a-t-il besoin pour décider ?* | Parquet (un JSON pour Neon) | `gold_modelo_daily` (file `gold`), Spark | Schéma en étoile + un mart par pain, reconstruit chaque nuit. |
+
+```text
+ bronze/  ── brut, rejouable ──►  silver/  ── propre, normalisé ──►  gold/  ── modélisé, prêt ──►  Athena / Power BI
+ (tel qu'arrivé)                  (une vérité par entité)            (étoile + marts P1–P5)
+```
+
+## Pourquoi trois couches
+
+- **Rejouer.** Comme bronze garde la donnée brute, une erreur en silver ou en gold se corrige dans le code et la couche se reconstruit depuis bronze. Aucune source ne doit renvoyer ses données.
+- **Séparation des responsabilités.** Bronze ne fait que déplacer les données, silver ne fait que les nettoyer, gold ne fait que les modéliser. Un changement dans une couche ne casse pas les autres.
+- **Confiance.** Chaque job silver et gold exécute ses contrôles qualité avant d'écrire. Si l'un échoue, la version précédente reste : Power BI ne voit jamais de données à moitié traitées.
+- **Coût.** Athena et Power BI lisent du Parquet compact en silver et gold, jamais le JSON brut.

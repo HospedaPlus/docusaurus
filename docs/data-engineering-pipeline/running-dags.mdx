@@ -1,0 +1,77 @@
+---
+sidebar_position: 7
+sidebar_label: Running the DAGs
+title: Running the DAGs by hand
+---
+
+# Running the DAGs by hand
+
+In normal operation **nothing has to be triggered by hand**: bronze runs on its clock and silver and gold start by themselves through Assets. A manual run is needed only the first time, to fill a gap, or to see a change right away. Every DAG is idempotent, so running one again is always safe: it overwrites the same files with the same result.
+
+## What depends on what
+
+```text
+silver_fx_daily            ◄── bronze_f7_fx
+silver_reservas_daily      ◄── (silver_fx_daily & bronze_neon_full_load & bronze_neon_dims) | bronze_neon_f2_f3
+silver_ocupacion_daily     ◄── bronze_neon_full_load & bronze_neon_dims
+silver_calendario_daily    ◄── (bronze_f6_events & bronze_neon_dims) | bronze_f6_holidays
+silver_resenas_daily       ◄── clock 03:30 UTC (reads bronze_f5_reviews)
+silver_f1_historico        ◄── bronze_f1_historical
+gold_modelo_daily          ◄── silver_ocupacion & silver_calendario & silver_reservas & silver_resenas
+gold_neon_writeback        ◄── gold_modelo_daily
+```
+
+`&` means *all of them must have written since the last run*; `|` means *any one is enough*. So triggering a bronze DAG also starts the silver DAGs whose other inputs are already fresh, and they in turn start gold.
+
+| To refresh… | Trigger | Starts by itself after it |
+| --- | --- | --- |
+| Exchange rates | `bronze_f7_fx` | `silver_fx_daily` (and `silver_reservas_daily` once snapshot and catalogs are also fresh) |
+| Bookings now | `bronze_neon_f2_f3` | `silver_reservas_daily` |
+| Occupancy | `bronze_neon_full_load` then `bronze_neon_dims` | `silver_ocupacion_daily`, `silver_reservas_daily` |
+| Calendar | `bronze_f6_holidays` (or `bronze_f6_events` + `bronze_neon_dims`) | `silver_calendario_daily` |
+| Reviews | `bronze_f5_reviews` then `silver_resenas_daily` | – (silver reviews is on a clock) |
+| F1 history | `bronze_f1_historical` | `silver_f1_historico` |
+| Gold | `gold_modelo_daily` directly (it reads whatever silver is there) | `gold_neon_writeback` |
+
+## First run on a new environment
+
+Run these once, in this order, and wait until each one is green:
+
+1. `bronze_f1_historical`: the history (only once ever).
+2. `bronze_f7_fx`: first rates; `silver_fx_daily` follows.
+3. `bronze_f6_holidays` and `bronze_f6_events`.
+4. `bronze_neon_full_load`: the whole Neon history.
+5. `bronze_neon_dims`: catalogs. Now `silver_reservas_daily`, `silver_ocupacion_daily` and `silver_calendario_daily` start by themselves.
+6. `bronze_f5_reviews` and then `silver_resenas_daily`.
+7. When the four silver tables are done, `gold_modelo_daily` starts by itself (or trigger it), and then `gold_neon_writeback`.
+
+## How to trigger in the Airflow UI
+
+1. Open `https://airflow-buenavista.coderhivex.com`, find the DAG and press **▶ Trigger**.
+2. In the dialog, give a **unique Run ID**, for example `manual__2026-11-09_1`.
+   **Why:** Airflow 3 aligns the logical date of a manual run to the DAG's schedule interval. Two manual runs in the same interval get the same logical date and the second one is refused with **409 Conflict**. A unique Run ID avoids it.
+3. Or, to repeat a run that already exists (for example a failed hour), open it and press **Clear**: Airflow runs the same interval again and overwrites the same files.
+
+From the command line on the core machine:
+
+```bash
+docker compose -f docker-compose.nucleo.yaml exec airflow-apiserver \
+  airflow dags trigger bronze_neon_full_load --run-id manual__$(date +%Y%m%d%H%M)
+```
+
+## Reading the result
+
+- **Grid view:** green = done, red = failed after its retries. Open the task **Logs**: every job returns how many rows it wrote (shown at the end of the log), and a quality check failure says which table and which rule.
+- **Assets view:** shows when each asset was last updated and which DAGs are waiting for it. Useful to see why a silver or gold DAG has not started yet (one of its `&` inputs is still missing).
+- **Flower** (`flower-buenavista.coderhivex.com`): which worker (`bronze`, `silver`, `gold`) is running what.
+
+## Common cases
+
+| Symptom | Cause | What to do |
+| --- | --- | --- |
+| Silver DAG does not start | One of its `&` inputs did not write since the last run | Check the Assets view and trigger the missing bronze DAG |
+| 409 Conflict on Trigger | Same logical date as an existing run | Use a unique Run ID, or Clear the existing run |
+| `silver.reservas: rows without total_cop` | A currency has no rate yet | Trigger `bronze_f7_fx` (it fills every day forward) |
+| `bronze has no inventory snapshot yet` | Full snapshot never ran | Trigger `bronze_neon_full_load` |
+| `NEON_READ_URL is empty` | Missing variable on the workers | Add it to the workers' `.env` and restart them |
+| Gold missing P5 or suggested price | Reviews silver or rates not in the lake yet | Run `silver_resenas_daily` / `bronze_neon_dims`, then gold |

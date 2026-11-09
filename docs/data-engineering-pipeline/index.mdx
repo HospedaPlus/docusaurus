@@ -1,0 +1,90 @@
+---
+sidebar_position: 1
+sidebar_label: Overview
+title: Data Engineering Pipeline
+slug: /data-engineering-pipeline
+---
+
+import {StatGrid, Stat, Note} from '@site/src/components/Overview';
+
+# Data Engineering Pipeline
+
+The pipeline takes the seven sources (F1 to F7) from where they first land, Neon or S3, and turns them into a small set of clean, business-ready tables that Athena and Power BI read. It runs on **Apache Airflow 3** with **Celery** workers and **Apache Spark**, and stores everything in an **S3 lakehouse** organised in three layers: **Bronze**, **Silver** and **Gold** (the medallion architecture).
+
+Source code: [HospedaPlus/hospedaplus-pipeline](https://github.com/HospedaPlus/hospedaplus-pipeline).
+
+<StatGrid>
+  <Stat value="17">DAGs</Stat>
+  <Stat value="3">lake layers</Stat>
+  <Stat value="15">gold tables</Stat>
+  <Stat value="~22:35">COT, gold ready every night</Stat>
+</StatGrid>
+
+## The pipeline from start to end
+
+```text
+ SOURCES                      BRONZE (raw copy)           SILVER (clean)              GOLD (model)              CONSUMERS
+ ───────                      ─────────────────           ──────────────              ────────────              ─────────
+ F2 OTA events  ─┐
+ F3 own engine  ─┼─► Neon ──► bronze_neon_f2_f3 (hourly) ─┐
+ F4 agencies    ─┘   (operation)  bronze_neon_full_load ──┼► silver_reservas ──────┐
+                                  bronze_neon_dims ───────┤  silver_ocupacion ─────┤
+ F6 local events ──► Neon ──────► bronze_f6_events ───────┤  silver_calendario ────┼► gold_modelo_daily ──► Athena ──► Power BI
+ F6 holidays (API) ─────────────► bronze_f6_holidays ─────┘                        │     │
+ F7 FX (API) ───────────────────► bronze_f7_fx ────────────► silver_fx ────────────┤     └► gold_neon_writeback ──► Neon
+ F5 reviews (API) ──────────────► bronze_f5_reviews ─────────► silver_resenas ─────┤        (cancellation rates)
+ F1 Kaggle CSV ─────────────────► bronze_f1_historical ──────► silver_f1_historico ┘
+ F4 raw files ──► S3 bronze/f4_agencias (uploaded by the F4 job, checked by bronze_f4_agencias)
+```
+
+Step by step, this is what happens every day:
+
+1. **The sources produce data all the time.** F2, F3 and F4 write bookings into Neon through the same function, `operation.reservar()`. F5 publishes reviews in its API every 15 minutes. F6 and F7 are public APIs. F1 is a fixed CSV. See [Data sources](../data-sources.mdx).
+2. **Bronze copies everything to S3 as it arrived.** Every hour Airflow copies from Neon the bookings and events that changed in the last hour, and pulls the new reviews from the F5 API. Once a night it takes a full, consistent snapshot of Neon and a copy of the catalogs (hotels, room types, channels, rates). Once a day it downloads the exchange rates, and once a month the public holidays. Nothing is changed: bronze is the raw, replayable record.
+3. **Silver cleans and conforms with Spark.** As soon as its bronze inputs are fresh, each silver DAG starts by itself. It keeps the newest version of every booking or review, removes duplicates, converts every amount to **COP**, adds commissions, lead time and cancellation timing, and checks the data before writing Parquet.
+4. **Gold builds the analytical model.** When the four silver tables of the night are ready (around 03:35 UTC, 22:35 in Colombia), `gold_modelo_daily` rebuilds a **star schema** (4 dimensions, 4 facts) plus one mart per business question (P1 to P5), including a suggested nightly price.
+5. **Gold feeds the operation back.** `gold_neon_writeback` writes the cancellation rate per hotel and lead time into Neon, so the operation uses the same numbers the business sees.
+6. **Athena exposes the tables, Power BI reads them.** Silver and gold tables are registered in the Glue Data Catalog through Athena DDL, and Power BI queries them through Athena. The dashboards are fresh before 06:00 local time in every hotel.
+
+## Where it runs
+
+| Machine | What runs there | Why |
+| --- | --- | --- |
+| **Core** EC2 (t3.medium) | Airflow API server and UI, scheduler, DAG processor, triggerer, Postgres (Airflow metadata), RabbitMQ (Celery broker), Flower, Nginx | Light, always-on control plane. Public UIs behind Nginx and Cloudflare. |
+| **Workers** EC2 (t3.xlarge) | Three Celery workers, one per queue: `bronze`, `silver`, `gold`. Spark runs in local mode inside the worker that runs the task. | The heavy Spark work stays off the scheduler machine, and each layer has its own worker so a long gold job never blocks the hourly bronze copy. |
+| **Neon** (us-east-2) | Operational PostgreSQL: `operation` and `streaming` schemas | Source of F2, F3, F4 bookings and F6 events; receives the gold write-back. |
+| **S3** `hospedaplus-lakehouse-buenavista` (us-east-2) | `bronze/`, `silver/`, `gold/`, `athena-results/` | The lakehouse. |
+
+Each task picks its worker with `queue="bronze" | "silver" | "gold"`. The Airflow UI is at `airflow-buenavista.coderhivex.com`, Flower at `flower-buenavista.coderhivex.com`.
+
+## Lake layout
+
+```text
+s3://hospedaplus-lakehouse-buenavista/
+├── bronze/   raw copies, JSON Lines / JSON / CSV / Excel, named by source and date
+│   ├── f2_ledger/fecha=YYYY-MM-DD/hora=HH.jsonl
+│   ├── f3_reservations/fecha=…/hora=HH.jsonl      f3_anomalies/…
+│   ├── f3_reservations_full/fecha=…/part-NNNNN.jsonl + _SUCCESS   (and f3_anomalies/inventory/relocations/rejections _full)
+│   ├── neon_dims/<table>/fecha=YYYY-MM-DD.jsonl
+│   ├── f4_agencias/semana=YYYY-Www/
+│   ├── f5_reviews/fecha=…/hora=HH.jsonl
+│   ├── f6_holidays/anio=YYYY/pais=XX.json      f6_events/fecha=….jsonl
+│   ├── f7_fx/fecha=YYYY-MM-DD.json
+│   └── f1_historical/hotel_bookings.csv
+├── silver/   clean Parquet: reservas, cancelaciones, reservas_rechazadas, tasa_cambio_diaria,
+│             ocupacion_diaria, calendario_hotel, resenas, historico_f1
+└── gold/     Parquet: dim_*, fact_*, mart_p1…p5 (+ neon_cancellation_rate_by_lead as JSON)
+```
+
+<Note>
+Every key depends only on the source and the date (or hour), and every silver and gold table is overwritten in full. So any DAG can be re-run at any time and gives the same result: the pipeline is **idempotent**.
+</Note>
+
+## In this section
+
+- [Technical decisions](./technical-decisions.mdx): what was chosen and why.
+- [Connection to Neon](./neon-connection.mdx): roles, incremental copy, nightly snapshot and write-back.
+- [Medallion architecture](./medallion/index.mdx): [Bronze](./medallion/bronze.mdx), [Silver](./medallion/silver.mdx) and [Gold and data model](./medallion/gold.mdx).
+- [Athena configuration](./athena.mdx): how the tables are registered and queried.
+- [DAGs and schedule](./dags.mdx): what each DAG does, when, and why in that order.
+- [Running the DAGs](./running-dags.mdx): how to trigger them by hand and what depends on what.

@@ -1,0 +1,79 @@
+---
+sidebar_position: 6
+sidebar_label: DAGs et planning
+title: DAGs et planning
+---
+
+# DAGs et planning
+
+Il y a 17 DAGs : 9 bronze, 6 silver et 2 gold. Les DAGs bronze tournent sur une **horloge** (chaque source a son rythme). Les DAGs silver et gold tournent sur les **données** : ils sont planifiés sur des **Assets** Airflow et démarrent seuls quand les données bronze ou silver qu'ils lisent ont été écrites. Les heures sont en UTC ; la Colombie (COT) est à UTC−5.
+
+## Ce que fait chaque DAG
+
+### Bronze (file `bronze`)
+
+| DAG | Quand (UTC / COT) | Ce qu'il fait |
+| --- | --- | --- |
+| `bronze_neon_f2_f3` | toutes les heures pile | Copie depuis Neon les événements du ledger F2 reçus et les réservations et anomalies modifiées dans l'heure. |
+| `bronze_f5_reviews` | toutes les heures pile | Récupère dans l'API F5 toutes les pages d'avis créés ou modifiés dans l'heure. |
+| `bronze_f7_fx` | 01:00 / 20:00 | Télécharge les taux de change du jour (base USD → COP, EUR, MXN, BRL). |
+| `bronze_f6_holidays` | 02:00 le 1er de chaque mois / 21:00 | Télécharge les jours fériés de PT, CO, MX, BR, ES pour l'année en cours et la suivante. |
+| `bronze_f6_events` | 02:30 / 21:30 | Copie la table des événements locaux depuis Neon. |
+| `bronze_neon_full_load` | 03:00 / 22:00 | Instantané complet et cohérent des réservations, anomalies, inventaire, relogements et refus, clos par `_SUCCESS`. |
+| `bronze_neon_dims` | 03:15 / 22:15 | Copie les catalogues : hôtels, types de chambre, canaux, politiques d'annulation, tarifs. |
+| `bronze_f4_agencias` | lundi 07:00 / 02:00 | Vérifie que les 15 fichiers d'agences de la semaine et le résumé sont arrivés dans S3 (le job F4 les dépose à 06:00). |
+| `bronze_f1_historical` | manuel, une fois | Dépose le CSV historique Kaggle. |
+
+### Silver (file `silver`)
+
+| DAG | Démarre quand | Ce qu'il fait |
+| --- | --- | --- |
+| `silver_fx_daily` | `bronze_f7_fx` a écrit | Taux quotidien en COP par devise, pour chaque jour du calendrier. |
+| `silver_reservas_daily` | (silver change **et** instantané complet **et** catalogues) **ou** chaque copie horaire des réservations | Réservations en COP avec commission, annulations, réservations refusées. |
+| `silver_ocupacion_daily` | instantané complet **et** catalogues | Occupation par hôtel, type de chambre et nuit. |
+| `silver_calendario_daily` | (événements **et** catalogues) **ou** nouveaux jours fériés | Calendrier par hôtel et jour avec jours fériés et événements. |
+| `silver_resenas_daily` | horloge, 03:30 / 22:30 | Avis propres sans doublons entre plateformes. |
+| `silver_f1_historico` | `bronze_f1_historical` a écrit | Historique F1 propre. |
+
+### Gold (file `gold`)
+
+| DAG | Démarre quand | Ce qu'il fait |
+| --- | --- | --- |
+| `gold_modelo_daily` | `silver_ocupacion` **et** `silver_calendario` **et** `silver_reservas` **et** `silver_resenas` ont été rafraîchis | Reconstruit le modèle en étoile et les marts P1–P5 (~03:35 / 22:35). |
+| `gold_neon_writeback` | `gold_modelo_daily` a écrit le fichier pour Neon | Fait un upsert des taux d'annulation dans Neon (et, si activé, des limites de surbooking). |
+
+## Une nuit dans le pipeline
+
+```text
+UTC    COT     ───────────────────────────────────────────────────────────────────────────
+chaque chaque  bronze_neon_f2_f3 ─► silver_reservas_daily (rafraîchi chaque heure, silver ≈ 1 h derrière Neon)
+heure  heure   bronze_f5_reviews (accumule les avis du jour)
+01:00  20:00   bronze_f7_fx ─► silver_fx_daily ··················┐
+02:00  21:00   (le 1er) bronze_f6_holidays ─► silver_calendario  │
+02:30  21:30   bronze_f6_events ·································┼──┐
+03:00  22:00   bronze_neon_full_load ····························┤  │
+03:15  22:15   bronze_neon_dims ─────────────────────────────────┴──┴─► silver_reservas_daily
+                                                                      ─► silver_ocupacion_daily
+                                                                      ─► silver_calendario_daily
+03:30  22:30   silver_resenas_daily
+~03:35 22:35   les quatre silver rafraîchies ─► gold_modelo_daily ─► gold_neon_writeback
+05:00  00:00   06:00 à Madrid (hiver), le premier matin d'hôtel : gold est déjà là
+```
+
+## Pourquoi cet ordre
+
+1. **Le change d'abord (01:00).** Chaque montant de silver est converti en COP : le taux du jour doit exister avant de traiter les réservations.
+2. **Jours fériés et événements avant l'instantané (02:00, 02:30).** Le calendrier doit être prêt pour le gold de la même nuit.
+3. **Instantané complet à 03:00.** C'est la dernière image complète de la journée avant gold, prise une fois change, jours fériés et événements arrivés. Il tourne dans une seule transaction pour que l'inventaire et les réservations correspondent.
+4. **Catalogues juste après (03:15).** Silver a besoin de l'hôtel, du canal et du type de chambre de chaque réservation ; les copier après l'instantané garantit que tout nouvel hôtel ou canal vu dans l'instantané est aussi dans le catalogue.
+5. **Silver attend toutes ses entrées (`&`).** Par exemple `silver_reservas_daily` attend le change **et** l'instantané **et** les catalogues : il ne convertit jamais avec un taux manquant ni ne joint un catalogue périmé. Le `|` (ou) avec la copie horaire rafraîchit les réservations dans la journée sans attendre la nuit.
+6. **Avis sur une horloge (03:30), pas sur l'asset horaire.** Les avis arrivent chaque heure ; planifier silver sur cet asset le reconstruirait 24 fois par jour. Une fois par jour, après les catalogues, suffit pour P5.
+7. **Gold attend les quatre tables silver (`&`).** `silver_reservas` change aussi chaque heure, mais le `&` fait attendre gold les trois autres, qui ne changent que la nuit : gold tourne **une fois par nuit**, avec un ensemble d'entrées cohérent.
+8. **Le write-back en dernier.** Neon ne reçoit les nouveaux taux d'annulation qu'après que gold a passé tous ses contrôles.
+
+## Réglages communs
+
+- `catchup=False` : quand un DAG est activé, il ne rejoue pas les jours passés.
+- `max_active_runs=1` en silver et gold : deux exécutions ne réécrivent jamais la même table en même temps.
+- Nouvelles tentatives : bronze 2 à 6 fois selon la source ; silver et gold 2 fois, à 10 minutes d'intervalle, avec un délai maximum de 45 minutes.
+- Les nouveaux DAGs ne sont pas en pause à leur création : après un déploiement, tout continue de tourner.

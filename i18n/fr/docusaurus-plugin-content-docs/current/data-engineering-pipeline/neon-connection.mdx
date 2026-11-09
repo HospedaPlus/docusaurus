@@ -1,0 +1,63 @@
+---
+sidebar_position: 3
+sidebar_label: Connexion à Neon
+title: Connexion à Neon
+---
+
+# Connexion à Neon
+
+Neon (PostgreSQL serverless, AWS us-east-2) est la base opérationnelle. Le pipeline lui parle dans les deux sens : il **lit** réservations, événements et catalogues vers bronze, et il **réécrit** un résultat de gold.
+
+```text
+                 ┌──────────────────── Neon · base hospedaplus ─────────────────────────┐
+ consommateur F2►│ streaming.reservation_event_ledger                                    │
+ simulateur F3 ─►│ operation.reservations · reservation_anomalies · inventory           │
+ chargeur F4 ───►│ operation.relocations · reservation_rejections · local_events        │
+                 │ operation.hotels · room_types · channels · rates · cancellation_…    │
+                 │ operation.cancellation_rate_by_lead  ◄─────────────── write-back ─────┼── gold_neon_writeback (app_writer)
+                 └───────────────┬──────────────────────────────────────────────────────┘
+                                 │ lecture seule (etl_reader)
+          bronze_neon_f2_f3 (horaire) · bronze_neon_full_load (03:00) · bronze_neon_dims (03:15) · bronze_f6_events (02:30)
+                                 ▼
+                              S3 bronze/
+```
+
+## Rôles et chaînes de connexion
+
+| Variable (dans le `.env` des workers) | Rôle | Droits | Utilisée par |
+| --- | --- | --- | --- |
+| `NEON_READ_URL` | `etl_reader` | Lecture seule sur `operation` et `streaming` | Tous les DAGs bronze qui lisent Neon |
+| `NEON_WRITE_URL` | `app_writer` | Lecture et écriture | Seulement `gold_neon_writeback` |
+
+Les chaînes de connexion utilisent `sslmode=require` et ne sont jamais écrites dans le dépôt ni sur ce site. Le code échoue volontairement avec un message clair si `NEON_READ_URL` est vide. Les lectures utilisent `psycopg2` et renvoient du JSON Lines (`dags/hospedaplus/neon.py`) ; nombres et dates sont écrits en texte pour ne rien perdre en route.
+
+## Les trois façons dont le pipeline lit Neon
+
+### 1. Copie incrémentale horaire : `bronze_neon_f2_f3`
+
+Chaque heure, pour l'intervalle `[début, fin)` de l'exécution :
+
+- lignes de `streaming.reservation_event_ledger` avec `received_at` dans l'intervalle → `bronze/f2_ledger/fecha=…/hora=HH.jsonl`
+- lignes de `operation.reservations` avec `updated_at` dans l'intervalle → `bronze/f3_reservations/…`
+- lignes de `operation.reservation_anomalies` créées dans l'intervalle → `bronze/f3_anomalies/…`
+
+`updated_at` est mis à jour par un trigger à chaque modification : un événement OTA tardif, une annulation ou un no-show est capté dans l'heure où il a eu lieu, même si la réservation a été créée des jours plus tôt. Le fichier porte le nom de l'intervalle : relancer une heure réécrit le même fichier.
+
+### 2. Instantané complet nocturne : `bronze_neon_full_load` (03:00 UTC)
+
+- Lit `reservations`, `reservation_anomalies`, `inventory`, `reservation_rejections` et `relocations` dans **une seule transaction en lecture seule `REPEATABLE READ`** : toutes les tables sont du même instant (l'inventaire correspond aux réservations).
+- Pagine par `id` par blocs de 50 000 lignes : ni Neon ni le worker ne gardent une table entière en mémoire.
+- Écrit des fichiers `part-NNNNN.jsonl` et, seulement à la fin, un marqueur `_SUCCESS`. Silver ne lit que les instantanés qui ont `_SUCCESS` : un instantané à moitié écrit n'est jamais utilisé. Les parties restantes d'une exécution précédente du même jour sont supprimées.
+
+Pourquoi les deux copies : la copie horaire garde silver proche du temps réel ; l'instantané apporte l'historique créé avant le pipeline et corrige tout ce que la copie horaire aurait pu manquer.
+
+### 3. Catalogues et événements quotidiens
+
+- `bronze_neon_dims` (03:15 UTC) : `hotels`, `room_types`, `channels`, `cancellation_policies` et `rates` → `bronze/neon_dims/<table>/fecha=….jsonl`. La table `guests` n'est jamais copiée (les données personnelles restent dans Neon).
+- `bronze_f6_events` (02:30 UTC) : `operation.local_events` → `bronze/f6_events/fecha=….jsonl`.
+
+## Write-back : `gold_neon_writeback`
+
+Après gold, ce DAG lit `gold/neon_cancellation_rate_by_lead/` (une ligne par hôtel et tranche d'anticipation `0-7`, `8-30`, `31-90`, `91+`, calculée sur les séjours des 365 derniers jours déjà passés) et fait un upsert dans `operation.cancellation_rate_by_lead`.
+
+Avec `NEON_REFRESH_OVERBOOKING=true`, il appelle aussi `operation.refresh_overbooking_limits()`, qui recalcule à partir de ces taux combien de chambres chaque hôtel peut surbooker par nuit (0 les nuits avec un événement local à fort impact). C'est **désactivé par défaut**, car cela change ce que les hôtels peuvent vendre : on l'active volontairement.
