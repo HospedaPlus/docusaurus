@@ -1,0 +1,77 @@
+---
+sidebar_position: 7
+sidebar_label: Lancer les DAGs
+title: Lancer les DAGs à la main
+---
+
+# Lancer les DAGs à la main
+
+En fonctionnement normal, **rien n'est à déclencher à la main** : bronze tourne sur son horloge et silver et gold démarrent seuls via les Assets. Une exécution manuelle n'est utile que la première fois, pour combler un trou ou pour voir un changement tout de suite. Tous les DAGs sont idempotents : en relancer un est toujours sûr, il réécrit les mêmes fichiers avec le même résultat.
+
+## Ce qui dépend de quoi
+
+```text
+silver_fx_daily            ◄── bronze_f7_fx
+silver_reservas_daily      ◄── (silver_fx_daily & bronze_neon_full_load & bronze_neon_dims) | bronze_neon_f2_f3
+silver_ocupacion_daily     ◄── bronze_neon_full_load & bronze_neon_dims
+silver_calendario_daily    ◄── (bronze_f6_events & bronze_neon_dims) | bronze_f6_holidays
+silver_resenas_daily       ◄── horloge 03:30 UTC (lit bronze_f5_reviews)
+silver_f1_historico        ◄── bronze_f1_historical
+gold_modelo_daily          ◄── silver_ocupacion & silver_calendario & silver_reservas & silver_resenas
+gold_neon_writeback        ◄── gold_modelo_daily
+```
+
+`&` signifie *toutes doivent avoir écrit depuis la dernière exécution* ; `|` signifie *une seule suffit*. Ainsi, déclencher un DAG bronze démarre aussi les DAGs silver dont les autres entrées sont déjà fraîches, et ceux-ci démarrent à leur tour gold.
+
+| Pour rafraîchir… | Déclenchez | Démarre seul ensuite |
+| --- | --- | --- |
+| Taux de change | `bronze_f7_fx` | `silver_fx_daily` (et `silver_reservas_daily` quand l'instantané et les catalogues sont aussi frais) |
+| Réservations maintenant | `bronze_neon_f2_f3` | `silver_reservas_daily` |
+| Occupation | `bronze_neon_full_load` puis `bronze_neon_dims` | `silver_ocupacion_daily`, `silver_reservas_daily` |
+| Calendrier | `bronze_f6_holidays` (ou `bronze_f6_events` + `bronze_neon_dims`) | `silver_calendario_daily` |
+| Avis | `bronze_f5_reviews` puis `silver_resenas_daily` | – (le silver des avis est sur une horloge) |
+| Historique F1 | `bronze_f1_historical` | `silver_f1_historico` |
+| Gold | `gold_modelo_daily` directement (il lit ce qu'il y a en silver) | `gold_neon_writeback` |
+
+## Première exécution sur un nouvel environnement
+
+Lancez-les une fois, dans cet ordre, et attendez que chacun soit vert :
+
+1. `bronze_f1_historical` : l'historique (une seule fois pour toujours).
+2. `bronze_f7_fx` : premiers taux ; `silver_fx_daily` suit.
+3. `bronze_f6_holidays` et `bronze_f6_events`.
+4. `bronze_neon_full_load` : tout l'historique de Neon.
+5. `bronze_neon_dims` : catalogues. Maintenant `silver_reservas_daily`, `silver_ocupacion_daily` et `silver_calendario_daily` démarrent seuls.
+6. `bronze_f5_reviews` puis `silver_resenas_daily`.
+7. Quand les quatre tables silver sont faites, `gold_modelo_daily` démarre seul (ou déclenchez-le), puis `gold_neon_writeback`.
+
+## Comment déclencher dans l'UI Airflow
+
+1. Ouvrez `https://airflow-buenavista.coderhivex.com`, trouvez le DAG et cliquez sur **▶ Trigger**.
+2. Dans la boîte de dialogue, donnez un **Run ID unique**, par exemple `manual__2026-11-09_1`.
+   **Pourquoi :** Airflow 3 aligne la date logique d'une exécution manuelle sur l'intervalle de planification du DAG. Deux exécutions manuelles dans le même intervalle reçoivent la même date logique et la seconde est refusée avec **409 Conflict**. Un Run ID unique l'évite.
+3. Ou, pour refaire une exécution qui existe déjà (par exemple une heure en échec), ouvrez-la et cliquez sur **Clear** : Airflow relance le même intervalle et réécrit les mêmes fichiers.
+
+En ligne de commande sur la machine cœur :
+
+```bash
+docker compose -f docker-compose.nucleo.yaml exec airflow-apiserver \
+  airflow dags trigger bronze_neon_full_load --run-id manual__$(date +%Y%m%d%H%M)
+```
+
+## Lire le résultat
+
+- **Vue Grid :** vert = terminé, rouge = échoué après ses nouvelles tentatives. Ouvrez les **Logs** de la tâche : chaque job renvoie combien de lignes il a écrites (visible à la fin du log), et un contrôle qualité en échec indique quelle table et quelle règle.
+- **Vue Assets :** montre quand chaque asset a été mis à jour pour la dernière fois et quels DAGs l'attendent. Utile pour voir pourquoi un DAG silver ou gold n'a pas encore démarré (il manque une de ses entrées `&`).
+- **Flower** (`flower-buenavista.coderhivex.com`) : quel worker (`bronze`, `silver`, `gold`) exécute quoi.
+
+## Cas fréquents
+
+| Symptôme | Cause | Que faire |
+| --- | --- | --- |
+| Un DAG silver ne démarre pas | Une de ses entrées `&` n'a pas écrit depuis la dernière exécution | Regardez la vue Assets et déclenchez le DAG bronze manquant |
+| 409 Conflict au déclenchement | Même date logique qu'une exécution existante | Utilisez un Run ID unique, ou faites Clear de l'exécution existante |
+| `silver.reservas: rows without total_cop` | Une devise n'a pas encore de taux | Déclenchez `bronze_f7_fx` (il remplit chaque jour vers l'avant) |
+| `bronze has no inventory snapshot yet` | L'instantané complet n'a jamais tourné | Déclenchez `bronze_neon_full_load` |
+| `NEON_READ_URL is empty` | Variable manquante sur les workers | Ajoutez-la au `.env` des workers et redémarrez-les |
+| Il manque P5 ou le prix suggéré en gold | Silver des avis ou tarifs pas encore dans le lac | Lancez `silver_resenas_daily` / `bronze_neon_dims`, puis gold |

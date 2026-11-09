@@ -1,0 +1,42 @@
+---
+sidebar_position: 2
+sidebar_label: Bronze
+title: Capa bronze
+---
+
+# Capa bronze
+
+Bronze es la copia cruda de cada fuente en S3. La escriben tareas en Python simple (sin Spark) en el worker `bronze`, y nada cambia en el camino: lo que envió la fuente es lo que guarda bronze.
+
+## Qué llega a bronze
+
+| Fuente | DAG | Horario (UTC) | Clave en S3 | Formato |
+| --- | --- | --- | --- | --- |
+| F2 eventos OTA (ledger en Neon) | `bronze_neon_f2_f3` | cada hora | `bronze/f2_ledger/fecha=YYYY-MM-DD/hora=HH.jsonl` | JSON Lines |
+| Reservas F3/F2/F4 (Neon) | `bronze_neon_f2_f3` | cada hora | `bronze/f3_reservations/…/hora=HH.jsonl`, `f3_anomalies/…` | JSON Lines |
+| Foto completa de Neon | `bronze_neon_full_load` | 03:00 diario | `bronze/f3_*_full/fecha=…/part-NNNNN.jsonl` + `_SUCCESS` | JSON Lines |
+| Catálogos de Neon | `bronze_neon_dims` | 03:15 diario | `bronze/neon_dims/<tabla>/fecha=….jsonl` | JSON Lines |
+| F5 reseñas (API) | `bronze_f5_reviews` | cada hora | `bronze/f5_reviews/fecha=…/hora=HH.jsonl` | JSON Lines |
+| F6 eventos locales (Neon) | `bronze_f6_events` | 02:30 diario | `bronze/f6_events/fecha=….jsonl` | JSON Lines |
+| F6 festivos (Nager v4) | `bronze_f6_holidays` | 02:00 el día 1 de cada mes | `bronze/f6_holidays/anio=YYYY/pais=XX.json` | JSON |
+| F7 tasas de cambio (Frankfurter v2) | `bronze_f7_fx` | 01:00 diario | `bronze/f7_fx/fecha=YYYY-MM-DD.json` | JSON |
+| F4 archivos de agencias | los sube el job de F4; `bronze_f4_agencias` los verifica | lunes 06:00 / 07:00 | `bronze/f4_agencias/semana=YYYY-Www/` | CSV y Excel |
+| F1 histórico Kaggle | `bronze_f1_historical` | manual, una vez | `bronze/f1_historical/hotel_bookings.csv` | CSV |
+
+## Cómo se lee cada tipo de fuente
+
+- **Tablas de Neon**: se leen con el rol de solo lectura `etl_reader`, de forma incremental cada hora por `updated_at` / `received_at`, y completas cada noche dentro de una transacción consistente. Detalle en [Conexión con Neon](../neon-connection.mdx).
+- **API de reseñas F5**: `GET /api/v1/reviews?updated_from=<inicio de la hora>&page=N`, todas las páginas, así las reseñas editadas también vuelven.
+- **Festivos F6**: `GET /api/v4/Holidays/{país}/{año}` para PT, CO, MX, BR y ES, año actual y siguiente.
+- **Tasas F7**: Frankfurter v2 `/v2/rates`, base USD, cotizaciones COP, EUR, MXN, BRL.
+- **Archivos F4**: el generador de F4 copia a S3 los 15 archivos de agencias de la semana y un resumen cada lunes a las 06:00 UTC. A las 07:00 `bronze_f4_agencias` verifica que la semana esté completa (reintenta hasta 6 veces, cada 20 minutos) y marca el asset. Las **reservas** de agencias llegan a silver por Neon (el cargador de F4 llama `reservar()`), no desde estos archivos.
+- **F1**: el CSV de Kaggle se descarga una vez del repositorio `hospedaplus-csv`. Su sha256 se guarda en los metadatos del objeto; si ya está con el mismo hash, no se sube nada.
+
+## Reglas de la capa
+
+- **Crudo y completo.** Sin filtros, sin cambios de tipo, sin limpieza. Bronze es la evidencia de lo que llegó.
+- **Claves idempotentes.** La clave depende solo de fuente + fecha/hora. Repetir una tarea sobrescribe el mismo objeto; nunca duplica datos.
+- **Incremental por intervalo de datos.** Los DAGs horarios copian exactamente las filas de su intervalo de Airflow, así una hora perdida se puede repetir sola.
+- **Reintentos.** Todos los DAGs de bronze reintentan al fallar (3 veces con espera exponencial los horarios).
+- **Sin datos personales.** `guests` nunca se copia.
+- **Cada escritura actualiza un Asset**, que es lo que arranca silver (ver [DAGs y horarios](../dags.mdx)).

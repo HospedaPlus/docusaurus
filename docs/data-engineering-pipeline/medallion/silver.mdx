@@ -1,0 +1,98 @@
+---
+sidebar_position: 3
+sidebar_label: Silver
+title: Silver layer
+---
+
+# Silver layer
+
+Silver turns the raw bronze copies into **one clean, trustworthy table per entity**. Every job is written in PySpark (`spark_jobs/silver_*.py`), runs on the `silver` worker, reads bronze with an explicit schema (no inference pass), runs its quality checks and only then overwrites its Parquet folder.
+
+| Silver table | Built from | One row per | Main use |
+| --- | --- | --- | --- |
+| `tasa_cambio_diaria` | F7 | day × currency | Convert every amount to COP |
+| `reservas` | Neon bookings (F2, F3, F4) + catalogs + FX | booking code | P1, P3, P4 |
+| `cancelaciones` | `reservas` | cancelled / no-show booking | P1 |
+| `reservas_rechazadas` | Neon anomalies | refused booking | Data quality (defects 5.3) |
+| `ocupacion_diaria` | Neon snapshot: inventory, relocations, rejections | hotel × room type × night | P2, P3 |
+| `calendario_hotel` | F6 holidays + F6 events + hotels | hotel × day | P3 |
+| `resenas` | F5 reviews + hotels | review (original) | P5 |
+| `historico_f1` | F1 Kaggle CSV | historical booking | P1 |
+
+## Transformations, how and why
+
+### `tasa_cambio_diaria` (F7)
+
+1. Reads every Frankfurter answer (rows `date, base, quote, rate`, base USD) and adds USD = 1.
+2. Builds a **daily grid** from the first to the last date for every currency and fills each day with the **last known rate** (forward fill).
+3. Computes `cop_por_unidad = rate(USD→COP) / rate(USD→currency)`.
+
+**Why:** there are no rates on weekends and holidays, but there are bookings, so every calendar day needs a rate. Frankfurter v2 can date each currency differently (EUR or MXN may come with another date than COP), so each currency is filled on its own grid **before** dividing by COP; otherwise whole days would be lost.
+**Checks:** not empty, no nulls, unique `(fecha, moneda)`, rate > 0, no missing days.
+
+### `reservas`, `cancelaciones`, `reservas_rechazadas` (F2, F3, F4)
+
+All channels write into `operation.reservations` through `reservar()`, so one job handles every booking.
+
+1. **Read only what is needed:** the newest full snapshot (with `_SUCCESS`) plus the hourly files from the day before that snapshot on.
+2. **Newest version per code.** The same booking appears several times (created, modified, cancelled). A window per `code` keeps the row with the latest `updated_at` (or, in older files, the latest of created/cancelled/last event); on a tie the hourly file wins over the snapshot.
+   **Why:** silver must show the current state of each booking, exactly once.
+3. **Join the catalogs** (latest copy of hotels, channels, room types) to get hotel code, country, category, time zone, channel type and commission.
+4. **Derived fields:** `noches`, `huespedes`, `fecha_reserva`, `lead_time_dias` (check-in − booking date), `es_cancelada` (cancelled or no-show), `es_duplicado` (status `duplicate`).
+5. **Currency to COP** with the rate of the booking day. Bookings older than the first published rate use the oldest one and are marked `fx_estimada = true`.
+   **Why:** the business reports in COP, and hotels sell in EUR, COP, MXN and BRL.
+6. **Commission and net:** `comision_cop = total_cop × commission % of the channel` and `neto_cop = total_cop − comision_cop` (P4).
+7. **`cancelaciones`:** only cancelled / no-show bookings that are not duplicates, with `horas_antes_checkin` (from the cancellation to check-in at 15:00) and a lead-time bucket (`0-1`, `1-3`, `3-7`, `7-30`, `30-90`, `90+` days) for P1.
+8. **`reservas_rechazadas`:** bookings Neon refused (zero guests, check-out before check-in), one per code.
+
+How each data-quality defect of the sources is handled:
+
+| Defect | Where it is handled | Result in silver |
+| --- | --- | --- |
+| F3 zero guests / check-out before check-in | Refused by Neon, logged in `reservation_anomalies` | `reservas_rechazadas`, never in metrics |
+| F4 duplicated booking | Marked `duplicate` in Neon | `es_duplicado = true`, excluded from every gold metric |
+| F4 missing currency | The loader uses the hotel currency | Kept |
+| F2 events out of order | Resolved in Neon (`last_event_at`) | Already in order |
+
+**Checks:** not empty, unique `code`, no row without `total_cop` (the error says which source/currency is missing a rate), no nulls in key columns, `check_out > check_in`, at least one adult, no negative amounts, unique codes in `cancelaciones`. The table is partitioned by `source` (F2, F3, F4).
+
+### `ocupacion_diaria` (F3 inventory)
+
+1. Takes the newest inventory snapshot: rooms, sold rooms and overbooking limit per hotel, room type and night.
+2. Adds **relocations** per night and **rejected rooms** per night (each rejected booking is exploded into its nights).
+3. Computes `disponibles = rooms + overbooking limit − sold`, `ocupacion_pct`, and `sobrevendidas` (sold above physical rooms).
+
+**Why:** P2 (overbooking) and P3 (revenue) need a dense night-by-night view of capacity and how often overbooking hurt a guest.
+**Checks:** unique `(hotel, room type, night)`, no nulls, and never sold above rooms + overbooking limit.
+
+### `calendario_hotel` (F6)
+
+1. Reads the Nager holidays (tolerant to the payload shape) and takes the country from the file name.
+2. Builds one row per **hotel × day** and marks `es_festivo` with the holiday name of the hotel's country.
+3. Adds the hotel's **local events** (multi-day events are exploded into each day; if several overlap, the highest category wins: low < medium < high).
+4. Adds year, month, weekday and weekend.
+
+**Why:** holidays depend on the country and events on the hotel, so the calendar must be per hotel. Gold joins it to occupancy and price (P3).
+**Checks:** unique `(hotel, day)`, no nulls, no missing days.
+
+### `resenas` (F5)
+
+1. **Latest version** of each review id (edited reviews come back with a newer `updated_at`).
+2. **Cross-platform duplicates:** the same guest posts the same review on another platform minutes or hours later, with a name variant and sometimes without the final period. Same hotel + stay date + rating + normalised text (lower case, trimmed, no trailing punctuation) = the same review. The first one published is kept and `copias_en` / `duplicados` say where it was copied.
+3. Hotel country from the catalog and **sentiment** from the rating: 4–5 positive, 3 neutral, 1–2 negative.
+
+**Why:** without removing duplicates, one opinion would count several times in the reputation score (P5).
+**Checks:** unique `review_id`, no nulls, rating between 1 and 5, known hotel. Partitioned by `fecha_publicacion`.
+
+### `historico_f1` (F1)
+
+1. Renames and types the Kaggle columns, builds the arrival date, nights, guests and income (`adr × nights`, in EUR).
+2. Maps `market_segment` to the project's channel types (Online TA → `ota`, Offline TA/TO and Groups → `agency`, Corporate and Aviation → `corporate`, Direct and Complementary → `direct`).
+3. Same lead-time buckets as `cancelaciones`.
+4. Drops rows with no guests, no nights, negative ADR or no arrival date, and counts them.
+
+**Why:** F1 is the long history (2015–2017) that explains how cancellation depends on lead time and deposit type, which the live data does not have. Amounts stay in EUR because the FX rates only start in 2026.
+
+## How long it takes
+
+The whole silver layer runs in about 2 minutes. `silver_reservas_daily` also runs after every hourly bronze copy, so silver is about one hour behind Neon.

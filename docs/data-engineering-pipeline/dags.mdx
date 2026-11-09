@@ -1,0 +1,79 @@
+---
+sidebar_position: 6
+sidebar_label: DAGs and schedule
+title: DAGs and schedule
+---
+
+# DAGs and schedule
+
+There are 17 DAGs: 9 bronze, 6 silver and 2 gold. Bronze DAGs run on a **clock** (each source has its own rhythm). Silver and gold DAGs run on **data**: they are scheduled on Airflow **Assets** and start by themselves when the bronze or silver data they read has been written. Times are in UTC; Colombia (COT) is UTC−5.
+
+## What each DAG does
+
+### Bronze (queue `bronze`)
+
+| DAG | When (UTC / COT) | What it does |
+| --- | --- | --- |
+| `bronze_neon_f2_f3` | every hour at :00 | Copies from Neon the F2 ledger events received and the bookings and anomalies changed during the last hour. |
+| `bronze_f5_reviews` | every hour at :00 | Pulls every page of reviews created or edited during the last hour from the F5 API. |
+| `bronze_f7_fx` | 01:00 / 20:00 | Downloads the day's exchange rates (base USD → COP, EUR, MXN, BRL). |
+| `bronze_f6_holidays` | 02:00 on day 1 of each month / 21:00 | Downloads public holidays of PT, CO, MX, BR, ES for this year and next. |
+| `bronze_f6_events` | 02:30 / 21:30 | Copies the local events table from Neon. |
+| `bronze_neon_full_load` | 03:00 / 22:00 | Full, consistent snapshot of bookings, anomalies, inventory, relocations and rejections, ended with `_SUCCESS`. |
+| `bronze_neon_dims` | 03:15 / 22:15 | Copies the catalogs: hotels, room types, channels, cancellation policies, rates. |
+| `bronze_f4_agencias` | Monday 07:00 / 02:00 | Checks that the week's 15 agency files and summary arrived in S3 (the F4 job uploads them at 06:00). |
+| `bronze_f1_historical` | manual, once | Uploads the Kaggle history CSV. |
+
+### Silver (queue `silver`)
+
+| DAG | Starts when | What it does |
+| --- | --- | --- |
+| `silver_fx_daily` | `bronze_f7_fx` wrote | Daily COP rate per currency, every calendar day. |
+| `silver_reservas_daily` | (FX silver **and** full snapshot **and** catalogs) **or** each hourly booking copy | Bookings in COP with commission, cancellations, refused bookings. |
+| `silver_ocupacion_daily` | full snapshot **and** catalogs | Occupancy per hotel, room type and night. |
+| `silver_calendario_daily` | (events **and** catalogs) **or** new holidays | Calendar per hotel and day with holidays and events. |
+| `silver_resenas_daily` | clock, 03:30 / 22:30 | Clean reviews without cross-platform duplicates. |
+| `silver_f1_historico` | `bronze_f1_historical` wrote | Clean F1 history. |
+
+### Gold (queue `gold`)
+
+| DAG | Starts when | What it does |
+| --- | --- | --- |
+| `gold_modelo_daily` | `silver_ocupacion` **and** `silver_calendario` **and** `silver_reservas` **and** `silver_resenas` were all refreshed | Rebuilds the star model and the marts P1–P5 (~03:35 / 22:35). |
+| `gold_neon_writeback` | `gold_modelo_daily` wrote the Neon feed | Upserts cancellation rates into Neon (and, if enabled, the overbooking limits). |
+
+## A night in the pipeline
+
+```text
+UTC    COT     ───────────────────────────────────────────────────────────────────────────
+every  every   bronze_neon_f2_f3 ─► silver_reservas_daily (hourly refresh, silver ≈ 1 h behind Neon)
+hour   hour    bronze_f5_reviews (accumulates the day's reviews)
+01:00  20:00   bronze_f7_fx ─► silver_fx_daily ··················┐
+02:00  21:00   (day 1) bronze_f6_holidays ─► silver_calendario   │
+02:30  21:30   bronze_f6_events ·································┼──┐
+03:00  22:00   bronze_neon_full_load ····························┤  │
+03:15  22:15   bronze_neon_dims ─────────────────────────────────┴──┴─► silver_reservas_daily
+                                                                      ─► silver_ocupacion_daily
+                                                                      ─► silver_calendario_daily
+03:30  22:30   silver_resenas_daily
+~03:35 22:35   all four silver refreshed ─► gold_modelo_daily ─► gold_neon_writeback
+05:00  00:00   06:00 in Madrid (winter), the first hotel morning: gold is already there
+```
+
+## Why this order
+
+1. **FX first (01:00).** Every amount in silver is converted to COP, so the rate of the day must exist before bookings are processed.
+2. **Holidays and events before the snapshot (02:00, 02:30).** The calendar must be ready for the same night's gold.
+3. **Full snapshot at 03:00.** It is the last full picture of the day before gold, taken after FX, holidays and events are in. It runs in one transaction so inventory and bookings match.
+4. **Catalogs right after (03:15).** Silver needs the hotel, channel and room type of every booking; copying them after the snapshot guarantees that every new hotel or channel seen in the snapshot is in the catalog too.
+5. **Silver waits for all its inputs (`&`).** For example `silver_reservas_daily` waits for FX **and** snapshot **and** catalogs, so it never converts with a missing rate or joins against an old catalog. The `|` (or) with the hourly copy refreshes bookings during the day without waiting for the night.
+6. **Reviews on a clock (03:30), not on the hourly asset.** Reviews arrive every hour; scheduling silver on that asset would rebuild it 24 times a day. Once a day, after the catalogs, is enough for P5.
+7. **Gold waits for the four silver tables (`&`).** `silver_reservas` also changes every hour, but the `&` makes gold wait for the other three, which only change at night: gold runs **once a night**, with a consistent set of inputs.
+8. **Write-back last.** Neon receives the new cancellation rates only after gold passed all its checks.
+
+## Shared settings
+
+- `catchup=False`: when a DAG is switched on it does not replay past days.
+- `max_active_runs=1` on silver and gold: two runs never overwrite the same table at once.
+- Retries: bronze 2–6 times depending on the source; silver and gold 2 times, 10 minutes apart, with a 45-minute timeout.
+- New DAGs are not paused at creation, so after a deploy everything keeps running.

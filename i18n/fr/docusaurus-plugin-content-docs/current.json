@@ -10,5 +10,13 @@
   "sidebar.docsSidebar.link.Home": {
     "message": "Accueil",
     "description": "The label for link 'Home' in sidebar 'docsSidebar', linking to '/'"
+  },
+  "sidebar.docsSidebar.category.Data Engineering Pipeline": {
+    "message": "Pipeline d'ingénierie des données",
+    "description": "The label for category 'Data Engineering Pipeline' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Medallion architecture": {
+    "message": "Architecture médaillon",
+    "description": "The label for category 'Medallion architecture' in sidebar 'docsSidebar'"
   }
 }

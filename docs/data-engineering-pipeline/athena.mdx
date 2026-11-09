@@ -1,0 +1,64 @@
+---
+sidebar_position: 5
+sidebar_label: Athena configuration
+title: Athena configuration
+---
+
+# Athena configuration
+
+Amazon Athena is the SQL layer over the lake: it reads the Parquet files of silver and gold directly in S3, and Power BI connects to Athena. Athena needs the tables to be registered in the **AWS Glue Data Catalog**; the pipeline does not copy data anywhere else.
+
+| Setting | Value |
+| --- | --- |
+| Region | `us-east-2` (Ohio), same as the bucket |
+| Bucket | `s3://hospedaplus-lakehouse-buenavista/` |
+| Query result location | `s3://hospedaplus-lakehouse-buenavista/athena-results/` |
+| Databases | `hospedaplus_gold` (15 tables: 4 dimensions, 4 facts, 7 marts) and `silver` (8 tables) |
+| Format | Parquet (Snappy), external tables |
+| Permissions | AWS Lake Formation is active on the account |
+
+## Why DDL and not a Glue crawler
+
+The usual way is a Glue crawler that guesses the schema. On this account crawlers are blocked at account level (*"Account is denied access"*), so the tables are created with `CREATE EXTERNAL TABLE` statements in Athena. This is also more precise: the column names and types were taken by running the real silver and gold code with Spark, so they are exactly what the pipeline writes.
+
+## Step by step
+
+1. **Open Athena** in the AWS console, region **us-east-2**, *Query editor*.
+2. **Set the result location** the first time: *Settings → Manage →* `s3://hospedaplus-lakehouse-buenavista/athena-results/`.
+3. **Lake Formation permissions.** Because Lake Formation governs the catalog, the person creating tables needs: *Data lake administrator*, a *data location* grant on `s3://…/gold/` and `s3://…/silver/`, and *Create table* on the database. The users and roles that only read (Power BI, `hospedaplus-pipeline-role`) need `SELECT` and `DESCRIBE` on the tables.
+4. **Run the DDL**, one statement at a time (or all at once from CloudShell with the helper script):
+
+   ```sql
+   CREATE DATABASE IF NOT EXISTS hospedaplus_gold
+     COMMENT 'HospedaPlus gold: star + marts P1-P5 (COP)';
+
+   CREATE EXTERNAL TABLE IF NOT EXISTS hospedaplus_gold.dim_hotel (
+     `hotel_code` string, `nombre` string, `categoria` string, `ciudad` string,
+     `pais` string, `moneda` string, `zona_horaria` string, `habitaciones` bigint)
+   STORED AS PARQUET
+   LOCATION 's3://hospedaplus-lakehouse-buenavista/gold/dim_hotel/';
+   ```
+
+   Every statement uses `IF NOT EXISTS`, so the whole file can be run again safely.
+5. **Check** with a query, for example `SELECT pais, count(*) FROM hospedaplus_gold.dim_hotel GROUP BY pais;`.
+
+## Partitions
+
+- **Gold has no partitions.** Each night the whole folder is rewritten, so Athena always reads the latest run and nothing has to be repaired.
+- **Silver** has two partitioned tables: `reservas` by `source` (F2, F3, F4) and `resenas` by `fecha_publicacion`. They use **partition projection**, so Athena finds new partitions by itself, without `MSCK REPAIR TABLE`:
+
+  ```sql
+  TBLPROPERTIES (
+    'projection.enabled' = 'true',
+    'projection.fecha_publicacion.type' = 'date',
+    'projection.fecha_publicacion.format' = 'yyyy-MM-dd',
+    'projection.fecha_publicacion.range' = '2024-01-01,NOW',
+    'projection.fecha_publicacion.interval' = '1',
+    'projection.fecha_publicacion.interval.unit' = 'DAYS')
+  ```
+
+## Maintenance
+
+- The catalog only has to change when the **columns** of a table change in the code: `DROP TABLE` and run its new `CREATE` (the data is not deleted, the table is external).
+- During the nightly gold write (around 22:35 COT, a few minutes) a query can fail or come back empty: run it again.
+- `HIVE_BAD_DATA` or a type mismatch means a column changed in the code: drop and recreate that table.

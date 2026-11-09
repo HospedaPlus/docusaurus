@@ -1,0 +1,32 @@
+---
+sidebar_position: 2
+sidebar_label: Technische Entscheidungen
+title: Technische Entscheidungen
+---
+
+# Technische Entscheidungen
+
+Jede Entscheidung beantwortet einen konkreten Bedarf des Projekts. Sie stehen hier mit der verworfenen Alternative und dem Grund.
+
+| # | Entscheidung | Verworfene Alternative | Warum |
+| --- | --- | --- | --- |
+| 1 | **Airflow 3 mit CeleryExecutor** und RabbitMQ als Broker | LocalExecutor auf einer Maschine | Aufgaben laufen auf getrennten Worker-Maschinen, der Scheduler bleibt leicht und die Arbeit skaliert durch weitere Worker. RabbitMQ ist nur die Celery-Queue; Kafka transportiert die F2-Events. |
+| 2 | **Eine Celery-Queue pro Schicht** (`bronze`, `silver`, `gold`), je ein Worker | Eine gemeinsame Queue | Ein 10-minütiger Gold-Job verzögert nie die stündliche Bronze-Kopie, und jeder Worker wird für seine Schicht dimensioniert. |
+| 3 | **Spark im lokalen Modus im Worker** | Ein Spark-Cluster (EMR, standalone) | Rund 200.000 Buchungen passen auf eine Maschine. Der lokale Modus spart Betrieb und Kosten eines Clusters; derselbe Code kann durch Ändern von `SPARK_MASTER` auf einen Cluster wechseln. Die Shuffle-Partitionen stehen auf 8 statt der Standard-200. |
+| 4 | **Ein Bronze-DAG pro Quelle**, Silver-/Gold-DAGs pro Thema | Drei DAGs, einer pro Schicht | Jede Quelle hat ihren Rhythmus (stündlich, täglich, wöchentlich, monatlich, einmalig). Ein DAG pro Quelle lässt jede nach ihrer Uhr laufen und fehlschlagen, ohne die anderen anzuhalten. |
+| 5 | **DAGs über Assets verkettet** (datengesteuerte Planung) | Feste Uhrzeiten für alles oder `TriggerDagRunOperator` | Silver startet, wenn seine Bronze-Daten wirklich geschrieben wurden, nicht zu einer geschätzten Uhrzeit. Ist Bronze spät, wartet Silver; schlägt es fehl, läuft Silver nicht auf alten Daten. |
+| 6 | **Jede Buchung geht über Neon** (`operation.reservar()`) und der Lake liest Buchungen nur aus Neon | Jeder Kanal schreibt selbst in den Lake | Eine einzige Wahrheit für Buchungen und Bestand, Überbuchungskontrolle an einer Stelle und ein Silver-Job für alle Kanäle. |
+| 7 | **Stündliche inkrementelle Kopie + nächtlicher Voll-Snapshot** von Neon | Nur Vollkopien oder nur inkrementell | Die stündliche Kopie hält Silver etwa eine Stunde hinter Neon; der nächtliche Snapshot bringt die Seed-Historie und gleicht den Lake jede Nacht mit Neon ab, egal was der stündlichen Kopie entgangen ist. |
+| 8 | **Bronze ist eine Rohkopie**, benannt nach Quelle und Datum | Beim Eingang bereinigen | Jeder Silver-Fehler wird korrigiert und aus Bronze neu verarbeitet. Eine Bronze-Aufgabe erneut auszuführen überschreibt dasselbe Objekt (idempotent). |
+| 9 | **Silver und Gold vollständig neu gebaut** und überschrieben | Inkrementelle Merges (MERGE/Upsert) | Bei diesem Volumen dauert ein Neuaufbau 1 bis 2 Minuten, ist immer korrekt und wiederholbar, und kein Zustand kann abdriften. |
+| 10 | **Qualitätsprüfungen vor dem Schreiben** (`spark_jobs/quality.py`) | Prüfungen nach dem Laden oder gar keine | Schlägt eine Prüfung fehl, schlägt die Aufgabe fehl und die vorherige Version bleibt unberührt: Dashboards zeigen nie halb kaputte Daten. |
+| 11 | **Parquet** in Silver und Gold | CSV oder JSON | Spaltenorientiert, komprimiert und typisiert: Athena liest nur die benötigten Spalten und scannt weniger (geringere Kosten). |
+| 12 | **Sternschema in Gold** plus ein Mart pro Frage | Schneeflockenschema oder nur flache Marts | Power BI arbeitet am besten mit einem Stern; die Marts geben jedem Pain (P1 bis P5) eine fertige Antwort. Siehe [Gold und Datenmodell](./medallion/gold.mdx). |
+| 13 | **COP als Berichtswährung**, mit Frankfurter v2 | EUR (Frankfurter v1 hat kein COP) | Das Geschäft berichtet in kolumbianischen Pesos; v2 veröffentlicht COP. |
+| 14 | **Glue Data Catalog per Athena-DDL befüllt** | Glue-Crawler | Crawler sind auf Kontoebene gesperrt; das DDL liefert exakte Namen und Typen aus dem Code. Siehe [Athena](./athena.mdx). |
+| 15 | **Keine personenbezogenen Gästedaten im Lake** | `guests` kopieren | Datenschutz by Design: `guests` bleibt in Neon; der Lake speichert nur IDs. |
+| 16 | **Gold schreibt mit eigener Rolle (`app_writer`) nach Neon zurück** | Der Betrieb berechnet eigene Quoten | Die Stornoquoten, die die Überbuchungsgrenzen bestimmen, sind dieselben, die das Geschäft in Power BI sieht. |
+
+## Uhrzeiten und Zeitzonen
+
+Airflow läuft in **UTC**; die UI zeigt die Uhrzeit Kolumbiens (UTC−5). Jeder Zeitplan auf dieser Seite wird in UTC und COT angegeben. Gold soll gegen 03:35 UTC (22:35 COT) fertig sein, die Daten stehen also lange vor 06:00 Ortszeit in jedem Hotel bereit (Portugal, Spanien, Kolumbien, Mexiko und Brasilien).

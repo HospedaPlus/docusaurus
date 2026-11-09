@@ -1,0 +1,63 @@
+---
+sidebar_position: 3
+sidebar_label: Conexión con Neon
+title: Conexión con Neon
+---
+
+# Conexión con Neon
+
+Neon (PostgreSQL serverless, AWS us-east-2) es la base operacional. El pipeline habla con ella en dos sentidos: **lee** reservas, eventos y catálogos hacia bronze, y **escribe de vuelta** un resultado de gold.
+
+```text
+                 ┌──────────────────── Neon · base hospedaplus ─────────────────────────┐
+ consumidor F2 ► │ streaming.reservation_event_ledger                                    │
+ simulador F3 ─► │ operation.reservations · reservation_anomalies · inventory           │
+ cargador F4 ──► │ operation.relocations · reservation_rejections · local_events        │
+                 │ operation.hotels · room_types · channels · rates · cancellation_…    │
+                 │ operation.cancellation_rate_by_lead  ◄─────────────── write-back ─────┼── gold_neon_writeback (app_writer)
+                 └───────────────┬──────────────────────────────────────────────────────┘
+                                 │ solo lectura (etl_reader)
+          bronze_neon_f2_f3 (cada hora) · bronze_neon_full_load (03:00) · bronze_neon_dims (03:15) · bronze_f6_events (02:30)
+                                 ▼
+                              S3 bronze/
+```
+
+## Roles y cadenas de conexión
+
+| Variable (en el `.env` de los workers) | Rol | Permisos | La usa |
+| --- | --- | --- | --- |
+| `NEON_READ_URL` | `etl_reader` | Solo lectura en `operation` y `streaming` | Todos los DAGs de bronze que leen Neon |
+| `NEON_WRITE_URL` | `app_writer` | Lectura y escritura | Solo `gold_neon_writeback` |
+
+Las cadenas de conexión usan `sslmode=require` y nunca se escriben en el repositorio ni en este sitio. El código falla a propósito con un mensaje claro si `NEON_READ_URL` está vacía. Las lecturas usan `psycopg2` y devuelven JSON Lines (`dags/hospedaplus/neon.py`); números y fechas se escriben como texto para no perder nada en el camino.
+
+## Las tres formas en que el pipeline lee Neon
+
+### 1. Copia incremental cada hora: `bronze_neon_f2_f3`
+
+Cada hora, para el intervalo `[inicio, fin)` de la corrida:
+
+- filas de `streaming.reservation_event_ledger` con `received_at` en el intervalo → `bronze/f2_ledger/fecha=…/hora=HH.jsonl`
+- filas de `operation.reservations` con `updated_at` en el intervalo → `bronze/f3_reservations/…`
+- filas de `operation.reservation_anomalies` creadas en el intervalo → `bronze/f3_anomalies/…`
+
+`updated_at` lo pone un trigger en cada cambio, así un evento OTA tardío, una cancelación o un no-show se recoge en la hora en que ocurrió, aunque la reserva se haya creado días antes. El archivo se nombra por el intervalo, así repetir una hora sobrescribe el mismo archivo.
+
+### 2. Foto completa nocturna: `bronze_neon_full_load` (03:00 UTC)
+
+- Lee `reservations`, `reservation_anomalies`, `inventory`, `reservation_rejections` y `relocations` dentro de **una sola transacción de solo lectura `REPEATABLE READ`**, así todas las tablas son del mismo instante (el inventario cuadra con las reservas).
+- Pagina por `id` en bloques de 50.000 filas, así ni Neon ni el worker tienen una tabla entera en memoria.
+- Escribe archivos `part-NNNNN.jsonl` y, solo al final, un marcador `_SUCCESS`. Silver lee solo fotos que tienen `_SUCCESS`, así nunca usa una foto a medio escribir. Se borran las partes sobrantes de una corrida anterior del mismo día.
+
+Por qué las dos copias: la horaria deja silver cerca del tiempo real; la foto trae el historial creado antes de que existiera el pipeline y corrige cualquier cosa que la copia horaria haya podido perder.
+
+### 3. Catálogos y eventos diarios
+
+- `bronze_neon_dims` (03:15 UTC): `hotels`, `room_types`, `channels`, `cancellation_policies` y `rates` → `bronze/neon_dims/<tabla>/fecha=….jsonl`. La tabla `guests` nunca se copia (los datos personales se quedan en Neon).
+- `bronze_f6_events` (02:30 UTC): `operation.local_events` → `bronze/f6_events/fecha=….jsonl`.
+
+## Write-back: `gold_neon_writeback`
+
+Después de gold, este DAG lee `gold/neon_cancellation_rate_by_lead/` (una fila por hotel y rango de anticipación `0-7`, `8-30`, `31-90`, `91+`, calculada sobre las estadías de los últimos 365 días que ya ocurrieron) y la inserta o actualiza en `operation.cancellation_rate_by_lead`.
+
+Con `NEON_REFRESH_OVERBOOKING=true` además llama `operation.refresh_overbooking_limits()`, que recalcula con esas tasas cuántas habitaciones puede sobrevender cada hotel por noche (0 en noches con un evento local de impacto alto). Está **apagado por defecto**, porque cambia lo que los hoteles pueden vender: se enciende a propósito.

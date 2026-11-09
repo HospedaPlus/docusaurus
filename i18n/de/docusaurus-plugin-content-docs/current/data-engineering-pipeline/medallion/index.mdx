@@ -1,0 +1,27 @@
+---
+sidebar_position: 1
+sidebar_label: Überblick
+title: Medallion-Architektur
+---
+
+# Medallion-Architektur
+
+Der Lake ist in drei Schichten geteilt. Daten bewegen sich nur vorwärts (Bronze → Silver → Gold), jede Schicht wird von eigenen DAGs und einem eigenen Celery-Worker geschrieben, und jede hat einen klaren Vertrag.
+
+| Schicht | Welche Frage sie beantwortet | Format | Wer sie schreibt | Regel |
+| --- | --- | --- | --- | --- |
+| [**Bronze**](./bronze.mdx) | *Was genau hat jede Quelle geschickt?* | Roh: JSON Lines, JSON, CSV, Excel | Bronze-DAGs (Queue `bronze`), einfaches Python, ohne Spark | Wird nie verändert. Ein Objekt pro Quelle und Datum/Stunde. |
+| [**Silver**](./silver.mdx) | *Was ist die saubere, verlässliche Version jeder Entität?* | Parquet | Silver-DAGs (Queue `silver`), Spark | Eine Zeile pro Entität, Fehler behandelt, Beträge in COP, Prüfungen vor dem Schreiben. |
+| [**Gold**](./gold.mdx) | *Was braucht das Geschäft für Entscheidungen?* | Parquet (eine JSON-Datei für Neon) | `gold_modelo_daily` (Queue `gold`), Spark | Sternschema + ein Mart pro Pain, jede Nacht neu gebaut. |
+
+```text
+ bronze/  ── roh, wiederabspielbar ──►  silver/  ── bereinigt, vereinheitlicht ──►  gold/  ── modelliert, fertig ──►  Athena / Power BI
+ (wie angeliefert)                      (eine Wahrheit pro Entität)              (Stern + Marts P1–P5)
+```
+
+## Warum drei Schichten
+
+- **Neu verarbeiten.** Da Bronze die Rohdaten behält, wird ein Fehler in Silver oder Gold im Code behoben und die Schicht aus Bronze neu gebaut. Keine Quelle muss ihre Daten erneut senden.
+- **Trennung der Zuständigkeiten.** Bronze bewegt nur Daten, Silver bereinigt sie nur, Gold modelliert sie nur. Eine Änderung in einer Schicht bricht die anderen nicht.
+- **Vertrauen.** Jeder Silver- und Gold-Job führt vor dem Schreiben seine Qualitätsprüfungen aus. Schlägt eine fehl, bleibt die vorherige Version, und Power BI sieht nie halb verarbeitete Daten.
+- **Kosten.** Athena und Power BI lesen kompaktes Parquet aus Silver und Gold, nie das rohe JSON.

@@ -17,7 +17,7 @@ Simulierte operative Datenbank der eigenen Buchungsmaschine der Kette. Sie enth�
 | Typ | Simulierte Datenbank, von einem Seed erzeugt und von einem Simulator am Leben gehalten |
 | Speicherort | Neon (PostgreSQL 16, AWS US East Ohio), Datenbank `hospedaplus`, Schema `operation` · Quellcode in [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
 | Zugriffsmethode | Datenbankverbindung (SQL) |
-| Frequenz | Kontinuierlich: 6 neue Buchungen pro Minute |
+| Frequenz | Kontinuierlich: 1 neue Buchung pro Minute |
 | Volumen | 28 Hotels in 5 Ländern, 4.000 Zimmer, 60.000+ Gäste, 365 Nächte im Verkauf |
 | Zuerst gespeichert in | **Neon** `operation` |
 
@@ -27,7 +27,7 @@ Simulierte operative Datenbank der eigenen Buchungsmaschine der Kette. Sie enth�
   <Stat value="28">Hotels in 5 Ländern</Stat>
   <Stat value="4.000">Zimmer</Stat>
   <Stat value="14">Tabellen</Stat>
-  <Stat value="6/min">neue Buchungen</Stat>
+  <Stat value="1/min">neue Buchung</Stat>
 </StatGrid>
 
 ## Simulation
@@ -35,11 +35,11 @@ Simulierte operative Datenbank der eigenen Buchungsmaschine der Kette. Sie enth�
 Zwei Jobs, beide mit dem Image des Repositorys:
 
 1. **Seed** (`python -m seed all`). Lädt den Katalog, 365 Nächte Bestand und Raten im Voraus, 60.000+ Gäste und die Buchungshistorie (`dev`: 90 vergangene Nächte, `full`: 400). Stadthotels bekommen mehr Anreisen von Sonntag bis Dienstag, Resorts am Wochenende, die Hochsaison bringt mehr Gäste, und die künftige Auslastung sinkt, je weiter man vorausschaut, wie in einer echten Buchungskurve. Gleicher Seed + gleiches Startdatum = dieselben Daten, Zeile für Zeile.
-2. **Simulator** (`python -m seed simulate`). Läuft ständig auf AWS EC2. Alle 10 Sekunden bucht er einen Direkt- oder Firmenaufenthalt über `operation.reservar()` (`rejected`, wenn das Hotel voll ist), storniert ab und zu eine Buchung über `operation.cancelar()`, injiziert weiter fehlerhafte Zeilen und stellt einmal am Tag eine neue Nacht 365 Tage im Voraus in den Verkauf.
+2. **Simulator** (`python -m seed simulate`). Läuft ständig auf AWS EC2. Jede Minute bucht er einen Direkt- oder Firmenaufenthalt über `operation.reservar()` (`rejected`, wenn das Hotel voll ist), storniert ab und zu eine Buchung über `operation.cancelar()`, injiziert weiter fehlerhafte Zeilen und stellt einmal am Tag eine neue Nacht 365 Tage im Voraus in den Verkauf.
 
 ### Frequenz und Volumen
 
-- `SIM_BOOKINGS_PER_MIN=6`: etwa 8.600 Buchungsversuche pro Tag, damit ist F3 eine kontinuierliche Quelle und die Pipeline findet immer neue Zeilen.
+- `SIM_BOOKINGS_PER_MIN=1` (so auf der EC2 gesetzt): etwa 1.440 Buchungsversuche pro Tag, damit ist F3 eine kontinuierliche Quelle und die Pipeline findet immer neue Zeilen.
 - `SEED_MODE=full` lädt die vollständige Historie; `dev` ist eine kleine Version für die Entwicklung.
 - `python -m seed check` führt 24 Gesundheits- und Integritätsprüfungen aus und ist nur erfolgreich, wenn alle bestehen (Zählungen, Katalog, keine Waisen, Bestand = bestätigte Buchungen, keine Buchung vor dem Tag, an dem sie gemacht wurde).
 

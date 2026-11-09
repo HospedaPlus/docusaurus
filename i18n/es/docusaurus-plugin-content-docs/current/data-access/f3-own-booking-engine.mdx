@@ -17,7 +17,7 @@ Base operativa simulada del motor de reservas propio de la cadena. Tiene el cat�
 | Tipo | Base simulada, generada por una semilla y mantenida viva por un simulador |
 | Ubicación | Neon (PostgreSQL 16, AWS US East Ohio), base `hospedaplus`, esquema `operation` · código fuente en [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
 | Método de acceso | Conexión a base de datos (SQL) |
-| Frecuencia | Continua: 6 reservas nuevas por minuto |
+| Frecuencia | Continua: 1 reserva nueva por minuto |
 | Volumen | 28 hoteles en 5 países, 4.000 habitaciones, 60.000+ huéspedes, 365 noches a la venta |
 | Se almacena primero en | **Neon** `operation` |
 
@@ -27,7 +27,7 @@ Base operativa simulada del motor de reservas propio de la cadena. Tiene el cat�
   <Stat value="28">hoteles en 5 países</Stat>
   <Stat value="4.000">habitaciones</Stat>
   <Stat value="14">tablas</Stat>
-  <Stat value="6/min">reservas nuevas</Stat>
+  <Stat value="1/min">reserva nueva</Stat>
 </StatGrid>
 
 ## Cómo se simula
@@ -35,11 +35,11 @@ Base operativa simulada del motor de reservas propio de la cadena. Tiene el cat�
 Dos trabajos, ambos con la imagen del repositorio:
 
 1. **Semilla** (`python -m seed all`). Carga el catálogo, 365 noches de inventario y tarifas hacia adelante, 60.000+ huéspedes y la historia de reservas (`dev`: 90 noches pasadas, `full`: 400). Los hoteles urbanos reciben más llegadas de domingo a martes, los resorts en fin de semana, la temporada alta trae más huéspedes y la ocupación futura baja mientras más lejos se mira, como en una curva de reservas real. Misma semilla + misma fecha de inicio = los mismos datos, fila por fila.
-2. **Simulador** (`python -m seed simulate`). Corre todo el tiempo en AWS EC2. Cada 10 segundos reserva una estadía directa o corporativa con `operation.reservar()` (`rejected` cuando el hotel está lleno), de vez en cuando cancela una con `operation.cancelar()`, sigue inyectando filas malas y una vez al día pone a la venta una noche nueva a 365 días.
+2. **Simulador** (`python -m seed simulate`). Corre todo el tiempo en AWS EC2. Cada minuto reserva una estadía directa o corporativa con `operation.reservar()` (`rejected` cuando el hotel está lleno), de vez en cuando cancela una con `operation.cancelar()`, sigue inyectando filas malas y una vez al día pone a la venta una noche nueva a 365 días.
 
 ### Frecuencia y volumen
 
-- `SIM_BOOKINGS_PER_MIN=6`: unos 8.600 intentos de reserva al día, así que F3 es una fuente continua y el pipeline siempre encuentra filas nuevas.
+- `SIM_BOOKINGS_PER_MIN=1` (así está en la EC2): unos 1.440 intentos de reserva al día, así que F3 es una fuente continua y el pipeline siempre encuentra filas nuevas.
 - `SEED_MODE=full` carga la historia completa; `dev` es una versión pequeña para desarrollo.
 - `python -m seed check` corre 24 controles de salud e integridad y solo pasa si pasan todos (conteos, catálogo, sin huérfanos, inventario = reservas confirmadas, ninguna reserva antes del día en que se hizo).
 

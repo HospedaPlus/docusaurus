@@ -11,6 +11,13 @@ const sectionTitles: Record<string, string> = {
   fr: "Vue d'ensemble du projet",
   de: 'Projektübersicht',
 };
+const engineeringTitles: Record<string, string> = {
+  en: 'Data Engineering',
+  es: 'Ingeniería de datos',
+  pt: 'Engenharia de dados',
+  fr: 'Ingénierie des données',
+  de: 'Data Engineering',
+};
 const locale = process.env.DOCUSAURUS_CURRENT_LOCALE ?? 'en';
 
 const sidebars: SidebarsConfig = {
@@ -47,6 +54,36 @@ const sidebars: SidebarsConfig = {
     },
     'architecture-infrastructure',
     'architecture-v2',
+    {
+      type: 'html',
+      value: engineeringTitles[locale] ?? engineeringTitles.en,
+      className: 'sidebar-section-title',
+      defaultStyle: true,
+    },
+    {
+      type: 'category',
+      label: 'Data Engineering Pipeline',
+      link: {type: 'doc', id: 'data-engineering-pipeline/index'},
+      collapsed: false,
+      items: [
+        'data-engineering-pipeline/technical-decisions',
+        'data-engineering-pipeline/neon-connection',
+        {
+          type: 'category',
+          label: 'Medallion architecture',
+          link: {type: 'doc', id: 'data-engineering-pipeline/medallion/index'},
+          collapsed: false,
+          items: [
+            'data-engineering-pipeline/medallion/bronze',
+            'data-engineering-pipeline/medallion/silver',
+            'data-engineering-pipeline/medallion/gold',
+          ],
+        },
+        'data-engineering-pipeline/athena',
+        'data-engineering-pipeline/dags',
+        'data-engineering-pipeline/running-dags',
+      ],
+    },
   ],
 };
 

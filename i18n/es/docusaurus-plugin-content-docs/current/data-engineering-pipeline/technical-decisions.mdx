@@ -1,0 +1,32 @@
+---
+sidebar_position: 2
+sidebar_label: Decisiones técnicas
+title: Decisiones técnicas
+---
+
+# Decisiones técnicas
+
+Cada decisión responde a una necesidad concreta del proyecto. Se listan con la alternativa descartada y la razón.
+
+| # | Decisión | Alternativa descartada | Por qué |
+| --- | --- | --- | --- |
+| 1 | **Airflow 3 con CeleryExecutor** y RabbitMQ como broker | LocalExecutor en una sola máquina | Las tareas corren en máquinas worker separadas, así el scheduler queda liviano y el trabajo escala agregando workers. RabbitMQ es solo la cola de Celery; Kafka lleva los eventos de F2. |
+| 2 | **Una cola Celery por capa** (`bronze`, `silver`, `gold`), un worker cada una | Una cola compartida | Un job de gold de 10 minutos nunca retrasa la copia horaria de bronze, y cada worker se dimensiona para su capa. |
+| 3 | **Spark en modo local dentro del worker** | Un clúster Spark (EMR, standalone) | Unas 200.000 reservas caben en una máquina. El modo local evita operar y pagar un clúster; el mismo código puede pasar a un clúster cambiando `SPARK_MASTER`. Las particiones de shuffle se fijan en 8 en vez de las 200 por defecto. |
+| 4 | **Un DAG de bronze por fuente**, y DAGs de silver/gold por tema | Tres DAGs, uno por capa | Cada fuente tiene su ritmo (horario, diario, semanal, mensual, una vez). Un DAG por fuente deja que cada una corra con su reloj y falle sin detener a las demás. |
+| 5 | **DAGs encadenados con Assets** (programación por datos) | Horas fijas para todo, o `TriggerDagRunOperator` | Silver arranca cuando sus datos de bronze se escribieron de verdad, no a una hora adivinada. Si bronze se atrasa, silver espera; si falla, silver no corre con datos viejos. |
+| 6 | **Toda reserva pasa por Neon** (`operation.reservar()`) y el lago lee las reservas solo de Neon | Cada canal escrito al lago por su cuenta | Una sola fuente de verdad para reservas e inventario, control de sobreventa en un solo lugar y un solo job de silver para todos los canales. |
+| 7 | **Copia incremental horaria + foto completa nocturna** de Neon | Solo copias completas, o solo incremental | La copia horaria deja silver a una hora de Neon; la foto nocturna trae el historial del seed y cuadra el lago con Neon cada noche, pase lo que pase con la copia horaria. |
+| 8 | **Bronze es una copia cruda**, nombrada por fuente y fecha | Limpiar al entrar | Cualquier error de silver se corrige y se reprocesa desde bronze. Repetir una tarea de bronze sobrescribe el mismo objeto (idempotente). |
+| 9 | **Silver y gold se reconstruyen completos** y se sobrescriben | Merges incrementales (MERGE/upsert) | Con este volumen una reconstrucción completa toma 1 a 2 minutos, siempre es correcta y repetible, y ningún estado puede desviarse. |
+| 10 | **Controles de calidad antes de escribir** (`spark_jobs/quality.py`) | Controles después de cargar, o ninguno | Si un control falla la tarea falla y la versión anterior queda intacta: los tableros nunca muestran datos a medio romper. |
+| 11 | **Parquet** en silver y gold | CSV o JSON | Columnar, comprimido y tipado: Athena lee solo las columnas que necesita y escanea menos (menor costo). |
+| 12 | **Esquema estrella en gold** más un mart por pregunta | Esquema copo de nieve, o solo marts planos | Power BI funciona mejor con una estrella; los marts dan a cada pain (P1 a P5) una respuesta lista. Ver [Gold y modelo de datos](./medallion/gold.mdx). |
+| 13 | **COP como moneda de reporte**, con Frankfurter v2 | EUR (Frankfurter v1 no tiene COP) | El negocio reporta en pesos colombianos; la v2 publica COP. |
+| 14 | **Glue Data Catalog llenado con DDL de Athena** | Glue crawler | Los crawlers están bloqueados a nivel de cuenta; el DDL da nombres y tipos exactos sacados del código. Ver [Athena](./athena.mdx). |
+| 15 | **Sin datos personales de huéspedes en el lago** | Copiar `guests` | Privacidad desde el diseño: `guests` se queda en Neon; el lago guarda solo ids. |
+| 16 | **Gold escribe de vuelta en Neon** con su propio rol (`app_writer`) | Que la operación calcule sus propias tasas | Las tasas de cancelación que fijan los límites de sobreventa son las mismas que ve el negocio en Power BI. |
+
+## Horas y zonas horarias
+
+Airflow corre en **UTC**; la UI muestra la hora de Colombia (UTC−5). Cada horario de este sitio se da en UTC y COT. Gold está planeado para terminar hacia las 03:35 UTC (22:35 COT), así los datos están listos mucho antes de las 06:00 hora local en cada hotel (Portugal, España, Colombia, México y Brasil).

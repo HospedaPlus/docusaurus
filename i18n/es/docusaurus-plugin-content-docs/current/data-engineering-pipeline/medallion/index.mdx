@@ -1,0 +1,27 @@
+---
+sidebar_position: 1
+sidebar_label: Visión general
+title: Arquitectura medallion
+---
+
+# Arquitectura medallion
+
+El lago se divide en tres capas. Los datos solo avanzan (bronze → silver → gold), cada capa la escriben sus propios DAGs y su propio worker Celery, y cada una tiene un contrato claro.
+
+| Capa | Pregunta que responde | Formato | Quién la escribe | Regla |
+| --- | --- | --- | --- | --- |
+| [**Bronze**](./bronze.mdx) | *¿Qué envió exactamente cada fuente?* | Crudo: JSON Lines, JSON, CSV, Excel | DAGs de bronze (cola `bronze`), Python simple, sin Spark | Nunca se modifica. Un objeto por fuente y fecha/hora. |
+| [**Silver**](./silver.mdx) | *¿Cuál es la versión limpia y confiable de cada entidad?* | Parquet | DAGs de silver (cola `silver`), Spark | Una fila por entidad, defectos tratados, montos en COP, controles antes de escribir. |
+| [**Gold**](./gold.mdx) | *¿Qué necesita el negocio para decidir?* | Parquet (un JSON para Neon) | `gold_modelo_daily` (cola `gold`), Spark | Esquema estrella + un mart por pain, reconstruido cada noche. |
+
+```text
+ bronze/  ── crudo, reprocesable ──►  silver/  ── limpio, estandarizado ──►  gold/  ── modelado, listo ──►  Athena / Power BI
+ (como llegó)                         (una verdad por entidad)              (estrella + marts P1–P5)
+```
+
+## Por qué tres capas
+
+- **Reprocesar.** Como bronze guarda el dato crudo, un error en silver o gold se corrige en el código y la capa se reconstruye desde bronze. Ninguna fuente tiene que volver a enviar sus datos.
+- **Separación de responsabilidades.** Bronze solo mueve datos, silver solo los limpia, gold solo los modela. Un cambio en una capa no rompe las otras.
+- **Confianza.** Cada job de silver y gold corre sus controles de calidad antes de escribir. Si uno falla, se queda la versión anterior, así Power BI nunca ve datos a medio procesar.
+- **Costo.** Athena y Power BI leen Parquet compacto de silver y gold, nunca el JSON crudo.
