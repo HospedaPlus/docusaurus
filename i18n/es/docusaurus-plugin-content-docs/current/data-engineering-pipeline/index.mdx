@@ -46,6 +46,29 @@ Paso a paso, esto es lo que pasa cada día:
 5. **Gold devuelve datos a la operación.** `gold_neon_writeback` escribe en Neon la tasa de cancelación por hotel y anticipación, para que la operación use los mismos números que ve el negocio.
 6. **Athena expone las tablas y Power BI las lee.** Las tablas silver y gold se registran en el Glue Data Catalog con DDL de Athena, y Power BI las consulta a través de Athena. Los tableros están frescos antes de las 06:00 hora local en cada hotel.
 
+## ETL, OLTP y OLAP: dónde ocurre cada paso
+
+La plataforma separa dos mundos: el lado **operacional (OLTP)**, donde las reservas se escriben una a una, y el lado **analítico (OLAP)**, donde el negocio lee tablas agregadas y listas para usar. El pipeline es el ETL que los conecta.
+
+| Etapa | Qué es aquí | Dónde corre | Dónde escribe |
+| --- | --- | --- | --- |
+| **OLTP** | Neon (PostgreSQL): esquemas `operation` y `streaming`. Toda reserva de F2 (OTA), F3 (motor propio) y F4 (agencias) aterriza aquí con `operation.reservar()`, con control de inventario y sobreventa; también los eventos locales de F6. Escrituras pequeñas, frecuentes y transaccionales. | Neon, AWS us-east-2 | Neon |
+| **E · Extracción** | Los DAGs de bronze leen Neon (rol `etl_reader`), las APIs de F5 y F6/F7 y los archivos de F1/F4, y los copian **tal cual**. | Worker Celery `bronze` (EC2 de workers), Python simple | S3 `bronze/` |
+| **T · Transformación** | Jobs de Spark limpian, quitan duplicados, convierten a COP, unen catálogos y validan calidad (silver); luego modelan el esquema estrella y los marts (gold). | Workers Celery `silver` y `gold` (EC2 de workers), Spark en modo local | S3 `silver/` y `gold/` (Parquet) |
+| **L · Carga** | Gold se escribe en Parquet y se registra en el Glue Data Catalog; un resultado (tasas de cancelación) también se carga de vuelta en Neon. | Worker `gold`; DDL de Athena | S3 `gold/` + catálogo Glue; Neon `operation.cancellation_rate_by_lead` |
+| **OLAP** | La capa gold: esquema estrella (`dim_*`, `fact_*`) y marts P1–P5, lista para análisis. Solo lectura, lecturas amplias y agregadas. | Athena (SQL serverless) | La lee Power BI |
+
+Airflow (EC2 núcleo) no mueve datos por sí mismo: solo **orquesta**, decide cuándo corre cada paso y en qué worker.
+
+```text
+ OLTP (operación)                 E · Extracción           T · Transformación         L · Carga                OLAP (análisis)
+ ─────────────────                ───────────              ─────────────              ────────                 ───────────────
+ Neon · operation / streaming ─►  bronze DAGs ──► S3 bronze ──► Spark silver ──► S3 silver ──► Spark gold ──► S3 gold ──► Athena ──► Power BI
+ (F2, F3, F4 bookings,            worker bronze             worker silver             worker gold
+  F6 local events)                (Python, raw copy)        (clean, COP, dedup)       (star + marts)
+ APIs / files (F1, F5, F6, F7) ─► bronze DAGs ──┘
+```
+
 ## Dónde corre
 
 | Máquina | Qué corre ahí | Por qué |
