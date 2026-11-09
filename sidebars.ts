@@ -67,6 +67,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'data-engineering-pipeline/technical-decisions',
+        'data-engineering-pipeline/aws-services',
         'data-engineering-pipeline/neon-connection',
         'data-engineering-pipeline/loading',
         {
@@ -86,6 +87,7 @@ const sidebars: SidebarsConfig = {
         'data-engineering-pipeline/monitoring',
       ],
     },
+    'pain-resolution',
   ],
 };
 

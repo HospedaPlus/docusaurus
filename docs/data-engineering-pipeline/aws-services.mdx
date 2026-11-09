@@ -1,0 +1,109 @@
+---
+sidebar_position: 3
+sidebar_label: AWS services
+title: AWS services used by the pipeline
+---
+
+# AWS services used by the pipeline
+
+The whole pipeline runs on AWS in **us-east-2 (Ohio)**, except the F5 reviews API, which runs on ECS in us-east-1. This page goes through every AWS service in the order the data meets them, from the IAM role that gives access to Athena, where the data is queried.
+
+```text
+ IAM role ──► EC2 (core + workers) ──► S3 lakehouse ──► Glue Data Catalog ──► Athena ──► Power BI
+   │            │  Elastic IP, SGs         │ bronze/silver/gold   ▲ Lake Formation permissions
+   │            └─ Airflow, Celery, Spark  └ airflow-logs/        │
+   └── temporary credentials for S3, no access keys on disk ──────┘
+```
+
+| # | Service | What it is used for | Where it is configured |
+| --- | --- | --- | --- |
+| 1 | **IAM** | The role `hospedaplus-pipeline-role` (an EC2 instance profile) gives both pipeline machines access to the bucket. No access key is stored anywhere. | IAM → Roles |
+| 2 | **EC2** | Three Ubuntu machines: the **core** (t3.medium: Airflow API server, scheduler, metadata Postgres, RabbitMQ, Flower, Nginx), the **workers** (t3.xlarge: Celery workers `bronze`, `silver`, `gold` with Spark), and the **sources** machine (c7i-flex.large: simulators F2, F3, F4). | EC2 → Instances |
+| 3 | **VPC and security groups** | The core and the workers share a subnet and talk by private IP. Only Nginx (80/443) is open to the internet; Postgres, RabbitMQ and the API server are open only to the workers' security group. | EC2 → Security groups |
+| 4 | **Elastic IP** | A fixed public IP for the core, so the DNS names of the monitoring UIs and the deploy secret never change. | EC2 → Elastic IPs |
+| 5 | **S3** | The lakehouse bucket `hospedaplus-lakehouse-buenavista`: `bronze/`, `silver/`, `gold/`, `athena-results/`, and `airflow-logs/` (task logs, so the UI on the core can show logs of tasks run on the workers). Public access is blocked. | S3 |
+| 6 | **AWS Glue Data Catalog** | Holds the table definitions (columns, types, S3 location) of the `silver` and `hospedaplus_gold` databases. It stores no data. | Glue → Databases |
+| 7 | **AWS Lake Formation** | Governs the catalog: who may create tables on which S3 location, and who may `SELECT`/`DESCRIBE` each table. | Lake Formation → Permissions |
+| 8 | **Amazon Athena** | Serverless SQL over the Parquet files in S3. Power BI connects here. Results are written to `athena-results/`. | Athena → Query editor |
+| 9 | **AWS CloudShell** | Runs the script that creates every Athena table at once, without installing anything. | Console → CloudShell |
+| 10 | **Amazon ECS (Fargate)** | Runs the F5 reviews API and its simulator (us-east-1). Bronze reads it over HTTPS. | ECS → Clusters |
+
+## 1. IAM: one role, no keys
+
+The role is attached to the core and the workers. Its policy allows only this bucket:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:ListBucket"],
+     "Resource": "arn:aws:s3:::hospedaplus-lakehouse-buenavista"},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+     "Resource": "arn:aws:s3:::hospedaplus-lakehouse-buenavista/*"}
+  ]
+}
+```
+
+In `.env` the AWS keys are left **empty**. boto3 (bronze) and Spark's s3a connector (silver, gold) both use the default credential chain, which picks up the role's temporary credentials from the EC2 metadata service:
+
+```python
+# spark_jobs/session.py
+.config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+.config("spark.hadoop.fs.s3a.aws.credentials.provider",
+        "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
+```
+
+**Why:** a key in a file can leak (it would end up in git or in a log); role credentials rotate by themselves and only work from those machines.
+
+## 2. EC2: where everything runs
+
+| Machine | Type | Runs |
+| --- | --- | --- |
+| core | t3.medium | `docker-compose.nucleo.yaml`: Airflow API server and scheduler, metadata Postgres, RabbitMQ, Flower, Nginx |
+| workers | t3.xlarge | `docker-compose.workers.yaml`: one Celery worker per queue (`bronze`, `silver`, `gold`), Spark in local mode inside each |
+| sources | c7i-flex.large | F3 booking engine, F2 Kafka stream, F4 weekly agency files (they write to Neon and S3) |
+
+**Why two pipeline machines:** the core stays small and always responsive; the heavy Spark work runs on a bigger machine that can be resized or multiplied without touching Airflow. More in [Technical decisions](./technical-decisions.mdx).
+
+## 3. Security groups
+
+| Group | Inbound |
+| --- | --- |
+| core | 80, 443 from anywhere (Nginx, behind Cloudflare) · 22 (deploy) · 5432, 5672, 8080 only from the workers group |
+| workers | 22 only |
+
+The workers reach Postgres (metadata), RabbitMQ (Celery broker) and the API server on the core's **private** IP, so that traffic never leaves the VPC.
+
+## 4–5. S3: the lakehouse
+
+One bucket, one prefix per layer. The layout is in [the pipeline overview](./index.mdx#lake-layout). Task logs go to the same bucket:
+
+```yaml
+# docker-compose.workers.yaml
+AIRFLOW__LOGGING__REMOTE_LOGGING: ${REMOTE_LOGGING:-true}
+AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: s3://${S3_BUCKET}/airflow-logs
+AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: aws_default
+```
+
+## 6–8. Glue Data Catalog, Lake Formation and Athena
+
+The data never leaves S3. The Glue catalog only says "table `hospedaplus_gold.fact_reservas` = these columns, Parquet, at `s3://…/gold/fact_reservas/`", and Athena uses that to run SQL straight over the files. The Glue crawler is blocked on this account, so the tables are created with DDL; Lake Formation decides who may read them. Step by step in [Athena configuration](./athena.mdx).
+
+```sql
+SELECT hotel_code, anio_mes, SUM(comision_cop) AS comision_cop
+FROM hospedaplus_gold.mart_p4_comisiones
+GROUP BY hotel_code, anio_mes
+ORDER BY anio_mes DESC;
+```
+
+## 10. ECS Fargate (F5)
+
+The reviews API is a container service on Fargate, so it needs no server of its own. `bronze_f5_reviews` calls it every hour with `F5_API_URL` (see [Bronze layer](./medallion/bronze.mdx)).
+
+## What is not on AWS, and why
+
+| Piece | Where | Why |
+| --- | --- | --- |
+| OLTP database | **Neon** (serverless PostgreSQL, us-east-2) | Free branches `development` / `production` and no server to run; same region as the bucket. See [Connection to Neon](./neon-connection.mdx). |
+| Container images | GitHub Container Registry | Built by CI/CD next to the code. |
+| DNS and TLS for the UIs | Cloudflare | Origin certificate for the three monitoring UIs. See [Monitoring](./monitoring.mdx). |
