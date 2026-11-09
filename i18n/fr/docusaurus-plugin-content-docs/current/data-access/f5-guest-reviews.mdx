@@ -19,8 +19,9 @@ API simulée contenant les avis que les clients laissent sur les plateformes d'a
 | Type | API simulée, construite par l'équipe |
 | Emplacement | [api-reviews-buenavista.coderhivex.com/docs](https://api-reviews-buenavista.coderhivex.com/docs) · code source dans [HospedaPlus/api-reviews](https://github.com/HospedaPlus/api-reviews) |
 | Méthode d'accès | API REST paginée (JSON), sans authentification |
-| Fréquence | Quotidienne |
+| Fréquence | Continue : nouveaux avis toutes les 15 minutes · lue par le pipeline toutes les heures |
 | Volume | ~300 avis/jour (~115 000 avis par an) |
+| Stockée d'abord dans | La base PostgreSQL propre à l'API sur AWS (pas Neon) · puis **S3 bronze** `bronze/f5_reviews/fecha=…/hora=HH.jsonl` |
 
 </AccessTable>
 
@@ -30,6 +31,22 @@ API simulée contenant les avis que les clients laissent sur les plateformes d'a
   <Stat value="3">langues : es, en, pt</Stat>
   <Stat value="~300">avis par jour</Stat>
 </StatGrid>
+
+## Simulation
+
+L'API tourne sur AWS ECS Fargate (us-east-1) sous la forme de deux services avec la même image : `api-reviews` sert l'API et `api-reviews-simulator` exécute `python -m src.seed --live` en permanence. Toutes les 15 minutes, le simulateur insère les avis du jour dont l'heure de publication est passée, en mode `full` : environ 300 avis par jour (variation quotidienne de ±15 %), répartis entre les 28 hôtels selon leur taille, avec 5 % de doublons sur une seconde plateforme. Il a démarré le 2026-11-02 sans historique (`SEED_LIVE_START_DATE`) et, après une interruption, il complète les 3 jours précédents.
+
+- **Exigence « ~300 avis/jour, quotidienne » :** respectée en mode full, et les avis d'une journée sont publiés pendant cette journée, comme sur une vraie plateforme.
+- **Reproductible :** chaque jour provient d'une graine fixe, donc une exécution quotidienne et un rechargement complet donnent toujours le même résultat.
+
+## Stockage
+
+```text
+api-reviews-simulator ─► PostgreSQL de l'API (AWS) ─► GET /api/v1/reviews?updated_from=…
+                                                       └─► Airflow bronze_f5_reviews (toutes les heures) ─► S3 bronze/f5_reviews/
+```
+
+F5 ne passe pas par Neon : comme une vraie plateforme d'avis, elle garde les avis dans sa propre base et ne les expose que par l'API. Toutes les heures, le DAG Airflow `bronze_f5_reviews` demande les avis créés ou modifiés depuis la dernière exécution (`updated_from`), parcourt toutes les pages et les écrit dans S3. Chaque nuit, `silver_resenas_daily` garde la dernière version de chaque avis et supprime les doublons.
 
 ## Comment y accéder
 
@@ -67,6 +84,7 @@ La plateforme de données ne fait que lire : elle utilise `GET /api/v1/reviews` 
 | `language` | `es`, `en`, `pt` | Langue de l'avis. |
 | `min_rating`, `max_rating` | entier 1–5 | Plage de notes, bornes incluses. |
 | `published_from`, `published_to` | date `YYYY-MM-DD` | Plage de dates de publication en UTC, bornes incluses. |
+| `updated_from` | date et heure (ISO 8601) | Avis créés ou modifiés à partir de cet instant. Sert à l'extraction incrémentale. |
 | `order` | `asc`, `desc` | Tri par `published_at` puis par `id`. Par défaut `asc`. |
 
 Les résultats sont toujours triés par `published_at` puis par `id`, donc les pages ne se chevauchent jamais et ne sautent aucun avis tant que les données ne changent pas.
@@ -219,7 +237,7 @@ Les avis sont synthétiques : ils ne sont extraits d'aucune plateforme réelle. 
 - **Volume configurable.** Le mode `dev` génère 30 jours avec environ 20 avis par jour. Le mode `full` génère 365 jours avec environ 300 avis par jour, avec une variation quotidienne de ±15 %.
 - **Défauts configurables.** La part d'avis dupliqués est un paramètre, 5 % par défaut.
 
-Le seed peut aussi s'exécuter pour une seule journée, c'est ainsi que le lot quotidien ajoute de nouveaux avis : `python -m src.seed --date 2026-10-01`.
+Les avis continuent d'arriver grâce au **simulateur** (`python -m src.seed --live`), un second service ECS qui, toutes les 15 minutes, insère les avis dont l'heure de publication est passée. Une seule journée peut aussi être générée à la main : `python -m src.seed --date 2026-10-01`.
 
 ## Utilisation
 

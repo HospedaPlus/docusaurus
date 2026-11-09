@@ -8,31 +8,35 @@ import {AccessTable, SourceTitleIcon, SourceType} from '@site/src/components/Ove
 
 # <SourceTitleIcon icon="calendar" tone="blue" />F6 · Feiertage und Veranstaltungen <SourceType>REST-API + CSV</SourceType>
 
-Gesetzliche Feiertage im Land des jeweiligen Hotels sowie eine Datei mit lokalen Veranstaltungen wie Kongressen und Konzerten.
+Feiertage des Landes jedes Hotels (F6a, echte Daten aus einer öffentlichen API) plus eine Datei mit lokalen Veranstaltungen wie Kongressen und Konzerten (F6b, vom Team gepflegt).
 
 <AccessTable>
 
 | Eigenschaft | Wert |
 | --- | --- |
-| Typ | Echte Daten, öffentliche API + Datei |
-| Speicherort | Öffentliche API [Nager.Date](https://date.nager.at) + CSV mit lokalen Veranstaltungen |
+| Typ | Echte Daten, öffentliche API + CSV des Teams |
+| Speicherort | F6a: [Nager.Date](https://date.nager.at)-API v4 · F6b: `data/local_events.csv` in [HospedaPlus/db_simulated](https://github.com/HospedaPlus/db_simulated) |
 | Zugriffsmethode | REST-API + CSV-Datei |
-| Frequenz | Jährlich (Feiertage) / wöchentlich (Veranstaltungen) |
-| Volumen | < 1.000 Zeilen/Jahr |
+| Frequenz | F6a: monatlich · F6b: tägliche Kopie, neu geladen, wenn sich die CSV ändert |
+| Volumen | 5 Länder × 2 Jahre Feiertage + 33 lokale Veranstaltungen (< 1.000 Zeilen/Jahr) |
+| Zuerst gespeichert in | F6a: **S3 Bronze, direkt** · F6b: **Neon** `operation.local_events` |
 
 </AccessTable>
 
-## Zugriff
+## Speicherort
 
-Die gesetzlichen Feiertage stammen aus der Nager.Date-API, abgefragt nach Jahr und Ländercode. Zum Beispiel die Feiertage in Portugal im Jahr 2026:
+**F6a · Feiertage → S3.** Am 1. jedes Monats (02:00 UTC) ruft der Airflow-DAG `bronze_f6_holidays` die API für Portugal, Kolumbien, Mexiko, Brasilien und Spanien auf, für das aktuelle und das nächste Jahr (Buchungen erfolgen Monate im Voraus), und speichert jede Antwort unverändert:
 
 ```bash
-curl https://date.nager.at/api/v3/PublicHolidays/2026/PT
+curl https://nagerholidays.com/api/v4/Holidays/PT/2026   # $NAGER_BASE_URL
+# -> s3://…/bronze/f6_holidays/anio=2026/pais=PT.json
 ```
 
-Die lokalen Veranstaltungen stammen aus einer CSV-Datei, die wöchentlich aktualisiert wird.
+**F6b · Lokale Veranstaltungen → Neon, dann S3.** Die 33 Veranstaltungen liegen in einer CSV, die in `db_simulated` versioniert ist. `python -m seed events` lädt sie in `operation.local_events` (CI/CD lädt sie bei jeder Änderung der CSV neu), weil die Datenbank sie für die Überbuchungslimits braucht. Jeden Tag um 02:30 UTC kopiert der DAG `bronze_f6_events` die Tabelle nach `s3://…/bronze/f6_events/`.
+
+Beide fließen in `silver/calendario_hotel/` (Hotel × Tag mit Feiertag, Veranstaltung und Wochenende).
 
 ## Verwendung
 
 - Ein Feiertag oder eine lokale Veranstaltung an einem Datum fügt einen zusätzlichen Preismultiplikator von 1,15 hinzu.
-- An Daten mit einer Veranstaltung der Kategorie „hoch“ ist Überbuchung niemals zulässig.
+- An Daten mit einer Veranstaltung der Kategorie „hoch“ ist Überbuchung nie erlaubt (`refresh_overbooking_limits()` setzt das Limit auf 0).

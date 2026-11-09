@@ -9,7 +9,7 @@ import {CardGrid, DataSourceCard, Note, AccessNote} from '@site/src/components/O
 
 # Data Sources
 
-HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 are real public data. F2 to F5 are **simulated**: the team builds them following the project specification, and their internal design is a team decision.
+HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 are real public data. F2 to F5 are **simulated**: the team built a generator for each one, it runs all the time on AWS, and it produces data at the frequency and volume the project asks for.
 
 <CardGrid columns={3}>
   <DataSourceCard
@@ -21,7 +21,8 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
     meta={[
       {label: 'Access', value: 'kaggle.com/datasets/jessemostipak/hotel-booking-demand'},
       {label: 'Frequency', value: 'One-time historical load'},
-      {label: 'Volume', value: '~119,000 bookings'},
+      {label: 'Volume', value: '119,390 bookings'},
+      {label: 'Stored first in', value: 'S3 bronze (directly)'},
     ]}>
     Bookings from one urban and one vacation hotel in Portugal, with arrival date, lead time, channel, segment, ADR, cancellation and deposit type. Used as the history of two hotels of the chain.
   </DataSourceCard>
@@ -33,11 +34,12 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
     type="Stream"
     simulated
     meta={[
-      {label: 'Access', value: 'JSON messages: booking created, modified, cancelled, no-show, check-in, check-out'},
-      {label: 'Frequency', value: 'Continuous'},
-      {label: 'Volume', value: '≥ 10 events/second at peak'},
+      {label: 'Access', value: 'Kafka, JSON messages: booking created, modified, cancelled, no-show, check-in, check-out'},
+      {label: 'Frequency', value: 'Continuous, 24/7'},
+      {label: 'Volume', value: 'Peaks of 15 events/second (≥ 10 required), ~8,000 events/day'},
+      {label: 'Stored first in', value: 'Neon (streaming + operation)'},
     ]}>
-    OTA bookings with multiple modifications, late cancellations and no-shows. Events occasionally arrive out of order.
+    OTA bookings with multiple modifications, late cancellations and no-shows. About 5% of the events arrive out of order.
   </DataSourceCard>
   <DataSourceCard
     id="F3"
@@ -47,11 +49,12 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
     type="Database"
     simulated
     meta={[
-      {label: 'Access', value: 'PostgreSQL: hotels, room types, inventory, rates and direct bookings, populated by a seed'},
-      {label: 'Frequency', value: 'Continuous'},
-      {label: 'Volume', value: '28 hotels, ~4,000 rooms'},
+      {label: 'Access', value: 'PostgreSQL: hotels, room types, inventory, rates and direct bookings'},
+      {label: 'Frequency', value: 'Continuous: 6 new bookings per minute'},
+      {label: 'Volume', value: '28 hotels, 4,000 rooms, 60,000+ guests'},
+      {label: 'Stored first in', value: 'Neon (operation)'},
     ]}>
-    Inventory by hotel, room type and date, and rates by season.
+    Inventory by hotel, room type and night, rates by season, and direct and corporate bookings.
   </DataSourceCard>
   <DataSourceCard
     id="F4"
@@ -61,11 +64,12 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
     type="File"
     simulated
     meta={[
-      {label: 'Access', value: 'Weekly CSV / Excel file per agency'},
-      {label: 'Frequency', value: 'Weekly'},
-      {label: 'Volume', value: '~15 agencies'},
+      {label: 'Access', value: 'One CSV or Excel file per agency and week'},
+      {label: 'Frequency', value: 'Weekly, Monday 06:00 UTC'},
+      {label: 'Volume', value: '15 agencies, ~183 bookings/week'},
+      {label: 'Stored first in', value: 'S3 bronze (files) + Neon (bookings)'},
     ]}>
-    Each agency uses a different format, and some bookings already exist through another channel (duplicated across channels).
+    Agencies use three different formats, and some bookings already exist through another channel (duplicated across channels).
   </DataSourceCard>
   <DataSourceCard
     id="F5"
@@ -76,8 +80,9 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
     simulated
     meta={[
       {label: 'Access', value: 'Paginated REST API: rating, text, date, hotel, platform'},
-      {label: 'Frequency', value: 'Daily'},
+      {label: 'Frequency', value: 'Continuous: new reviews every 15 minutes'},
       {label: 'Volume', value: '~300 reviews/day'},
+      {label: 'Stored first in', value: 'The API database (PostgreSQL on AWS)'},
     ]}>
     Reviews in Spanish, English and Portuguese, some duplicated across platforms. Reviews are synthetic: real reviews are not extracted from platforms.
   </DataSourceCard>
@@ -89,10 +94,11 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
     type="Public API + file"
     meta={[
       {label: 'Access', value: 'Nager.Date API + CSV of local events (conferences, concerts)'},
-      {label: 'Frequency', value: 'Yearly / weekly'},
+      {label: 'Frequency', value: 'Monthly (holidays) / daily (events)'},
       {label: 'Volume', value: '< 1,000 rows/year'},
+      {label: 'Stored first in', value: 'Holidays: S3 · events: Neon'},
     ]}>
-    Includes the public holidays of each hotel's country.
+    Includes the public holidays of each hotel's country and 33 local events.
   </DataSourceCard>
   <DataSourceCard
     id="F7"
@@ -101,15 +107,33 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
     title="Exchange rates"
     type="Public API"
     meta={[
-      {label: 'Access', value: 'Frankfurter API'},
+      {label: 'Access', value: 'Frankfurter API v2'},
       {label: 'Frequency', value: 'Daily'},
-      {label: 'Volume', value: '5 currencies'},
+      {label: 'Volume', value: '5 currencies (USD, COP, EUR, MXN, BRL)'},
+      {label: 'Stored first in', value: 'S3 bronze (directly)'},
     ]}
   />
 </CardGrid>
 
+## Where each source is stored first
+
+```text
+Simulators on AWS                          Stored first in                    Lake (S3)
+F2 producer ─► Kafka ─► consumer ─────────► Neon · streaming + operation ─┐
+F3 seed + simulator ──────────────────────► Neon · operation ─────────────┤ Airflow, hourly
+F6 local events CSV ──────────────────────► Neon · operation.local_events ┤ and nightly
+F4 weekly generator ──┬─ reservar() ──────► Neon · operation ─────────────┤
+                      └─ raw files ────────────────────────────────────────┼─► S3 bronze ─► silver ─► gold
+F5 reviews API ───────────────────────────► API PostgreSQL ── Airflow ────┤
+F1 CSV, F6 holidays API, F7 FX API ── Airflow ─────────────────────────────┘
+```
+
+- **Neon first (F2, F3, F6 events, F4 bookings).** These are operational data: every booking, from any channel, goes through the same function `operation.reservar()`, so all channels share one inventory and nothing is oversold. The pipeline reads Neon with a read-only role and copies the changes to S3 every hour, plus a full snapshot every night.
+- **S3 first (F1, F4 files, F6 holidays, F7).** These are files or public APIs with nothing to operate on, so they go to `s3://…/bronze/` as they arrive, unchanged.
+- **F5** keeps its reviews in the API's own database, as a real review platform would; the pipeline reads the API every hour.
+
 <Note>
-  **Data seed.** All data in the simulated databases is generated by a seed versioned in the repository. The seed uses a fixed random seed so data is reproducible, is idempotent, lets us choose the volume (small development mode or full mode), keeps referential integrity with the simulated APIs and events, injects the known data quality issues at a configurable rate, and runs both locally and against the database in AWS.
+  **Data seed.** All data in the simulated sources is generated by code versioned in each repository. The generators use a fixed random seed so data is reproducible, are idempotent, let us choose the volume (small development mode or full mode), keep referential integrity through one shared catalog (same hotel, room type, channel and guest codes everywhere), inject the known data quality issues at a configurable rate, and run both locally with Docker and on AWS.
 </Note>
 
 <AccessNote icon="alert" title="Known data quality issues">
@@ -117,10 +141,10 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
 The data arrives with the following defects, and the simulated sources inject them on purpose:
 
 - F1 has `"NULL"` as text in the agent and company fields, and negative or extreme ADR values.
-- Bookings with zero adults, zero children and zero babies.
-- Departure dates earlier than the arrival date.
-- Missing currencies in agency files.
-- Bookings duplicated across channels with slight differences in the guest's name.
-- Modification events that arrive before the creation event.
+- Bookings with zero adults, zero children and zero babies (F1, F3).
+- Departure dates earlier than the arrival date (F3).
+- Missing currencies in agency files (F4, ~10%).
+- Bookings duplicated across channels with slight differences in the guest's name (F4, ~10%), and reviews duplicated across platforms (F5, ~5%).
+- Modification events that arrive before the creation event (F2, ~5%).
 
 </AccessNote>

@@ -19,8 +19,9 @@ Simulierte API mit den Bewertungen, die Gäste auf Bewertungsplattformen hinterl
 | Typ | Simulierte API, vom Team entwickelt |
 | Speicherort | [api-reviews-buenavista.coderhivex.com/docs](https://api-reviews-buenavista.coderhivex.com/docs) · Quellcode in [HospedaPlus/api-reviews](https://github.com/HospedaPlus/api-reviews) |
 | Zugriffsmethode | Paginierte REST-API (JSON), ohne Authentifizierung |
-| Frequenz | Täglich |
+| Frequenz | Kontinuierlich: neue Bewertungen alle 15 Minuten · von der Pipeline stündlich gelesen |
 | Volumen | ~300 Bewertungen/Tag (~115.000 Bewertungen pro Jahr) |
+| Zuerst gespeichert in | Eigene PostgreSQL-Datenbank der API auf AWS (nicht Neon) · danach **S3 Bronze** `bronze/f5_reviews/fecha=…/hora=HH.jsonl` |
 
 </AccessTable>
 
@@ -30,6 +31,22 @@ Simulierte API mit den Bewertungen, die Gäste auf Bewertungsplattformen hinterl
   <Stat value="3">Sprachen: es, en, pt</Stat>
   <Stat value="~300">Bewertungen pro Tag</Stat>
 </StatGrid>
+
+## Simulation
+
+Die API läuft auf AWS ECS Fargate (us-east-1) als zwei Services mit demselben Image: `api-reviews` stellt die API bereit, und `api-reviews-simulator` führt ständig `python -m src.seed --live` aus. Alle 15 Minuten fügt der Simulator die Bewertungen des Tages ein, deren Veröffentlichungszeit bereits vorbei ist, im Modus `full`: etwa 300 Bewertungen pro Tag (±15 % Schwankung pro Tag), nach Größe auf die 28 Hotels verteilt, mit 5 % Duplikaten auf einer zweiten Plattform. Er startete am 2026-11-02 ohne Historie (`SEED_LIVE_START_DATE`) und ergänzt nach einem Ausfall die 3 vorherigen Tage.
+
+- **Anforderung „~300 Bewertungen/Tag, täglich“:** im Modus full erfüllt, und die Bewertungen eines Tages werden im Laufe dieses Tages veröffentlicht, wie auf einer echten Plattform.
+- **Reproduzierbar:** Jeder Tag entsteht aus einem festen Seed, daher stimmen ein täglicher Lauf und ein vollständiger Backfill immer überein.
+
+## Speicherort
+
+```text
+api-reviews-simulator ─► PostgreSQL der API (AWS) ─► GET /api/v1/reviews?updated_from=…
+                                                      └─► Airflow bronze_f5_reviews (stündlich) ─► S3 bronze/f5_reviews/
+```
+
+F5 läuft nicht über Neon: Wie eine echte Bewertungsplattform speichert sie die Bewertungen in ihrer eigenen Datenbank und gibt sie nur über die API heraus. Jede Stunde fragt der Airflow-DAG `bronze_f5_reviews` die seit dem letzten Lauf erstellten oder geänderten Bewertungen ab (`updated_from`), geht alle Seiten durch und schreibt sie nach S3. Jede Nacht behält `silver_resenas_daily` die letzte Version jeder Bewertung und entfernt die Duplikate.
 
 ## Zugriff
 
@@ -67,6 +84,7 @@ Die Datenplattform liest nur: Sie nutzt `GET /api/v1/reviews` und `GET /api/v1/h
 | `language` | `es`, `en`, `pt` | Sprache der Bewertung. |
 | `min_rating`, `max_rating` | Ganzzahl 1–5 | Bereich der Bewertungsnote, beide Grenzen eingeschlossen. |
 | `published_from`, `published_to` | Datum `YYYY-MM-DD` | Zeitraum der Veröffentlichung in UTC, beide Grenzen eingeschlossen. |
+| `updated_from` | Datum und Uhrzeit (ISO 8601) | Bewertungen, die ab diesem Zeitpunkt erstellt oder geändert wurden. Für die inkrementelle Extraktion. |
 | `order` | `asc`, `desc` | Sortierung nach `published_at` und dann nach `id`. Standard `asc`. |
 
 Die Ergebnisse sind immer nach `published_at` und dann nach `id` sortiert. Solange sich die Daten nicht ändern, überschneiden sich die Seiten also nie und lassen keine Bewertung aus.
@@ -219,7 +237,7 @@ Die Bewertungen sind synthetisch: Sie werden von keiner echten Plattform extrahi
 - **Konfigurierbares Volumen.** Der Modus `dev` erzeugt 30 Tage mit etwa 20 Bewertungen pro Tag. Der Modus `full` erzeugt 365 Tage mit etwa 300 Bewertungen pro Tag, mit einer täglichen Schwankung von ±15 %.
 - **Konfigurierbare Fehler.** Der Anteil doppelter Bewertungen ist ein Parameter, standardmäßig 5 %.
 
-Der Seed lässt sich auch für einen einzelnen Tag ausführen, so fügt der tägliche Lauf neue Bewertungen hinzu: `python -m src.seed --date 2026-10-01`.
+Neue Bewertungen kommen laufend über den **Simulator** (`python -m src.seed --live`), einen zweiten ECS-Service, der alle 15 Minuten die Bewertungen einfügt, deren Veröffentlichungszeit bereits vorbei ist. Ein einzelner Tag lässt sich auch von Hand erzeugen: `python -m src.seed --date 2026-10-01`.
 
 ## Verwendung
 

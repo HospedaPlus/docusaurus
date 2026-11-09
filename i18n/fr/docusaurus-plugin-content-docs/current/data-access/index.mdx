@@ -1,35 +1,35 @@
 ---
 sidebar_label: Accès aux données
 slug: /data-access
-title: Où se trouvent les sources et comment y accéder ?
+title: Où se trouvent les sources et comment y accéder ?
 hide_table_of_contents: true
 ---
 
 import {AccessTable, SourceName, AccessNote} from '@site/src/components/Overview';
 
-# Où se trouvent les sources et comment y accéder ?
+# Où se trouvent les sources et comment y accéder ?
 
-Les sources de données se trouvent sur des plateformes publiques et dans des systèmes simulés par l'équipe. Voici un résumé de l'emplacement de chacune et de la manière dont nous nous y connectons. Ouvrez chaque source pour en consulter le détail.
+Les sources de données se trouvent sur des plateformes publiques et dans des systèmes simulés par l'équipe. Chaque source est d'abord stockée à un endroit, d'où le pipeline Airflow la copie, brute, dans la couche **bronze** du lakehouse S3. Certaines sources arrivent d'abord dans **Neon** (PostgreSQL), d'autres vont **directement dans S3**. Ouvrez chaque source pour voir le détail.
 
 <AccessTable>
 
-| Source | Emplacement | Méthode d'accès |
-| --- | --- | --- |
-| <SourceName icon="file" tone="purple">[F1 · Hotel booking demand](./f1-hotel-booking-demand.mdx)</SourceName> | Kaggle ([hotel-booking-demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand)) | Téléchargement CSV, chargement historique unique |
-| <SourceName icon="stream" tone="blue">[F2 · Événements du channel manager](./f2-channel-manager-events.mdx)</SourceName> | Flux d'événements simulé | Messages JSON, en continu |
-| <SourceName icon="database" tone="teal">[F3 · Moteur de réservation propre](./f3-own-booking-engine.mdx)</SourceName> | Base de données PostgreSQL simulée, alimentée par un seed | Connexion à la base de données (SQL) |
-| <SourceName icon="file" tone="sky">[F4 · Fichiers des agences traditionnelles](./f4-traditional-agency-files.mdx)</SourceName> | Fichiers hebdomadaires simulés de ~15 agences | Fichiers CSV / Excel |
-| <SourceName icon="message" tone="purple">[F5 · Avis clients](./f5-guest-reviews.mdx)</SourceName> | API d'avis simulée | API REST paginée, quotidienne |
-| <SourceName icon="calendar" tone="blue">[F6 · Jours fériés et événements](./f6-holidays-and-events.mdx)</SourceName> | API publique [Nager.Date](https://date.nager.at) + CSV des événements locaux | API REST + fichier CSV |
-| <SourceName icon="currency" tone="teal">[F7 · Taux de change](./f7-exchange-rates.mdx)</SourceName> | API publique [Frankfurter](https://frankfurter.dev) | API REST, quotidienne |
+| Source | Emplacement | Méthode d'accès | Stockée d'abord dans | Copie vers S3 bronze |
+| --- | --- | --- | --- | --- |
+| <SourceName icon="file" tone="purple">[F1 · Hotel booking demand](./f1-hotel-booking-demand.mdx)</SourceName> | CSV Kaggle, conservé dans [hospedaplus-csv](https://github.com/HospedaPlus/hospedaplus-csv) | Fichier CSV | **S3** directement | Une fois, à la main (`bronze_f1_historical`) |
+| <SourceName icon="stream" tone="blue">[F2 · Événements du channel manager](./f2-channel-manager-events.mdx)</SourceName> | Simulateur + Kafka ([buenavista-streaming](https://github.com/HospedaPlus/buenavista-streaming)) | Topic Kafka, messages JSON | **Neon** (registre `streaming` + `operation`) | Toutes les heures (`bronze_neon_f2_f3`) |
+| <SourceName icon="database" tone="teal">[F3 · Moteur de réservation propre](./f3-own-booking-engine.mdx)</SourceName> | Seed + simulateur ([db_simulated](https://github.com/HospedaPlus/db_simulated)) | SQL (PostgreSQL) | **Neon** (`operation`) | Toutes les heures + instantané nocturne |
+| <SourceName icon="file" tone="sky">[F4 · Fichiers des agences traditionnelles](./f4-traditional-agency-files.mdx)</SourceName> | Générateur hebdomadaire ([hospedaplus-csv](https://github.com/HospedaPlus/hospedaplus-csv)) | Fichiers CSV / Excel | **S3** directement (fichiers bruts) + **Neon** (réservations) | Hebdomadaire, envoyés par le générateur |
+| <SourceName icon="message" tone="purple">[F5 · Avis clients](./f5-guest-reviews.mdx)</SourceName> | API d'avis sur AWS ([api-reviews](https://github.com/HospedaPlus/api-reviews)) | API REST paginée | PostgreSQL propre à l'API | Toutes les heures (`bronze_f5_reviews`) |
+| <SourceName icon="calendar" tone="blue">[F6 · Jours fériés et événements](./f6-holidays-and-events.mdx)</SourceName> | API Nager.Date + CSV de l'équipe | API REST + CSV | Jours fériés : **S3** directement · Événements : **Neon** (`operation.local_events`) | Mensuelle (jours fériés) · quotidienne (événements) |
+| <SourceName icon="currency" tone="teal">[F7 · Taux de change](./f7-exchange-rates.mdx)</SourceName> | API publique [Frankfurter](https://frankfurter.dev) | API REST | **S3** directement | Quotidienne (`bronze_f7_fx`) |
 
 </AccessTable>
 
-<AccessNote title="Points d'attention sur l'accès">
+<AccessNote title="Considérations d'accès">
 
-- Aucun identifiant, aucune clé ni aucun mot de passe n'est stocké dans le dépôt ou dans les images de conteneurs.
-- Les données personnelles des clients (nom, e-mail, téléphone) sont pseudonymisées avant d'atteindre la couche analytique.
-- Les données des clients sont chiffrées.
-- Les avis sont synthétiques : nous n'extrayons aucun avis réel des plateformes d'avis.
+- Aucun identifiant, clé ou mot de passe n'est stocké dans le dépôt ni dans les images de conteneurs. Demandez les chaînes de connexion à l'équipe.
+- Chaque client se connecte à Neon avec son propre rôle : `app_writer` pour les simulateurs et les consommateurs, `etl_reader` (lecture seule) pour le pipeline et l'équipe.
+- Les données personnelles des clients (nom, e-mail, téléphone) restent dans Neon : la table `guests` n'est jamais copiée dans le lac, et les noms de F4 et F5 sont pseudonymisés avant la couche analytique.
+- Les avis sont synthétiques : nous n'extrayons pas de vrais avis des plateformes.
 
 </AccessNote>

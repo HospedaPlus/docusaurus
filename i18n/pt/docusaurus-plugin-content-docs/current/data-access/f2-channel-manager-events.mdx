@@ -8,37 +8,62 @@ import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/co
 
 # <SourceTitleIcon icon="stream" tone="blue" />F2 · Eventos do channel manager <SourceType>Stream JSON</SourceType>
 
-Stream simulado de eventos de reservas vindos do channel manager, que recebe as reservas das OTAs. A equipe constrói esse simulador seguindo a especificação do projeto.
+Stream simulado de eventos de reservas vindos do channel manager, que reúne as reservas das OTA. A equipe construiu o simulador, um produtor Kafka e um consumidor que guarda cada evento.
 
 <AccessTable>
 
 | Propriedade | Valor |
 | --- | --- |
-| Tipo | Stream simulado |
-| Localização | Simulador de eventos construído pela equipe |
-| Método de acesso | Mensagens JSON |
-| Frequência | Contínua |
-| Volume | ≥ 10 eventos/segundo no pico |
+| Tipo | Stream simulado, construído pela equipe |
+| Localização | Tópico do Kafka `reservation.events.v1_3` (6 partições) · código-fonte em [HospedaPlus/buenavista-streaming](https://github.com/HospedaPlus/buenavista-streaming) |
+| Método de acesso | Mensagens JSON (contrato 1.3), validadas com Pydantic |
+| Frequência | Contínua, 24/7 na AWS EC2 |
+| Volume | Picos de 15 eventos/segundo (pedido ≥ 10), ~8.000 eventos/dia |
+| Armazenada primeiro em | **Neon**: `streaming.reservation_event_ledger` + `operation` (inventário e reservas) |
 
 </AccessTable>
 
-## Como acessar
+## Como é simulada
 
-O simulador publica uma mensagem JSON por evento, e a plataforma as consome de forma assíncrona. Nenhum evento do channel manager pode ser perdido.
+O produtor (`src/kafka_producer.py --continuous`) gera a vida completa de cada reserva para os 28 hotéis: criação, uma ou mais modificações, cancelamentos (alguns tardios), no-shows, check-in e check-out no horário local do hotel. A demanda é calibrada para 68% de ocupação e 50% de participação das OTA, e pode adicionar picos de demanda para um hotel e algumas datas. Cada mensagem é publicada no Kafka com `acks=all` e idempotência, com `reservation_id` como chave, então os eventos de uma reserva ficam em ordem em uma mesma partição.
+
+### Frequência e volume
+
+O ritmo é definido com variáveis de ambiente, assim cumpre o requisito sem encher o plano gratuito do Neon:
+
+| Variável | Valor em produção | Significado |
+| --- | --- | --- |
+| `F2_BASE_RATE` | `0.05` | Eventos por segundo fora dos picos (~4.300 por dia). |
+| `F2_PEAK_RATE` | `15` | Eventos por segundo durante um pico. |
+| `F2_PEAK_EVERY_S` | `3600` | Um pico por hora. |
+| `F2_PEAK_DURATION_S` | `10` | Cada pico dura 10 segundos (~3.600 eventos por dia). |
+
+- **Requisito "≥ 10 eventos/segundo no pico":** a cada hora o produtor envia 15 eventos/segundo durante 10 segundos. Seu log imprime a evidência: `Streaming progress: sent=… peak=15 ev/s`.
+- **Capacidade:** o mesmo código pode rodar a 5 eventos/segundo com um pico por minuto (os padrões da CLI), cerca de 430.000 eventos por dia. Dois consumidores (`NEON_CONSUMERS`, até 6, um por partição) mantêm o lag do Kafka perto de 0.
+
+## Onde é armazenada
+
+```text
+produtor ─► Kafka reservation.events.v1_3 ─► neon-consumer ─► Neon streaming.reservation_event_ledger
+                                   │                      └──► Neon operation (reservar / modificar / cancelar / liberar)
+                                   └─ mensagens inválidas ─► Kafka reservation.events.dlq
+Neon ─► Airflow bronze_neon_f2_f3 (a cada hora) ─► S3 bronze/f2_ledger/
+```
+
+- **Primeira parada, Neon.** O consumidor grava cada evento no ledger (uma linha por `event_id`, então repetir não causa dano) e, na mesma transação, o aplica ao inventário da F3: `created` → `operation.reservar()`, `updated` → `modificar()`, `cancelled` → `cancelar()`, `no_show` → `liberar()`. As reservas de OTA ocupam quartos do mesmo inventário que os outros canais, então o overbooking fica em 0. O offset do Kafka só é confirmado depois que o Neon confirma, então nenhum evento se perde.
+- **Depois, S3.** O Kafka não grava no S3. A cada hora o DAG do Airflow `bronze_neon_f2_f3` copia as linhas novas do ledger para `s3://…/bronze/f2_ledger/`, em JSON Lines.
 
 ## O que contém
 
-Eventos de reservas destes tipos:
+Cada mensagem traz `event_id`, `schema_version`, `event_type`, `occurred_at`, `hotel_id`, `reservation_id`, `reservation_version` e um bloco `data` com a estadia: check-in, check-out, tipo de quarto, hóspedes, `guest_ref` (pseudônimo, o mesmo da F3), nível de fidelidade, tarifa por noite, total, moeda, canal e indicador de reembolsável. Tipos de evento:
 
-- Reserva criada, modificada e cancelada.
-- No-show.
-- Check-in e check-out.
-
-As reservas de OTAs chegam com várias modificações, cancelamentos tardios e no-shows.
+- `reservation.created`, `reservation.updated` e `reservation.cancelled`.
+- `reservation.no_show`.
+- `reservation.checked_in` e `reservation.checked_out`.
 
 <AccessNote icon="alert" title="Problemas de qualidade de dados conhecidos">
 
-- Os eventos chegam ocasionalmente fora de ordem.
-- Um evento de modificação pode chegar antes do evento de criação, e deve ser processado corretamente quando a criação chegar.
+- Cerca de 5% dos eventos chegam fora de ordem (`--out-of-order-rate 0.05`).
+- Uma modificação, cancelamento ou no-show pode chegar antes da criação. Fica pendente no ledger e é aplicado, em ordem de versão, assim que a criação chega.
 
 </AccessNote>

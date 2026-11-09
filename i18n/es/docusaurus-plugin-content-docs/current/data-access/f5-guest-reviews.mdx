@@ -19,8 +19,9 @@ API simulada con las reseñas que los huéspedes dejan en plataformas de reseña
 | Tipo | API simulada, construida por el equipo |
 | Ubicación | [api-reviews-buenavista.coderhivex.com/docs](https://api-reviews-buenavista.coderhivex.com/docs) · código fuente en [HospedaPlus/api-reviews](https://github.com/HospedaPlus/api-reviews) |
 | Método de acceso | API REST paginada (JSON), sin autenticación |
-| Frecuencia | Diaria |
+| Frecuencia | Continua: reseñas nuevas cada 15 minutos · el pipeline la lee cada hora |
 | Volumen | ~300 reseñas/día (~115.000 reseñas al año) |
+| Se almacena primero en | La base PostgreSQL propia de la API en AWS (no Neon) · luego **S3 bronze** `bronze/f5_reviews/fecha=…/hora=HH.jsonl` |
 
 </AccessTable>
 
@@ -30,6 +31,22 @@ API simulada con las reseñas que los huéspedes dejan en plataformas de reseña
   <Stat value="3">idiomas: es, en, pt</Stat>
   <Stat value="~300">reseñas por día</Stat>
 </StatGrid>
+
+## Cómo se simula
+
+La API corre en AWS ECS Fargate (us-east-1) como dos servicios con la misma imagen: `api-reviews` sirve la API y `api-reviews-simulator` ejecuta `python -m src.seed --live` todo el tiempo. Cada 15 minutos el simulador inserta las reseñas del día cuya hora de publicación ya pasó, en modo `full`: unas 300 reseñas al día (variación diaria de ±15%), repartidas entre los 28 hoteles según su tamaño, con 5% de duplicados en una segunda plataforma. Arrancó el 2026-11-02 sin cargar historia (`SEED_LIVE_START_DATE`), y después de una caída completa los 3 días anteriores.
+
+- **Requisito "~300 reseñas/día, diaria":** se cumple en modo full, y las reseñas de un día se publican durante ese día, como en una plataforma real.
+- **Reproducible:** cada día sale de una semilla fija, así que una corrida diaria y una recarga completa nunca difieren.
+
+## Dónde se almacena
+
+```text
+api-reviews-simulator ─► PostgreSQL de la API (AWS) ─► GET /api/v1/reviews?updated_from=…
+                                                        └─► Airflow bronze_f5_reviews (cada hora) ─► S3 bronze/f5_reviews/
+```
+
+F5 no pasa por Neon: como una plataforma de reseñas real, guarda las reseñas en su propia base y solo las expone por la API. Cada hora el DAG de Airflow `bronze_f5_reviews` pide las reseñas creadas o editadas desde la corrida anterior (`updated_from`), recorre todas las páginas y las escribe en S3. Cada noche `silver_resenas_daily` se queda con la última versión de cada reseña y quita los duplicados.
 
 ## Cómo acceder
 
@@ -67,6 +84,7 @@ La plataforma de datos solo lee: usa `GET /api/v1/reviews` y `GET /api/v1/hotels
 | `language` | `es`, `en`, `pt` | Idioma de la reseña. |
 | `min_rating`, `max_rating` | entero 1–5 | Rango de calificación, ambos extremos incluidos. |
 | `published_from`, `published_to` | fecha `YYYY-MM-DD` | Rango de fechas de publicación en UTC, ambos extremos incluidos. |
+| `updated_from` | fecha y hora (ISO 8601) | Reseñas creadas o editadas desde este instante. Se usa para la extracción incremental. |
 | `order` | `asc`, `desc` | Orden por `published_at` y luego por `id`. Por defecto `asc`. |
 
 Los resultados siempre se ordenan por `published_at` y luego por `id`, así que las páginas nunca se solapan ni se saltan reseñas mientras los datos no cambien.
@@ -219,7 +237,7 @@ Las reseñas son sintéticas: no se extraen de ninguna plataforma real. Un scrip
 - **Volumen configurable.** El modo `dev` genera 30 días con unas 20 reseñas por día. El modo `full` genera 365 días con unas 300 reseñas por día, con una variación diaria de ±15%.
 - **Defectos configurables.** La proporción de reseñas duplicadas es un parámetro, 5% por defecto.
 
-La semilla también se ejecuta para un solo día, que es como el lote diario agrega reseñas nuevas: `python -m src.seed --date 2026-10-01`.
+Las reseñas siguen llegando gracias al **simulador** (`python -m src.seed --live`), un segundo servicio de ECS que cada 15 minutos inserta las reseñas cuya hora de publicación ya pasó. También se puede generar un solo día a mano: `python -m src.seed --date 2026-10-01`.
 
 ## Cómo se usa
 
