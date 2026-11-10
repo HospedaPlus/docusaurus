@@ -177,17 +177,59 @@ Question
 ${question}`;
 }
 
+/** Models tried in order; lighter ones have more free quota. */
+const FALLBACK_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-2.5-flash-lite",
+];
+
+/**
+ * Calls Gemini with retries: on 429 (quota) or 5xx (overloaded) it waits and
+ * tries again, then moves to the next model. A bad key (400/401/403) stops at once.
+ */
+async function callGemini(key: string, model: string, text: string) {
+  const models = [model, ...FALLBACK_MODELS.filter((m) => m !== model)];
+  let last = "";
+  for (const m of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let r: Response;
+      try {
+        r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(key)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text }] }],
+              generationConfig: { temperature: 0 },
+            }),
+          },
+        );
+      } catch {
+        last = "network error";
+        await new Promise((ok) => setTimeout(ok, 1500));
+        continue;
+      }
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) return data;
+      last = `${r.status}: ${data?.error?.message ?? r.statusText}`;
+      if ([400, 401, 403].includes(r.status)) throw new Error(last);
+      if (r.status === 404) break;
+      await new Promise((ok) => setTimeout(ok, 1500 * (attempt + 1)));
+    }
+  }
+  throw new Error(last);
+}
+
 /** Small chat at the bottom right: retrieval in the browser over the docs, answer written by Gemini. */
 export default function DocsChat(): ReactNode {
   const { siteConfig, i18n } = useDocusaurusContext();
   const [key, setKey] = useState("");
   const [draftKey, setDraftKey] = useState("");
-  useEffect(
-    () => {
-      setKey(window.localStorage.getItem("hp-gemini-key") ?? "");
-    },
-    [],
-  );
+  useEffect(() => {
+    setKey(window.localStorage.getItem("hp-gemini-key") ?? "");
+  }, []);
   const saveKey = (e: FormEvent) => {
     e.preventDefault();
     const k = draftKey.trim();
@@ -212,14 +254,11 @@ export default function DocsChat(): ReactNode {
   const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
 
-  useEffect(
-    () => {
-      // Block body on purpose: newer browsers return a Promise from
-      // scrollIntoView, and React would call it as a cleanup and crash.
-      end.current?.scrollIntoView({ behavior: "smooth" });
-    },
-    [msgs, busy],
-  );
+  useEffect(() => {
+    // Block body on purpose: newer browsers return a Promise from
+    // scrollIntoView, and React would call it as a cleanup and crash.
+    end.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs, busy]);
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
@@ -250,26 +289,11 @@ export default function DocsChat(): ReactNode {
           (d) => `# ${d.title}${d.heading ? ` · ${d.heading}` : ""}\n${d.text}`,
         )
         .join("\n\n---\n\n");
-      const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { text: prompt(context, question, i18n.currentLocale) },
-                ],
-              },
-            ],
-            generationConfig: { temperature: 0 },
-          }),
-        },
+      const data = await callGemini(
+        key,
+        model,
+        prompt(context, question, i18n.currentLocale),
       );
-      if (!r.ok) throw new Error(String(r.status));
-      const data = await r.json();
       const answer: string = (data.candidates?.[0]?.content?.parts ?? [])
         .map((p: { text?: string }) => p.text ?? "")
         .join("")
@@ -290,8 +314,16 @@ export default function DocsChat(): ReactNode {
           error: !answer,
         },
       ]);
-    } catch {
-      setMsgs((m) => [...m, { role: "bot", text: t.fail, error: true }]);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "";
+      setMsgs((m) => [
+        ...m,
+        {
+          role: "bot",
+          text: detail ? `${t.fail}\n(${detail})` : t.fail,
+          error: true,
+        },
+      ]);
     } finally {
       setBusy(false);
     }
