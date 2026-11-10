@@ -99,6 +99,11 @@ const config: Config = {
       },
       items: [
         {
+          to: '/booking',
+          label: 'Booking demo',
+          position: 'left',
+        },
+        {
           type: 'search',
           position: 'right',
         },

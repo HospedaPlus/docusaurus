@@ -133,6 +133,117 @@ FROM hospedaplus_gold.fact_reservas
 GROUP BY source, channel_type;
 ```
 
+## Wo jeder Pain in der Pipeline gelöst wird
+
+Die Tabellen unten zeigen für jeden Pain, **in welcher Phase** die Lösung passiert, **welcher DAG** sie ausführt und **in welcher Datei und Funktion** der Code steht. Alle Pfade gehören zum Repo [hospedaplus-pipeline](https://github.com/HospedaPlus/hospedaplus-pipeline), außer den Neon-Funktionen, die in [db_simulated](https://github.com/HospedaPlus/db_simulated) liegen.
+
+Manche Pains werden **an der Quelle** gelöst (in Neon, bevor die Daten den Lake erreichen), andere **in der Pipeline** (silver oder gold). P1 wird an beiden Stellen gelöst: Die Pipeline berechnet die Quote und schreibt sie dann zurück in die Quelle.
+
+### P1 · Stornierungen
+
+| Phase | DAG | Datei · Funktion | Was passiert |
+| --- | --- | --- | --- |
+| Bronze | `bronze_neon_f2_f3` (stündlich) und `bronze_neon_full_load` (03:00 UTC) | `dags/bronze_neon_f2_f3.py`, `dags/bronze_neon_full_load.py` | Kopiert die Buchungen mit Status und Stornodatum aus Neon nach `bronze/` |
+| Silver | `silver_reservas_daily` | `spark_jobs/silver_reservas.py` | Berechnet für jede Stornierung die Stunden vor dem Check-in und die Vorlaufklasse → `silver/cancelaciones` |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p1_cancelacion()` | Quote pro Kanal × Vorlauf × erstattbar × Monat, mit entgangenem Umsatz |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `neon_cancellation_rates()` | Quote pro Hotel und Vorlauf über die Aufenthalte des letzten Jahres → `gold/neon_cancellation_rates.json` |
+| Write-back | `gold_neon_writeback` | `dags/gold_neon_writeback.py` · `upsert()` | `INSERT … ON CONFLICT (hotel_code, lead_bucket) DO UPDATE` in `operation.cancellation_rate_by_lead` |
+
+```python
+# spark_jobs/gold_modelo.py
+def mart_p1_cancelacion(fr):
+    return (fr.withColumn("anio_mes", F.date_format("check_in", "yyyy-MM"))
+            .groupBy("channel_code", "channel_type", "rango_anticipacion", "reembolsable", "anio_mes")
+            .agg(F.count("*").alias("reservas"),
+                 F.sum(F.col("es_cancelada").cast("int")).alias("canceladas"), ...)
+            .withColumn("tasa_cancelacion", F.round(F.col("canceladas") / F.col("reservas"), 4)))
+```
+
+**Beispiel.** Eine OTA-Buchung für den 15. November wird am 13. November um 10:00 storniert. Silver berechnet 53 Stunden vor dem Check-in (15:00) und ordnet sie der Klasse `"1-3 dias"` zu. In dieser Nacht zählt Gold sie in der Zeile ihres Kanals in `mart_p1_cancelacion`. Danach aktualisiert `gold_neon_writeback` die Quote dieses Hotels in Neon, und der Betrieb sieht sie am nächsten Morgen.
+
+### P2 · Überbuchung
+
+| Phase | Wo | Datei · Funktion | Was passiert |
+| --- | --- | --- | --- |
+| Quelle (OLTP) | Neon, aufgerufen von F2, F3 und F4 | `db_simulated` · `operation.reservar()` | Sperrt die Nächte mit `SELECT … FOR UPDATE`; lehnt die Buchung ab, wenn eine Nacht kein Zimmer mehr hat, und speichert sie in `reservation_rejections` |
+| Quelle (OLTP) | Neon | `db_simulated` · `operation.refresh_overbooking_limits()` | Berechnet `overbooking_limit` aus den P1-Quoten neu; 0 in Nächten mit Großevent |
+| Write-back | `gold_neon_writeback` | `dags/gold_neon_writeback.py` | Ruft `refresh_overbooking_limits()` nur bei `NEON_REFRESH_OVERBOOKING=true` auf (heute aus) |
+| Silver | `silver_ocupacion_daily` | `spark_jobs/silver_ocupacion.py` | Inventar, Umbuchungen und Ablehnungen pro Hotel, Zimmertyp und Nacht |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p2_sobreventa()` | Über Kapazität verkaufte Zimmer, Umbuchungen, Ablehnungen und % umgebucht |
+
+**Beispiel.** Zwei Kanäle versuchen in derselben Sekunde, das letzte Deluxe-Zimmer derselben Nacht zu verkaufen. Der erste Aufruf von `reservar()` sperrt diese Inventarzeile; der zweite wartet, findet `available_rooms = 0`, wird abgelehnt und landet in `reservation_rejections`. In der nächsten Nacht zeigt `mart_p2_sobreventa` ein abgelehntes Zimmer und null überbuchte Zimmer.
+
+### P3 · Preise
+
+| Phase | DAG | Datei · Funktion | Was passiert |
+| --- | --- | --- | --- |
+| Bronze | `bronze_f6_holidays`, `bronze_f6_events`, `bronze_f7_fx`, `bronze_neon_dims` | `dags/bronze_f6_*.py`, `dags/bronze_f7_fx.py`, `dags/bronze_neon_dims.py` | Feiertage, lokale Events, Wechselkurse und Basisraten |
+| Silver | `silver_calendario_daily`, `silver_fx_daily`, `silver_ocupacion_daily` | `spark_jobs/silver_calendario.py`, `silver_fx.py`, `silver_ocupacion.py` | Kalender pro Hotel mit Feiertags-/Event-Markern, ein Kurs pro Währung und Tag, Belegung pro Nacht |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p3_revenue()`, `on_the_books()` | Belegung, ADR, RevPAR und Pickup gegenüber demselben Wochentag im Vorjahr |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p3_precio_sugerido()` | Preisvorschlag für die nächsten 90 Nächte; `check()` lässt den Lauf scheitern, wenn ein Preis das RN-06-Band verlässt |
+
+```python
+# spark_jobs/gold_modelo.py · mart_p3_precio_sugerido()
+.withColumn("factor_pickup", F.when(F.col("pickup_pct") > PICKUP_THRESHOLD_PCT, PICKUP_ABOVE)   # 1.10
+            .when(F.col("pickup_pct") < -PICKUP_THRESHOLD_PCT, PICKUP_BELOW).otherwise(1.0))   # 0.92
+.withColumn("precio_sugerido", F.round(F.least(F.col("tarifa_base") * PRICE_CAP,               # 1.60
+            F.greatest(F.col("tarifa_base") * PRICE_FLOOR,                                     # 0.75
+                       F.col("tarifa") * F.col("factor_pickup") * F.col("factor_evento"))), 2))
+```
+
+**Beispiel.** Ein Deluxe-Zimmer hat eine Basisrate von 560.000 COP. Für eine Nacht mit lokalem Event sind 14 Tage vorher 20 % mehr Zimmer gebucht als im Vorjahr. Der Vorschlag ist 560.000 × 1,10 × 1,15 = 708.400 COP und liegt im Band (420.000 bis 896.000).
+
+### P4 · Provisionen
+
+| Phase | DAG | Datei · Funktion | Was passiert |
+| --- | --- | --- | --- |
+| Bronze | `bronze_neon_dims`, `bronze_f7_fx` | `dags/bronze_neon_dims.py`, `dags/bronze_f7_fx.py` | Kanäle mit ihrer `commission_pct` und die Wechselkurse |
+| Silver | `silver_reservas_daily` | `spark_jobs/silver_reservas.py` | Rechnet in COP um und zieht die Provision ab: `comision_cop`, `neto_cop` |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p4_comisiones()` | Brutto, Provision und Netto pro Kanal × Hotel × Monat, mit effektivem % |
+
+```python
+# spark_jobs/silver_reservas.py
+.withColumn("comision_cop", F.round(F.col("total_cop") * F.col("comision_pct") / 100, 2))
+.withColumn("neto_cop", F.col("total_cop") - F.col("comision_cop"))
+```
+
+**Beispiel.** Ein Aufenthalt für 1.680.000 COP, verkauft über eine OTA mit 18 % Provision, ergibt 302.400 COP Provision und 1.377.600 COP netto. Derselbe Aufenthalt über die eigene Website (0 %) bringt die vollen 1.680.000 COP, und `mart_p4_comisiones` zeigt diesen Unterschied pro Kanal.
+
+### P5 · Bewertungen
+
+| Phase | DAG | Datei · Funktion | Was passiert |
+| --- | --- | --- | --- |
+| Bronze | `bronze_f5_reviews` (stündlich) | `dags/bronze_f5_reviews.py` | Liest die Bewertungs-API inkrementell mit `updated_from` |
+| Silver | `silver_resenas_daily` | `spark_jobs/silver_resenas.py` | Behält die neueste Version jeder Bewertung, entfernt dieselbe Bewertung auf einer anderen Plattform und ergänzt das Sentiment |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p5_reputacion()` | RN-10-Note: 90 Tage, die letzten 30 zählen doppelt; % positiv und negativ |
+
+```python
+# spark_jobs/silver_resenas.py
+key = ["hotel_code", "fecha_estadia", "puntaje", "_texto_norm"]
+w_dup = Window.partitionBy(*key).orderBy("publicada_en", "review_id")   # first one wins
+```
+
+**Beispiel.** Ein Gast veröffentlicht denselben 2-Sterne-Text auf zwei Plattformen. Silver behält den ersten, vermerkt in `duplicados` 2 Kopien und markiert ihn als `negativo`. In Gold zählt er nur einmal im `pct_negativas` des Hotels.
+
+### Einheitliche Sicht auf Buchungen
+
+| Phase | Wo | Datei · Funktion | Was passiert |
+| --- | --- | --- | --- |
+| Quelle (OLTP) | Neon | `db_simulated` · `operation.reservar()` | F2, F3 und F4 buchen in dieselben Tabellen; eine wiederholte Agenturbuchung erhält den Status `duplicate` |
+| Silver | `silver_reservas_daily` | `spark_jobs/silver_reservas.py` | Die neueste Version jeder Buchung, dieselben Spalten für alle Kanäle, `es_duplicado` |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `fact_reservas()` | `filter("NOT es_duplicado")`: Duplikate werden nie gezählt |
+
+## Beispiel: eine Buchung von Anfang bis Ende
+
+So durchläuft eine Buchung jede Phase, und dabei hilft sie jedem Pain.
+
+1. **Quelle (14:02 UTC).** Eine OTA sendet eine Buchung über Kafka. Der `neon-consumer` ruft `operation.reservar()` auf, das die Nächte sperrt und die Buchung speichert (P2).
+2. **Bronze (15:00 UTC).** `bronze_neon_f2_f3` kopiert die Buchungen des Intervalls 14:00–15:00 nach `bronze/f3_reservations/fecha=2026-11-10/hora=14.jsonl`.
+3. **Silver (nach Bronze).** `silver_reservas_daily` startet von selbst über sein Asset. Es rechnet den Betrag in COP um, zieht die Provision ab (P4) und behält eine Zeile pro Buchung (einheitliche Sicht).
+4. **Gold (~03:35 UTC).** `gold_modelo_daily` nimmt die Buchung in `fact_reservas`, in die Belegung und den Pickup der Nacht (P3) und, falls sie später storniert wird, in die Stornoquoten (P1) auf.
+5. **Write-back.** `gold_neon_writeback` aktualisiert `operation.cancellation_rate_by_lead` in Neon (P1).
+6. **Analyse.** Power BI liest Gold über Athena, und der Revenue Manager sieht das Ergebnis vor 06:00.
+
 ## So öffnen Sie diese Ergebnisse
 
 1. **Athena**: AWS-Konsole, Region us-east-2 → Athena → *Query editor* → Datenbank `hospedaplus_gold`, dann eine der Abfragen oben ausführen. Einrichtung unter [Athena-Konfiguration](./data-engineering-pipeline/athena.mdx).
