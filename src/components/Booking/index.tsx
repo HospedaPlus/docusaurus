@@ -5,6 +5,8 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Icon from '@site/src/components/Icon';
 import {bookingStrings, type BookingStrings} from './strings';
+import {HOTELS} from './hotels';
+import DestinationPicker from './DestinationPicker';
 import styles from './styles.module.css';
 
 /** Sample data only: prices in COP per night, as in the mock-up. */
@@ -14,7 +16,6 @@ const ROOMS = [
   {id: 'deluxe', guests: 4, price: 560000, rating: 4.8, reviews: 326},
 ];
 const GALLERY = ['deluxe', 'superior', 'estandar', 'hero'];
-const DESTINATIONS = ['Cartagena, Colombia', 'Medellín, Colombia', 'Bogotá, Colombia', 'Santa Marta, Colombia'];
 const VAT = 0.19;
 
 type Guest = {firstName: string; lastName: string; email: string; phone: string; document: string; requests: string};
@@ -91,7 +92,7 @@ export default function Booking(): ReactNode {
   const {s, locale} = useStrings();
   const [step, setStep] = useState(-1); // -1 = room list, 0..3 = the four steps
   const [roomId, setRoomId] = useState('deluxe');
-  const [destination, setDestination] = useState(DESTINATIONS[0]);
+  const [destination, setDestination] = useState<string>('HP-CO-002');
   const [checkIn, setCheckIn] = useState('2026-11-15');
   const [checkOut, setCheckOut] = useState('2026-11-18');
   const [adults, setAdults] = useState(2);
@@ -103,6 +104,7 @@ export default function Booking(): ReactNode {
   const [code, setCode] = useState('');
   const heroUrl = useBaseUrl('/img/booking/hero.jpg');
 
+  const hotel = HOTELS.find((h) => h.code === destination) ?? HOTELS[4];
   const room = ROOMS.find((r) => r.id === roomId) ?? ROOMS[2];
   const text = s.rooms.find((r) => r.id === roomId) ?? s.rooms[2];
   const nights = nightsBetween(checkIn, checkOut);
@@ -160,6 +162,7 @@ export default function Booking(): ReactNode {
           <Img name={roomId} alt={text.name} />
           <div>
             <strong>{text.name}</strong>
+            <span>{hotel.name}</span>
             <span>
               {adults} {s.adultsShort}
               {children > 0 && ` + ${children} ${s.children.toLowerCase()}`} · {Math.max(nights, 0)} {s.nightsWord}
@@ -250,17 +253,7 @@ export default function Booking(): ReactNode {
               e.preventDefault();
               document.getElementById('rooms')?.scrollIntoView({behavior: 'smooth'});
             }}>
-            <label className={styles.searchField}>
-              <Icon name="building" size={18} />
-              <span>
-                <small>{s.destination}</small>
-                <select value={destination} onChange={(e) => setDestination(e.target.value)}>
-                  {DESTINATIONS.map((d) => (
-                    <option key={d}>{d}</option>
-                  ))}
-                </select>
-              </span>
-            </label>
+            <DestinationPicker value={destination} onChange={setDestination} label={s.destination} placeholder={s.searchHotel} empty={s.noHotels} locale={locale} />
             {stayFields}
             <label className={styles.searchField}>
               <Icon name="users" size={18} />
@@ -492,7 +485,7 @@ export default function Booking(): ReactNode {
               {s.code}: <strong>{code}</strong>
             </p>
             <p>
-              {guest.firstName} {guest.lastName} · {destination}
+              {guest.firstName} {guest.lastName} · {hotel.name}
             </p>
             <div className={styles.actions}>
               <button type="button" className={styles.primary} onClick={reset}>

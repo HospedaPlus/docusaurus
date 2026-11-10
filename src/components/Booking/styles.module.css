@@ -30,13 +30,13 @@
   background-size: cover;
   background-position: center right;
   color: #fff;
-  overflow: hidden;
 }
 
 .hero::before {
   content: '';
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   background: linear-gradient(90deg, rgb(20 18 40 / 92%) 0%, rgb(20 18 40 / 75%) 45%, rgb(20 18 40 / 15%) 100%);
 }
 
@@ -630,4 +630,130 @@
   justify-content: center;
   gap: 0.8rem;
   margin-top: 1.2rem;
+}
+
+/* ---------- destination picker ---------- */
+.picker {
+  position: relative;
+  flex: 1.4 1 220px;
+  display: flex;
+}
+
+.pickerButton {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.pickerButton strong {
+  overflow: hidden;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chevron {
+  margin-left: auto;
+  flex: none;
+  transition: transform 0.15s;
+  width: auto !important;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: min(380px, 90vw);
+  padding: 0.6rem;
+  border: 1px solid var(--bk-line);
+  border-radius: 14px;
+  background: var(--bk-card);
+  color: var(--ifm-font-color-base);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 28%);
+}
+
+.pickerSearch {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--bk-line);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.pickerSearch:focus {
+  border-color: var(--bk);
+  outline: 2px solid var(--bk-soft);
+}
+
+.pickerList {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pickerGroup {
+  position: sticky;
+  top: 0;
+  padding: 0.45rem 0.5rem 0.25rem;
+  background: var(--bk-card);
+  color: var(--bk);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.pickerOption {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pickerOption span {
+  display: flex;
+  flex-direction: column;
+}
+
+.pickerOption strong {
+  font-size: 0.9rem;
+}
+
+.pickerOption small {
+  opacity: 0.65;
+  font-size: 0.75rem;
+}
+
+.pickerOption:hover {
+  background: var(--bk-soft);
+}
+
+.pickerActive {
+  background: var(--bk-soft);
+}
+
+.tick {
+  margin-left: auto;
+  color: var(--bk);
+  font-weight: 700;
+}
+
+.pickerEmpty {
+  margin: 0.5rem;
+  opacity: 0.7;
 }

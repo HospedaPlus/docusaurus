@@ -1,6 +1,8 @@
 // Texts of the booking demo, one entry per site language.
 
 const en = {
+  searchHotel: 'Search hotel or city',
+  noHotels: 'No hotels found',
   pageTitle: 'Booking demo',
   pageDescription: 'Visual demo of the HospedaPlus booking flow with sample data.',
   demoNotice: 'Visual demo with sample data: nothing is saved, no backend is called and no payment is made.',
@@ -71,6 +73,8 @@ const en = {
 export type BookingStrings = typeof en;
 
 const es: BookingStrings = {
+  searchHotel: 'Buscar hotel o ciudad',
+  noHotels: 'No hay hoteles',
   pageTitle: 'Demo de reserva',
   pageDescription: 'Demo visual del flujo de reserva de HospedaPlus con datos de ejemplo.',
   demoNotice: 'Demo visual con datos de ejemplo: no se guarda nada, no se llama a ningún backend y no se hace ningún pago.',
@@ -139,6 +143,8 @@ const es: BookingStrings = {
 };
 
 const pt: BookingStrings = {
+  searchHotel: 'Buscar hotel ou cidade',
+  noHotels: 'Nenhum hotel encontrado',
   pageTitle: 'Demo de reserva',
   pageDescription: 'Demo visual do fluxo de reserva da HospedaPlus com dados de exemplo.',
   demoNotice: 'Demo visual com dados de exemplo: nada é salvo, nenhum backend é chamado e nenhum pagamento é feito.',
@@ -207,6 +213,8 @@ const pt: BookingStrings = {
 };
 
 const fr: BookingStrings = {
+  searchHotel: 'Rechercher un hôtel ou une ville',
+  noHotels: 'Aucun hôtel trouvé',
   pageTitle: 'Démo de réservation',
   pageDescription: 'Démo visuelle du parcours de réservation HospedaPlus avec des données d’exemple.',
   demoNotice: 'Démo visuelle avec des données d’exemple : rien n’est enregistré, aucun backend n’est appelé et aucun paiement n’est effectué.',
@@ -275,6 +283,8 @@ const fr: BookingStrings = {
 };
 
 const de: BookingStrings = {
+  searchHotel: 'Hotel oder Stadt suchen',
+  noHotels: 'Keine Hotels gefunden',
   pageTitle: 'Buchungsdemo',
   pageDescription: 'Visuelle Demo des HospedaPlus-Buchungsablaufs mit Beispieldaten.',
   demoNotice: 'Visuelle Demo mit Beispieldaten: Es wird nichts gespeichert, kein Backend aufgerufen und keine Zahlung ausgeführt.',
