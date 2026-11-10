@@ -26,8 +26,9 @@ const config: Config = {
   baseUrl: '/docusaurus/',
 
   customFields: {
-    // URL of the docs chat API (rag/api.py). Empty: the chat shows that it is not connected yet.
-    chatApiUrl: process.env.CHAT_API_URL ?? '',
+    // Gemini model of the docs chat. The key is never part of the site: each reader pastes
+    // their own and it is kept only in their browser (localStorage).
+    geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
   },
 
   // GitHub pages deployment config.
