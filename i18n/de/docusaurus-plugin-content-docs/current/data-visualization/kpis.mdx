@@ -1,0 +1,47 @@
+---
+sidebar_position: 2
+sidebar_label: KPIs und Measures
+title: KPIs und Measures
+---
+
+# KPIs und Measures
+
+Alle Measures liegen in der Tabelle `_Medidas` des Modells, gruppiert in Ordner: Auslastung, Umsatz, Kapazität, Buchungen, Kanäle, Reputation, Preise und Portfolio.
+
+| KPI (Measure) | Formel | Gold-Quelle |
+| --- | --- | --- |
+| **Occupancy %** | Verkaufte Zimmer ÷ verfügbare Zimmer | `fact_ocupacion_diaria` |
+| **ADR** (durchschnittlicher Tagespreis) | Zimmerumsatz ÷ verkaufte Zimmer | `fact_ocupacion_diaria` |
+| **RevPAR** | Zimmerumsatz ÷ verfügbare Zimmer | `fact_ocupacion_diaria` |
+| **Cancellation Rate** | Stornierte Buchungen ÷ Buchungen | `fact_reservas` |
+| **Lost Revenue** | Σ max(0, Gesamt − Gebühr) der stornierten Buchungen | `fact_reservas` |
+| **Rejected Rooms** / **Rejection Rate** | Mangels Verfügbarkeit abgelehnte Zimmer ÷ (verkauft + abgelehnt) | `fact_ocupacion_diaria` |
+| **Relocated Rooms** | In ein anderes Hotel umgebuchte Zimmer | `fact_ocupacion_diaria` |
+| **Gross / Net Revenue**, **Commission** | Gesamt, Netto und Provision der **nicht stornierten** Buchungen | `fact_reservas` |
+| **Effective Commission %** | Provision ÷ Bruttoumsatz | `fact_reservas` |
+| **Avg Suggested Price** / **Avg Current Rate** | Durchschnittlicher Preisvorschlag (Regeln RN-05/RN-06) und durchschnittlicher aktueller Tarif | `mart_p3_precio_sugerido` |
+| **Suggested vs Current %** | (Σ Preisvorschlag − Σ Tarif) ÷ Σ Tarif | `mart_p3_precio_sugerido` |
+| **Pickup %** | 14 Tage vor jeder Nacht gebuchte Zimmer vs. dieselbe Nacht im Vorjahr (364 Tage). Nur Nächte mit Vorjahreswert, deren 14-Tage-Fenster geschlossen ist | `mart_p3_revenue` |
+| **Pickup Period** | Zeitraum der Nächte im Pickup % | `mart_p3_revenue` |
+| **Guest Rating** (RN-10) | Durchschnittsnote (1–5) am letzten Stichtag | `mart_p5_reputacion` |
+| **% Positive** | Positive Bewertungen ÷ alle Bewertungen | `fact_resenas` |
+
+## Warum „nur vergangene Daten“
+
+`dim_fecha` reicht ein Jahr in die Zukunft, und künftige Nächte haben noch wenige Buchungen. Mischt man sie mit vergangenen Nächten, sinkt die Auslastung künstlich (13,4 % statt 21,7 % im Schnappschuss unten). Deshalb filtern die Management-Zusammenfassung und die Karten von P1, P2, P4 und P5 `dim_fecha[periodo] = "Ocurrido"` (vergangen). P3 nutzt künftige Nächte, weil es um kommende Preise geht.
+
+## Validierungsschnappschuss (Daten vom 8. November 2026)
+
+**Das sind keine festen Werte**: Die Pipeline lädt jede Nacht neue Daten und der Bericht aktualisiert sich jeden Morgen, die meisten Zahlen ändern sich also täglich. Die Tabelle diente einmal zur Prüfung, dass der Bericht zu seinen Quelltabellen passt; die aktuellen Werte sind immer die im Bericht.
+
+| Punkt | Wert am 8. Nov. 2026 | Wie er sich ändert | Prüfung |
+| --- | --- | --- | --- |
+| Hotels / Zimmer | 28 / 4.000 | Fest, außer es kommen Hotels hinzu | `dim_hotel` |
+| Buchungen | 197.101 | Wächst täglich | F2 OTA 4.520 · F3 direkt 162.419 + Firmen 29.979 · F4 Agenturen 183 |
+| Stornoquote (gesamte Historie) | 38,1 % | Mit neuen Buchungen und Stornierungen | Stimmt mit `mart_p1_cancelacion` überein |
+| Storniert / entgangener Umsatz | 75.123 / 115.905 Mio. COP | Wächst täglich | Stimmt mit `fact_cancelaciones` überein |
+| Abgelehnte Zimmer | 557 | Wächst, wenn keine Verfügbarkeit besteht | Stimmt mit `mart_p2_sobreventa` überein |
+| Auslastung bis heute | 21,7 % | Täglich: eine weitere Nacht wird „vergangen“ | Nur vergangene Nächte |
+| Pickup vs. Vorjahr | +12,1 % | Täglich: die verglichenen Nächte rücken vor | 35.672 vs. 31.829 Zimmer, Nächte 27. Sep. – 19. Nov. 2026 |
+| Effektive Provision | 0,4 % | Mit dem Kanal-Mix | ~82 % der Buchungen sind direkt (0 % Provision) |
+| RN-10-Note | 3,89 / 5 | An jedem neuen Stichtag | Stichtag 2026-11-05 |

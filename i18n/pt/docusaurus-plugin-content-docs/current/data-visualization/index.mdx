@@ -1,0 +1,67 @@
+---
+sidebar_position: 1
+sidebar_label: Visão geral
+title: Visualização de dados
+---
+
+# Visualização de dados
+
+**HospedaPlus Revenue** é o relatório do Power BI que o Revenue Manager e os gerentes de hotel usam para decidir preços, ocupação e canais de venda. É o último passo da plataforma: **só lê a camada gold** do lakehouse no S3 pelo Amazon Athena e não grava nada de volta.
+
+| | |
+| --- | --- |
+| Relatório | `HospedaPlus_Revenue` (projeto do Power BI, formato `.pbip`) |
+| Repositório | `HospedaPlus/powerbi-hospedaplus` |
+| Publicado em | Power BI Service, atualização automática todo dia às 05:00 hora da Colômbia |
+| Abrir o relatório | [HospedaPlus_Revenue no Power BI](https://app.powerbi.com/groups/me/reports/7e20788a-a93d-4598-8c59-927aefe49653) (requer login com uma conta com acesso) |
+| Fonte de dados | Athena, banco `hospedaplus_gold` (15 tabelas), pelo driver ODBC do Amazon Athena |
+| Moeda | Pesos colombianos (COP), convertidos no silver com o câmbio diário (F7) |
+
+## De onde vêm os dados
+
+```text
+F1 Kaggle · F2 channel manager (Kafka) · F3 bookings (Neon) · F4 agencies · F5 reviews · F6 holidays/events · F7 FX
+        │
+        ▼  Airflow (hospedaplus-pipeline)
+S3  bronze  →  silver  →  gold                       bucket hospedaplus-lakehouse-buenavista
+                            │
+                            ▼  external tables over the gold Parquet files
+               Glue Data Catalog · database hospedaplus_gold
+                            │
+                            ▼  Amazon Athena (workgroup primary, us-east-2)
+                      Athena ODBC driver
+                            │
+                            ▼
+              Power BI Desktop  /  Power BI Service (through the gateway)
+```
+
+`gold_modelo_daily` reconstrói todas as tabelas gold uma vez por noite (por volta das 03:35 UTC, 22:35 hora da Colômbia). O relatório atualiza às 05:00 hora da Colômbia, então toda manhã mostra os dados da noite anterior. Veja [DAGs e horários](../data-engineering-pipeline/dags.mdx).
+
+## Perguntas de negócio que responde
+
+| # | Pergunta | KPI principal | Página do relatório |
+| --- | --- | --- | --- |
+| **P1** Cancelamentos | Quais canais e antecedências concentram os cancelamentos e quanta receita se perde? | Taxa de cancelamento · Receita perdida | Resumo executivo |
+| **P2** Overbooking | Quantos quartos são recusados ou realocados por falta de disponibilidade? | Taxa de recusa · Quartos realocados | Resumo executivo · Desempenho por hotel |
+| **P3** Preço e demanda | Que preço cobrar segundo o pickup, a temporada e os eventos da cidade? | Preço sugerido vs. tarifa atual · Pickup vs. ano anterior | Preços e demanda |
+| **P4** Canais | Quanto custa cada canal e qual deixa mais receita líquida? | Comissão efetiva · Receita líquida | Resumo executivo · Custo por canal |
+| **P5** Reputação | Como está a reputação de cada hotel e como se relaciona com sua ocupação e RevPAR? | Nota (RN-10) · % avaliações positivas | Resumo executivo · Desempenho por hotel |
+
+Como cada dor é resolvida nos dados está em [Como cada dor é resolvida](../pain-resolution.mdx).
+
+## Páginas do relatório
+
+O relatório está em espanhol (nomes das páginas traduzidos entre parênteses). Tem um layout de desktop (1280 × 720) e um layout móvel para as quatro páginas.
+
+| Página | Conteúdo |
+| --- | --- |
+| **Inicio** (Início) | O que é a HospedaPlus, o objetivo do painel, de onde vêm os dados, como usá-lo e o tamanho da rede |
+| **Preguntas de negocio** (Perguntas de negócio) | P1–P5 com seu KPI principal e a página onde cada uma é analisada |
+| **Resumen ejecutivo** (Resumo executivo) | Filtros (data, país, hotel, canal), KPIs, ocupação por mês, cancelamento por antecedência, custo por canal e desempenho por hotel. Só datas passadas |
+| **Precios y demanda** (Preços e demanda) | Preço sugerido vs. tarifa por dia, temporada, hotel e tipo de quarto; pickup e seu período |
+
+## Nesta seção
+
+- [KPIs e medidas](./kpis.mdx): cada medida, sua fórmula e sua tabela gold.
+- [Conexão com o Athena e modelo](./athena-connection.mdx): como o Power BI lê o Athena por ODBC, e o modelo semântico.
+- [Publicação e atualização](./publishing.mdx): Power BI Service, o gateway e o horário diário.

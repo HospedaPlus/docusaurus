@@ -1,0 +1,47 @@
+---
+sidebar_position: 2
+sidebar_label: KPIs e medidas
+title: KPIs e medidas
+---
+
+# KPIs e medidas
+
+Todas as medidas estão na tabela `_Medidas` do modelo, agrupadas em pastas: Ocupação, Receita, Capacidade, Reservas, Canais, Reputação, Preços e Portfólio.
+
+| KPI (medida) | Fórmula | Fonte gold |
+| --- | --- | --- |
+| **Occupancy %** | Quartos vendidos ÷ quartos disponíveis | `fact_ocupacion_diaria` |
+| **ADR** (diária média) | Receita de quartos ÷ quartos vendidos | `fact_ocupacion_diaria` |
+| **RevPAR** | Receita de quartos ÷ quartos disponíveis | `fact_ocupacion_diaria` |
+| **Cancellation Rate** | Reservas canceladas ÷ reservas | `fact_reservas` |
+| **Lost Revenue** | Σ max(0, total − multa) das reservas canceladas | `fact_reservas` |
+| **Rejected Rooms** / **Rejection Rate** | Quartos recusados por falta de disponibilidade ÷ (vendidos + recusados) | `fact_ocupacion_diaria` |
+| **Relocated Rooms** | Quartos realocados em outro hotel | `fact_ocupacion_diaria` |
+| **Gross / Net Revenue**, **Commission** | Total, líquido e comissão das reservas **não canceladas** | `fact_reservas` |
+| **Effective Commission %** | Comissão ÷ receita bruta | `fact_reservas` |
+| **Avg Suggested Price** / **Avg Current Rate** | Preço sugerido médio (regras RN-05/RN-06) e tarifa atual média | `mart_p3_precio_sugerido` |
+| **Suggested vs Current %** | (Σ preço sugerido − Σ tarifa) ÷ Σ tarifa | `mart_p3_precio_sugerido` |
+| **Pickup %** | Quartos reservados 14 dias antes de cada noite vs. a mesma noite do ano anterior (364 dias). Só noites com dado do ano anterior cuja janela de 14 dias já fechou | `mart_p3_revenue` |
+| **Pickup Period** | Faixa de noites incluídas no Pickup % | `mart_p3_revenue` |
+| **Guest Rating** (RN-10) | Nota média (1–5) na última data de corte | `mart_p5_reputacion` |
+| **% Positive** | Avaliações positivas ÷ total de avaliações | `fact_resenas` |
+
+## Por que "só datas passadas"
+
+`dim_fecha` vai um ano para o futuro, e as noites futuras ainda têm poucas reservas. Misturá-las com as noites passadas baixa a ocupação artificialmente (13,4 % em vez de 21,7 % na foto abaixo). Por isso o Resumo executivo e os cartões de P1, P2, P4 e P5 filtram `dim_fecha[periodo] = "Ocurrido"` (ocorrido). O P3 usa noites futuras, porque trata dos próximos preços.
+
+## Foto de validação (dados de 8 de novembro de 2026)
+
+**Não são valores fixos**: o pipeline carrega dados novos toda noite e o relatório atualiza toda manhã, então a maioria dos números muda diariamente. A tabela foi usada uma vez para conferir que o relatório batia com suas tabelas de origem; os valores atuais são sempre os do relatório.
+
+| Item | Valor em 8 nov 2026 | Como muda | Conferência |
+| --- | --- | --- | --- |
+| Hotéis / quartos | 28 / 4.000 | Fixo, salvo se hotéis forem adicionados | `dim_hotel` |
+| Reservas | 197.101 | Cresce todo dia | F2 OTA 4.520 · F3 direto 162.419 + corporativo 29.979 · F4 agências 183 |
+| Taxa de cancelamento (todo o histórico) | 38,1 % | Com novas reservas e cancelamentos | Bate com `mart_p1_cancelacion` |
+| Canceladas / receita perdida | 75.123 / COP 115.905 M | Cresce todo dia | Bate com `fact_cancelaciones` |
+| Quartos recusados | 557 | Cresce quando não há disponibilidade | Bate com `mart_p2_sobreventa` |
+| Ocupação até a data | 21,7 % | Diariamente: mais uma noite vira "passada" | Só noites passadas |
+| Pickup vs. ano anterior | +12,1 % | Diariamente: as noites comparadas avançam | 35.672 vs. 31.829 quartos, noites de 27 set a 19 nov 2026 |
+| Comissão efetiva | 0,4 % | Com o mix de canais | ~82 % das reservas são diretas (0 % de comissão) |
+| Nota RN-10 | 3,89 / 5 | A cada nova data de corte | Corte 2026-11-05 |

@@ -1,0 +1,40 @@
+---
+sidebar_position: 4
+sidebar_label: Publication et actualisation
+title: Publication et actualisation automatique
+---
+
+# Publication et actualisation automatique
+
+**État :** publié et actualisé automatiquement depuis le 9 novembre 2026.
+
+| Élément | Configuration |
+| --- | --- |
+| Publié dans | Power BI Service, *Mon espace de travail* du compte organisationnel du projet (il publie le rapport et possède la passerelle) |
+| L'ouvrir | [Rapport HospedaPlus_Revenue](https://app.powerbi.com/groups/me/reports/7e20788a-a93d-4598-8c59-927aefe49653), en se connectant avec un compte autorisé |
+| Passerelle | On-premises data gateway `hospedaplus-gw`, **mode standard**, installée sur le PC de développement (celui qui a déjà le pilote ODBC Athena) |
+| Connexion de la passerelle | `Athena hospedaplus_gold`, type ODBC, même chaîne de connexion que le modèle, authentification de base avec les clés de `powerbi-reader` |
+| Planification | Chaque jour à **05:00 heure de Colombie** (UTC−05:00), après l'exécution nocturne de gold (~22:35). Les e-mails d'échec vont au propriétaire du modèle |
+
+## Fonctionnement d'une actualisation planifiée
+
+```text
+Power BI Service ──(05:00 COT)──► gateway hospedaplus-gw ──► Athena ODBC driver
+        ▲                                                          │
+        └──────────── rows ◄── Athena reads gold Parquet in S3 ◄───┘
+```
+
+1. Power BI Service envoie l'ordre d'actualisation à `hospedaplus-gw`.
+2. La passerelle exécute la requête de chaque table via le pilote ODBC Athena.
+3. Athena lit les tables gold dans S3.
+4. Les lignes reviennent au Service et le rapport affiche les nouvelles données.
+
+## Limitation
+
+La passerelle tourne sur le PC de développement : ce PC doit être **allumé (ou en veille) et connecté à 05:00**. S'il est éteint, l'actualisation du jour échoue et le rapport garde les données de la veille. La passerelle ne peut pas tourner sur les EC2 du projet : elles sont sous Linux et la passerelle ne fonctionne que sous Windows.
+
+## Sécurité
+
+- Le dépôt ne contient ni clés AWS, ni mots de passe Neon, ni clé de récupération de la passerelle.
+- L'accès de Power BI à AWS est en **lecture seule** (`powerbi-reader`).
+- Si les clés sont renouvelées, mettez-les à jour dans Power BI Desktop (*Paramètres de la source de données*) et dans la connexion de la passerelle dans le Service.

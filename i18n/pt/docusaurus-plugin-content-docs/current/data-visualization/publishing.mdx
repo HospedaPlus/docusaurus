@@ -1,0 +1,40 @@
+---
+sidebar_position: 4
+sidebar_label: Publicação e atualização
+title: Publicação e atualização automática
+---
+
+# Publicação e atualização automática
+
+**Status:** publicado e com atualização automática desde 9 de novembro de 2026.
+
+| Item | Configuração |
+| --- | --- |
+| Publicado em | Power BI Service, *Meu workspace* da conta organizacional do projeto (publica o relatório e é dona do gateway) |
+| Abrir | [Relatório HospedaPlus_Revenue](https://app.powerbi.com/groups/me/reports/7e20788a-a93d-4598-8c59-927aefe49653), entrando com uma conta com acesso |
+| Gateway | On-premises data gateway `hospedaplus-gw`, **modo padrão**, instalado no PC de desenvolvimento (o que já tem o driver ODBC do Athena) |
+| Conexão do gateway | `Athena hospedaplus_gold`, tipo ODBC, a mesma string de conexão do modelo, autenticação Básica com as chaves de `powerbi-reader` |
+| Horário | Todo dia às **05:00 hora da Colômbia** (UTC−05:00), depois da execução noturna do gold (~22:35). E-mails de falha vão para o dono do modelo |
+
+## Como funciona uma atualização agendada
+
+```text
+Power BI Service ──(05:00 COT)──► gateway hospedaplus-gw ──► Athena ODBC driver
+        ▲                                                          │
+        └──────────── rows ◄── Athena reads gold Parquet in S3 ◄───┘
+```
+
+1. O Power BI Service envia a ordem de atualização ao `hospedaplus-gw`.
+2. O gateway roda a consulta de cada tabela pelo driver ODBC do Athena.
+3. O Athena lê as tabelas gold no S3.
+4. As linhas voltam ao Service e o relatório mostra os dados novos.
+
+## Limitação
+
+O gateway roda no PC de desenvolvimento, então esse PC precisa estar **ligado (ou em suspensão) e com internet às 05:00**. Se estiver desligado, a atualização do dia falha e o relatório fica com os dados do dia anterior. O gateway não pode rodar nas EC2 do projeto: elas são Linux e o gateway só roda no Windows.
+
+## Segurança
+
+- O repositório não tem chaves da AWS, senhas do Neon nem a chave de recuperação do gateway.
+- O acesso do Power BI à AWS é **somente leitura** (`powerbi-reader`).
+- Se as chaves forem trocadas, atualize-as no Power BI Desktop (*Configurações da fonte de dados*) e na conexão do gateway no Service.

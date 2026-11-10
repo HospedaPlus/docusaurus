@@ -18,6 +18,13 @@ const engineeringTitles: Record<string, string> = {
   fr: 'Ingénierie des données',
   de: 'Data Engineering',
 };
+const visualizationTitles: Record<string, string> = {
+  en: 'Data Visualization',
+  es: 'Visualización de datos',
+  pt: 'Visualização de dados',
+  fr: 'Visualisation des données',
+  de: 'Datenvisualisierung',
+};
 const locale = process.env.DOCUSAURUS_CURRENT_LOCALE ?? 'en';
 
 const sidebars: SidebarsConfig = {
@@ -88,6 +95,23 @@ const sidebars: SidebarsConfig = {
       ],
     },
     'pain-resolution',
+    {
+      type: 'html',
+      value: visualizationTitles[locale] ?? visualizationTitles.en,
+      className: 'sidebar-section-title',
+      defaultStyle: true,
+    },
+    {
+      type: 'category',
+      label: 'Power BI',
+      link: {type: 'doc', id: 'data-visualization/index'},
+      collapsed: false,
+      items: [
+        'data-visualization/kpis',
+        'data-visualization/athena-connection',
+        'data-visualization/publishing',
+      ],
+    },
   ],
 };
 

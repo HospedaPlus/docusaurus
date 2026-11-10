@@ -1,0 +1,83 @@
+---
+sidebar_position: 3
+sidebar_label: Conexión con Athena y modelo
+title: Conexión con Athena y modelo semántico
+---
+
+# Conexión con Athena y modelo semántico
+
+## 1. Qué se preparó en Athena
+
+1. **Tablas externas sobre gold.** Cada carpeta de `s3://hospedaplus-lakehouse-buenavista/gold/` es una tabla Parquet, registrada en la base `hospedaplus_gold` del Glue Data Catalog con `CREATE EXTERNAL TABLE … STORED AS PARQUET`. Ver [Configuración de Athena](../data-engineering-pipeline/athena.mdx).
+2. **Workgroup y resultados.** Las consultas corren en el workgroup `primary` en `us-east-2`; los resultados van a `s3://hospedaplus-lakehouse-buenavista/athena-results/`.
+3. **Usuario IAM de solo lectura.** Power BI se conecta con su propio usuario IAM (`powerbi-reader`), nunca con credenciales personales ni de administrador. Solo puede: ejecutar consultas y leer resultados en el workgroup (Athena), leer la base `hospedaplus_gold` y sus tablas (Glue), leer `gold/` y leer/escribir `athena-results/` (S3).
+
+El reporte usa las 15 tablas gold:
+
+| Tipo | Tablas |
+| --- | --- |
+| Dimensiones | `dim_fecha`, `dim_hotel`, `dim_canal`, `dim_tipo_habitacion` |
+| Hechos | `fact_reservas`, `fact_cancelaciones`, `fact_ocupacion_diaria`, `fact_resenas` |
+| Marts | `mart_p1_cancelacion`, `mart_p1_historico_f1`, `mart_p2_sobreventa`, `mart_p3_revenue`, `mart_p3_precio_sugerido`, `mart_p4_comisiones`, `mart_p5_reputacion` |
+
+## 2. Conexión ODBC
+
+**Por qué ODBC.** Athena no tiene un servidor de base de datos propio: es un servicio de AWS que ejecuta SQL sobre archivos en S3. Power BI llega a él con el **driver ODBC oficial de Amazon Athena**, que firma cada petición con las credenciales IAM, lanza la consulta, espera a que termine y le entrega las filas a Power BI como si fuera una base de datos normal.
+
+**En cada máquina que actualiza datos** (el PC de desarrollo y la máquina del gateway):
+
+1. Instalar el **driver ODBC de Amazon Athena 2.x, 64 bits** (Power BI Desktop es de 64 bits).
+2. Verificar que `Amazon Athena ODBC (x64)` aparece en *Orígenes de datos ODBC (64 bits) → Controladores*.
+
+No se necesita DSN: el modelo usa una cadena de conexión completa (sin DSN), la misma para todas las tablas:
+
+```text
+DRIVER={Amazon Athena ODBC (x64)};AwsRegion=us-east-2;Catalog=AwsDataCatalog;Schema=hospedaplus_gold;Workgroup=primary;S3OutputLocation=s3://hospedaplus-lakehouse-buenavista/athena-results/;AuthenticationType=IAM Credentials;
+```
+
+| Parámetro | Valor | Para qué |
+| --- | --- | --- |
+| `AwsRegion` | `us-east-2` | Región del bucket, Glue y Athena |
+| `Catalog` | `AwsDataCatalog` | Catálogo de Glue |
+| `Schema` | `hospedaplus_gold` | Base con las tablas gold |
+| `Workgroup` | `primary` | Workgroup de Athena que ejecuta las consultas |
+| `S3OutputLocation` | `s3://hospedaplus-lakehouse-buenavista/athena-results/` | Dónde escribe Athena los resultados |
+| `AuthenticationType` | `IAM Credentials` | Se autentica con la llave de acceso del usuario IAM |
+
+**Credenciales.** Al conectar, Power BI pide usuario y contraseña (*Base de datos*): el usuario es el Access Key ID de `powerbi-reader` y la contraseña su Secret Access Key. Power BI las guarda cifradas en la máquina (o en el Service, para el gateway); **no** se guardan en el `.pbip`.
+
+**Consulta de cada tabla** (Power Query, modo Import):
+
+```powerquery
+let
+    Origen = Odbc.DataSource("<connection string>", [HierarchicalNavigation = true]),
+    AwsDataCatalog_Database = Origen{[Name = "AwsDataCatalog", Kind = "Database"]}[Data],
+    hospedaplus_gold_Schema = AwsDataCatalog_Database{[Name = "hospedaplus_gold", Kind = "Schema"]}[Data],
+    tabla = hospedaplus_gold_Schema{[Name = "fact_reservas", Kind = "Table"]}[Data]
+in
+    tabla
+```
+
+**Por qué Import y no DirectQuery:** los datos cambian una vez por noche, así que importarlos hace el reporte rápido y evita mandar una consulta a Athena (que cobra por datos escaneados) cada vez que alguien mueve un filtro.
+
+## 3. Modelo semántico
+
+- **Esquema estrella**: hechos y marts se relacionan con las dimensiones por fecha, hotel, canal y tipo de habitación (26 relaciones), la misma estrella descrita en [Capa gold y modelo de datos](../data-engineering-pipeline/medallion/gold.mdx).
+- **`dim_fecha`** está marcada como tabla de fechas; `nombre_mes` se ordena por `mes`. La columna calculada `periodo` vale `"Ocurrido"` si la fecha es hoy o anterior y `"Futuro"` en otro caso, y se recalcula en cada actualización.
+- **Fecha/hora automática desactivada**, así no se crean tablas de fechas ocultas.
+- **Llaves de relación ocultas**, y códigos, años, meses, ids y días de anticipación sin resumen por defecto, para que nunca se sumen por error.
+- **`_Medidas`** guarda todas las medidas, con nombres en inglés y carpetas por tema (ver [KPIs y medidas](./kpis.mdx)).
+
+## El archivo del proyecto
+
+El reporte se guarda como **proyecto de Power BI** (`.pbip`). El archivo `.pbip` es solo el punto de entrada; apunta a la carpeta del reporte que está a su lado:
+
+```json
+{
+  "version": "1.0",
+  "artifacts": [{"report": {"path": "HospedaPlus_Revenue.Report"}}],
+  "settings": {"enableAutoRecovery": true}
+}
+```
+
+El formato `.pbip` guarda el reporte y el modelo como archivos de texto, así los cambios se pueden revisar en git como cualquier otro código.
