@@ -36,9 +36,6 @@ jobs:
 
       - name: Compilar el sitio
         run: npm run build
-        env:
-          # URL pública de la API del chat (rag/api.py). Se define en Settings → Variables → Actions.
-          CHAT_API_URL: ${{ vars.CHAT_API_URL }}
 
       - name: Subir artefacto para Pages
         if: github.event_name != 'pull_request'

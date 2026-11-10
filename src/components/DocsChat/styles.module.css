@@ -130,3 +130,24 @@
 .form button:disabled {
   opacity: 0.5;
 }
+
+.keyForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.6rem 0;
+  border-top: 1px solid var(--ifm-color-emphasis-300);
+  font-size: 0.78rem;
+}
+
+.keyForm .form {
+  padding: 0.4rem 0 0.6rem;
+  border-top: 0;
+}
+
+.form .forget {
+  padding: 0 0.6rem;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--ifm-color-emphasis-300);
+}
