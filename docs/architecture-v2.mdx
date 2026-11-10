@@ -2,20 +2,24 @@
 sidebar_position: 6
 sidebar_label: Architecture v2
 title: Architecture v2
+hide_table_of_contents: true
 ---
 
 import DiagramFigure from '@site/src/components/DiagramFigure';
+import {ArchitectureV2} from '@site/src/components/ArchitectureV2';
 
 # Architecture v2
 
 This is the final architecture of HospedaPlus Revenue on AWS (region **us-east-2, Ohio**): three EC2 machines with Docker Compose, Kafka for F2, Airflow 3.1.5 with Celery on RabbitMQ, Spark in local mode on the workers, S3 + Athena (Glue Data Catalog filled with DDL) and Power BI over ODBC.
 
 <DiagramFigure
-  src="/img/architecture/hospedaplus-architecture-aws.png"
+  src="/img/architecture/hospedaplus-architecture-aws-{locale}.png"
   alt="HospedaPlus Revenue architecture on AWS"
-  fileName="hospedaplus-architecture-aws.png"
+  fileName="hospedaplus-architecture-aws-{locale}.png"
   editUrl="https://app.diagrams.net/#G1EatYE_tg6_5UfOnYq1NIpPF8gZ80IUgd"
-/>
+>
+  <ArchitectureV2 />
+</DiagramFigure>
 
 ## Changes from the previous version
 
