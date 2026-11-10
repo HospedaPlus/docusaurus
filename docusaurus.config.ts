@@ -28,7 +28,7 @@ const config: Config = {
   customFields: {
     // Gemini model of the docs chat. The key is never part of the site: each reader pastes
     // their own and it is kept only in their browser (localStorage).
-    geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
+    geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.5-flash',
   },
 
   // GitHub pages deployment config.

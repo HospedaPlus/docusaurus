@@ -179,9 +179,10 @@ ${question}`;
 
 /** Models tried in order; lighter ones have more free quota. */
 const FALLBACK_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-flash-latest",
+  "gemini-flash-lite-latest",
 ];
 
 /**
@@ -243,7 +244,7 @@ export default function DocsChat(): ReactNode {
     setKey("");
   };
   const model = String(
-    siteConfig.customFields?.geminiModel ?? "gemini-2.5-flash",
+    siteConfig.customFields?.geminiModel ?? "gemini-3.5-flash",
   );
   const base = siteConfig.baseUrl;
   const index = useRef<Chunk[] | null>(null);
