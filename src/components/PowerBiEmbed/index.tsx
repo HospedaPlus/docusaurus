@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react';
 
 const SRC =
-  'https://app.powerbi.com/view?r=eyJrIjoiZjUyN2E3MTUtNjYyMS00Zjc0LTgyNmYtNjUwMGZhM2UzNGViIiwidCI6ImJhYjBiNjc5LWJkNWYtNGZlOC1iNTE2LWM2YjhiMzE3Yzc4MiIsImMiOjR9';
+  'https://app.powerbi.com/view?r=eyJrIjoiMmQ0MzllYTYtYTYwZS00ZTgyLWJhMzMtNTA3ZGIyY2ZiNTkxIiwidCI6ImE5MGZmMGVjLWY4ZjktNGQ5Mi05NDI0LTYxOTFlNDA3ZDM2OCIsImMiOjR9';
 
 /** Power BI report published to the web: anyone can see it without signing in. */
 export default function PowerBiEmbed(): ReactNode {
