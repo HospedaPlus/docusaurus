@@ -25,6 +25,11 @@ const config: Config = {
   url: 'https://hospedaplus.github.io',
   baseUrl: '/docusaurus/',
 
+  customFields: {
+    // URL of the docs chat API (rag/api.py). Empty: the chat shows that it is not connected yet.
+    chatApiUrl: process.env.CHAT_API_URL ?? '',
+  },
+
   // GitHub pages deployment config.
   organizationName: 'HospedaPlus',
   projectName: 'docusaurus',
