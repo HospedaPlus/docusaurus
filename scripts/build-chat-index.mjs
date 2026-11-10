@@ -39,11 +39,15 @@ for (const loc of LOCALES) {
   for (const file of walk(root)) {
     const {title, text} = clean(readFileSync(file, 'utf8'));
     const path = `/docs/${slugOf(relative(root, file))}`.replace(/\/$/, '');
-    // One chunk per "## " section (long sections are cut at ~1800 characters).
-    for (const section of text.split(/\n(?=## )/)) {
-      const heading = (section.match(/^## (.*)$/m) || [])[1] || '';
-      for (let i = 0; i < section.length; i += 1800) {
-        const body = section.slice(i, i + 1800).trim();
+    // One chunk per "## " or "### " section; long sections are cut at ~2400
+    // characters with a small overlap so code blocks are not lost at the edge.
+    let parent = '';
+    for (const section of text.split(/\n(?=#{2,3} )/)) {
+      const h = section.match(/^(#{2,3}) (.*)$/m);
+      if (h && h[1] === '##') parent = h[2];
+      const heading = h ? (h[1] === '###' && parent ? `${parent} · ${h[2]}` : h[2]) : '';
+      for (let i = 0; i < section.length; i += 2100) {
+        const body = section.slice(i, i + 2400).trim();
         if (body.length > 40) chunks.push({title: title || path, heading, path, text: body});
       }
     }

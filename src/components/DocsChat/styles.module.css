@@ -26,8 +26,8 @@
 .panel {
   display: flex;
   flex-direction: column;
-  width: min(380px, calc(100vw - 2.5rem));
-  height: min(520px, calc(100vh - 7rem));
+  width: min(420px, calc(100vw - 2.5rem));
+  height: min(600px, calc(100vh - 7rem));
   overflow: hidden;
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 16px;
@@ -42,6 +42,17 @@
   padding: 0.75rem 1rem;
   background: var(--ifm-color-primary);
   color: #fff;
+}
+
+.head .headTitle {
+  padding: 0;
+  font-size: 1rem;
+  text-align: left;
+}
+
+.headActions {
+  display: flex;
+  gap: 0.6rem;
 }
 
 .head button {
@@ -150,4 +161,72 @@
   background: transparent;
   color: inherit;
   border: 1px solid var(--ifm-color-emphasis-300);
+}
+
+.minimized {
+  height: auto;
+}
+
+.minimized > :not(header) {
+  display: none;
+}
+
+.bot:has(.md) {
+  white-space: normal;
+  max-width: 96%;
+}
+
+.md p {
+  margin: 0 0 0.5rem;
+}
+
+.md p:last-child,
+.md ul:last-child,
+.md ol:last-child {
+  margin-bottom: 0;
+}
+
+.md ul,
+.md ol {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+}
+
+.md li {
+  margin: 0.15rem 0;
+}
+
+.md code {
+  font-size: 0.8rem;
+}
+
+.md .mdHead {
+  font-weight: 700;
+}
+
+.code {
+  position: relative;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.code pre {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  overflow-x: auto;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.copy {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 10%);
+  color: #fff;
+  font-size: 0.75rem;
+  cursor: pointer;
 }
