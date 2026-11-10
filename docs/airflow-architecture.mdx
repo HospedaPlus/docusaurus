@@ -2,19 +2,23 @@
 sidebar_position: 5
 sidebar_label: Airflow Architecture
 title: Airflow Architecture
+hide_table_of_contents: true
 ---
 
 import DiagramFigure from '@site/src/components/DiagramFigure';
+import {AirflowArchitecture} from '@site/src/components/ArchitectureV2/airflow';
 
 # Airflow Architecture
 
 Two EC2 machines with Docker Compose run the whole pipeline: the **core** (Airflow 3.1.5, its metadata database, RabbitMQ and Flower) and the **workers** (three Celery workers with Spark in local mode). 17 DAGs are chained by **Assets** and write the data lake in S3 as Parquet; the catalog is created with Athena DDL.
 
 <DiagramFigure
-  src="/img/architecture/hospedaplus-airflow-architecture.png"
+  src="/img/architecture/hospedaplus-airflow-architecture-{locale}.png"
   alt="HospedaPlus Airflow architecture"
-  fileName="hospedaplus-airflow-architecture.png"
-/>
+  fileName="hospedaplus-airflow-architecture-{locale}.png"
+>
+  <AirflowArchitecture />
+</DiagramFigure>
 
 ## The two machines
 
