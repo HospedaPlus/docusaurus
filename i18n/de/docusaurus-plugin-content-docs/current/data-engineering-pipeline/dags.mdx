@@ -77,3 +77,44 @@ Stunde Stunde  bronze_f5_reviews (sammelt die Bewertungen des Tages)
 - `max_active_runs=1` in Silver und Gold: Zwei Läufe überschreiben nie gleichzeitig dieselbe Tabelle.
 - Wiederholungen: Bronze 2- bis 6-mal je nach Quelle; Silver und Gold 2-mal im Abstand von 10 Minuten, mit 45 Minuten Zeitlimit.
 - Neue DAGs sind beim Anlegen nicht pausiert, nach einem Deployment läuft also alles weiter.
+
+## Was jeder DAG in S3 hinterlässt
+
+Jeder DAG endet damit, in den Bucket `hospedaplus-lakehouse-buenavista` zu schreiben und ein Asset zu veröffentlichen. Hier sieht man nach einem Lauf nach:
+
+| DAG | Ergebnis in S3 | Format |
+| --- | --- | --- |
+| `bronze_neon_f2_f3` | `bronze/f2_ledger/fecha=…/hora=HH.jsonl`, `bronze/f3_reservations/…`, `bronze/f3_anomalies/…` | JSON Lines, eine Datei pro Stunde |
+| `bronze_f5_reviews` | `bronze/f5_reviews/fecha=…/hora=HH.jsonl` | JSON Lines |
+| `bronze_f7_fx` | `bronze/f7_fx/fecha=YYYY-MM-DD.json` | JSON, wie von der API geliefert |
+| `bronze_f6_holidays` | `bronze/f6_holidays/anio=YYYY/pais=XX.json` | JSON |
+| `bronze_f6_events` | `bronze/f6_events/fecha=….jsonl` | JSON Lines |
+| `bronze_neon_full_load` | `bronze/f3_{reservations,anomalies,inventory,relocations,rejections}_full/fecha=…/part-NNNNN.jsonl` + `_SUCCESS` | JSON Lines |
+| `bronze_neon_dims` | `bronze/neon_dims/<tabelle>/fecha=….jsonl` | JSON Lines |
+| `bronze_f4_agencias` | nichts Neues: prüft `bronze/f4_agencias/semana=YYYY-Www/` (15 Dateien + Zusammenfassung) | CSV / Excel |
+| `bronze_f1_historical` | `bronze/f1_historical/hotel_bookings.csv` | CSV |
+| `silver_fx_daily` | `silver/tasa_cambio_diaria/` | Parquet |
+| `silver_reservas_daily` | `silver/reservas/` (nach `source` partitioniert), `silver/cancelaciones/`, `silver/reservas_rechazadas/` | Parquet |
+| `silver_ocupacion_daily` | `silver/ocupacion_diaria/` | Parquet |
+| `silver_calendario_daily` | `silver/calendario_hotel/` | Parquet |
+| `silver_resenas_daily` | `silver/resenas/` | Parquet |
+| `silver_f1_historico` | `silver/historico_f1/` | Parquet |
+| `gold_modelo_daily` | `gold/dim_*`, `gold/fact_*`, `gold/mart_*` (15 Tabellen) + `gold/neon_cancellation_rate_by_lead/` | Parquet + ein JSON |
+| `gold_neon_writeback` | nichts in S3: liest das JSON oben und macht ein Upsert in Neon | – |
+
+## Warum viele kleine DAGs und nicht ein DAG pro Schicht oder ein einziger ETL-DAG
+
+Ein einfacheres Design wäre ein `silver`-DAG mit sechs Tasks hintereinander oder ein einziger ETL-DAG `extrahieren → transformieren → laden`. Das wurde bewusst verworfen:
+
+| Ein großer DAG mit Tasks hintereinander | 17 über Assets verkettete DAGs (was wir nutzen) |
+| --- | --- |
+| Alles teilt sich einen Zeitplan, die Quellen aber nicht: F2/F3/F5 ändern sich stündlich, F7 täglich, F6 monatlich, F4 wöchentlich, F1 einmal | Jeder Bronze-DAG läuft nach der Uhr seiner Quelle |
+| Eine fehlerhafte Quelle (API nicht erreichbar) stoppt oder verzögert alle folgenden Schritte | Der Fehler bleibt in seinem DAG; die anderen laufen weiter, und Silver wartet nur auf das, was es wirklich braucht |
+| Tasks hintereinander laufen nacheinander, auch ohne Abhängigkeit (Wechselkurse brauchen keine Bewertungen) | Unabhängige DAGs laufen parallel auf den 8 Worker-Plätzen |
+| Eine Tabelle neu zu bauen heißt, die ganze Kette zu wiederholen oder Tasks von Hand zu löschen | Jede Tabelle hat ihren DAG: nur `silver_resenas_daily` wiederholen, und Gold startet bei Bedarf von selbst |
+| Die Reihenfolge wird über geschätzte Zeiten festgelegt (`sleep` oder „Silver um 05:00“) | Silver und Gold starten, wenn ihre Eingabedaten **wirklich geschrieben** wurden (Asset-Ereignisse), mit `&` / `|`-Regeln |
+| Stündliche Buchungen würden die ganze Kette 24-mal am Tag auslösen | Nur `silver_reservas_daily` folgt der stündlichen Kopie; Gold wartet auf die nächtlichen Eingaben und läuft einmal |
+| Unterschiedliche Lasten in einem DAG (leichtes Bronze, schweres Spark) lassen sich schwerer auf verschiedene Worker verteilen | Eine Queue pro Schicht: Bronze wartet nie hinter einem Spark-Job |
+
+Kurz: **ein DAG pro Quelle in Bronze und einer pro Tabelle in Silver** folgen den echten Abhängigkeiten der Daten. Assets liefern die Reihenfolge, die ein einzelner DAG liefern würde, ohne dessen Kopplung. Die Abhängigkeiten stehen unter [DAGs ausführen](./running-dags.mdx).
+

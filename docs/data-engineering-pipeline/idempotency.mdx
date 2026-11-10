@@ -1,0 +1,71 @@
+---
+sidebar_position: 5
+sidebar_label: Idempotency
+title: "Idempotency: why and how"
+---
+
+# Idempotency: why and how
+
+A task is **idempotent** when running it once or ten times leaves exactly the same result. In this pipeline every DAG can be re-run at any time (a retry, a manual Clear, a backfill of a missed hour) and the lake ends up the same, with no duplicated rows and no half-written tables.
+
+## Why it matters here
+
+- **Retries are automatic.** Every DAG retries on failure (bronze up to 3–6 times, silver and gold 2 times). A retry must not add the same rows twice.
+- **Hours get re-run.** If Neon or an API was down, the missed hour is run again with `airflow backfill` or *Clear*. It has to replace that hour, not append to it.
+- **Silver and gold feed decisions.** A booking counted twice changes the cancellation rate, ADR and the overbooking limit written back to Neon.
+
+## How it is guaranteed, layer by layer
+
+| Where | Technique | Result of a re-run |
+| --- | --- | --- |
+| Bronze, hourly (Neon, F5) | The S3 key depends only on the source and the **data interval** (`fecha=…/hora=HH`), and the query reads exactly `[start, end)` of that interval | The same object is overwritten with the same rows |
+| Bronze, daily/monthly (F6, F7, catalogs) | Key by date (`fecha=YYYY-MM-DD.json`, `anio=…/pais=…`) | Same object overwritten |
+| Bronze, nightly snapshot | One `REPEATABLE READ` transaction, leftover parts deleted, `_SUCCESS` written last; silver reads only folders with `_SUCCESS` | A half-failed copy is never read; the retry overwrites it |
+| Bronze, F1 | sha256 saved in the object metadata | If the file is already there with the same hash, nothing is uploaded |
+| Silver | Rebuilt **in full** from bronze, one row per key (newest version wins), then `mode("overwrite")` | Same input → same table, never appended |
+| Gold | Rebuilt in full from silver and overwritten, after `check()` | Same as silver |
+| Neon write-back | `INSERT … ON CONFLICT (hotel_code, lead_bucket) DO UPDATE` in one transaction | The row is replaced, never duplicated |
+| Neon bookings (OLTP) | `reservar()` checks `(channel, external_code)` after locking the nights | A repeated request returns `already_exists`, not a second booking |
+| Concurrency | `max_active_runs=1` on silver and gold | Two runs never write the same table at once |
+
+## In code
+
+**Key by interval (bronze):** the hour in the key is the start of the Airflow interval, not "now", so re-running the 14:00 run always writes `hora=14`.
+
+```python
+def _key(prefix: str, start) -> str:
+    return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
+
+body, n = dump("SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s",
+               (data_interval_start, data_interval_end))
+put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
+```
+
+**Deduplicate, then overwrite (silver):** the snapshot and the hourly files overlap on purpose; a window keeps one row per booking code, and the table is replaced, not appended.
+
+```python
+# spark_jobs/silver_reservas.py (shortened)
+w = Window.partitionBy("code").orderBy(F.col("_version").desc(), F.col("_src").desc())
+latest = (raw.withColumn("_rn", F.row_number().over(w))
+          .filter("_rn = 1").drop("_rn", "_version", "_src"))
+…
+check(reservas, cancel)                          # fails the task before anything is written
+reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
+```
+
+**Upsert (Neon):**
+
+```sql
+INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+VALUES (%s, %s, %s, NOW())
+ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
+```
+
+## How to check it yourself
+
+1. In the Airflow UI pick any finished run of `bronze_neon_f2_f3` and press **Clear**. When it ends, the object `bronze/f3_reservations/fecha=…/hora=…/` has the same size and rows.
+2. Run `silver_reservas_daily` twice in a row. In Athena, `SELECT code, COUNT(*) FROM silver.reservas GROUP BY code HAVING COUNT(*) > 1` returns no rows.
+3. Run `gold_neon_writeback` twice. In Neon, `operation.cancellation_rate_by_lead` keeps one row per hotel and lead bucket.
+
+How incremental and batch loads combine is explained in [Incremental and batch loading](./loading.mdx).

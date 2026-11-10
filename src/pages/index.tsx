@@ -34,10 +34,10 @@ function getSections(): Section[] {
       text: translate({id: 'landing.section.access.text', message: 'Where each source lives and how to connect to it.'}),
     },
     {
-      to: '/docs/architecture-infrastructure',
+      to: '/docs/architecture-v2',
       icon: 'network',
-      title: translate({id: 'landing.section.architecture.title', message: 'Architecture & Infrastructure'}),
-      text: translate({id: 'landing.section.architecture.text', message: 'How data is ingested, stored and visualized on AWS.'}),
+      title: translate({id: 'landing.section.architecture.title', message: 'Architecture'}),
+      text: translate({id: 'landing.section.architecture.text', message: 'The final architecture on AWS and how Airflow runs the pipeline.'}),
     },
   ];
 }

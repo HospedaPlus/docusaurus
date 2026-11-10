@@ -1,0 +1,73 @@
+---
+sidebar_position: 6
+sidebar_label: Calcul et ressources
+title: Calcul et ressources
+---
+
+# Calcul et ressources
+
+## En chiffres
+
+| | Combien | Pour quoi |
+| --- | --- | --- |
+| EC2 du pipeline | **2** | Le cœur (t3.medium) fait tourner Airflow et RabbitMQ ; les workers (t3.xlarge) exécutent les tâches |
+| EC2 des sources | 1 | c7i-flex.large : Kafka F2 + consommateurs, simulateur F3, fichiers hebdomadaires F4 |
+| Workers Celery | **3** | Un par file : `bronze`, `silver`, `gold` |
+| Emplacements de tâche | **8** | bronze 4 + silver 2 + gold 2 tâches en même temps |
+| DAGs | **17** | 9 bronze, 6 silver, 2 gold |
+| Tâches | **18** | Une par DAG, sauf `bronze_neon_f2_f3`, qui en a deux (ledger F2 et réservations F3) |
+| Jobs Spark | **7** | 6 en silver (`silver_fx`, `silver_reservas`, `silver_ocupacion`, `silver_calendario`, `silver_resenas`, `silver_f1`) + 1 en gold (`gold_modelo`) |
+| Tâches Python seul | 11 | Les 10 tâches bronze (9 DAGs) et `gold_neon_writeback` |
+
+## Les workers
+
+```yaml
+# docker-compose.workers.yaml
+worker-bronze:
+  command: celery worker --queues bronze --concurrency 4
+worker-silver:
+  command: celery worker --queues silver --concurrency 2
+worker-gold:
+  command: celery worker --queues gold --concurrency 2
+```
+
+| Worker | Concurrence | Exécute | Pourquoi cette taille |
+| --- | --- | --- | --- |
+| `bronze` | 4 | Python : SQL sur Neon, appels HTTP aux APIs, `put_object` vers S3 | Surtout de l'attente réseau, peu de CPU et de mémoire, donc 4 à la fois est sûr. À :00 les deux DAGs horaires (3 tâches) tournent ensemble |
+| `silver` | 2 | Jobs Spark local | Chaque job utilise plusieurs cœurs et jusqu'à 4 Go ; 2 à la fois évite que la machine swappe |
+| `gold` | 2 | `gold_modelo` (Spark) et `gold_neon_writeback` (Python) | Gold tourne une fois par nuit ; le second emplacement laisse démarrer le write-back pendant qu'une nouvelle tentative de gold attend |
+
+Chaque tâche déclare sa file (`@task(queue="silver")`), donc un job gold lourd ne prend jamais un emplacement à la copie horaire de bronze.
+
+## Réglages de Spark
+
+Spark tourne en **mode local** dans le conteneur de chaque worker : le driver est aussi l'exécuteur.
+
+```python
+# spark_jobs/session.py
+.master(os.getenv("SPARK_MASTER", "local[*]"))
+.config("spark.driver.memory", os.getenv("SPARK_DRIVER_MEMORY", "4g"))
+.config("spark.sql.shuffle.partitions", os.getenv("SPARK_SHUFFLE_PARTITIONS", "8"))
+.config("spark.sql.adaptive.enabled", "true")
+```
+
+- `local[*]` utilise tous les cœurs du t3.xlarge (4 vCPU).
+- 4 Go par job : jusqu'à 4 jobs Spark (2 silver + 2 gold) tiennent dans les 16 Go de la machine, à côté du worker bronze.
+- 8 partitions de shuffle au lieu des 200 par défaut : avec ~200 000 lignes, 200 petites tâches ne seraient que du surcoût.
+- Pour passer à un cluster, on change `SPARK_MASTER` ; le code des jobs ne change pas.
+
+## Combien de temps ça prend
+
+| Étape | Durée habituelle |
+| --- | --- |
+| Une tâche bronze | quelques secondes (l'instantané nocturne, 1–2 minutes) |
+| Toute la couche silver | environ 2 minutes |
+| `gold_modelo_daily` | quelques minutes, prêt vers 03:35 UTC (22:35 Colombie) |
+
+## Pourquoi cette organisation
+
+- **Le cœur ne traite jamais de données**, donc Airflow reste réactif même si un job Spark manque de mémoire : seule cette tâche échoue et est relancée.
+- **Une file par couche** empêche une couche d'en bloquer une autre.
+- **Vertical avant horizontal** : si le volume augmente, on monte d'abord le type d'instance des workers ou la concurrence ; puis on ajoute un second EC2 de workers sur les mêmes files ; seulement ensuite on passe Spark sur un cluster.
+
+Voir aussi [Architecture d'Airflow](../airflow-architecture.mdx) et [Décisions techniques](./technical-decisions.mdx).

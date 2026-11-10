@@ -77,3 +77,44 @@ hora   hora    bronze_f5_reviews (acumula las reseñas del día)
 - `max_active_runs=1` en silver y gold: dos corridas nunca sobrescriben la misma tabla a la vez.
 - Reintentos: bronze de 2 a 6 veces según la fuente; silver y gold 2 veces, con 10 minutos entre una y otra y un límite de 45 minutos.
 - Los DAGs nuevos no quedan pausados al crearse, así después de un despliegue todo sigue corriendo.
+
+## Qué deja cada DAG en S3
+
+Cada DAG termina escribiendo en el bucket `hospedaplus-lakehouse-buenavista` y publicando un Asset. Aquí es donde mirar después de una corrida:
+
+| DAG | Resultado en S3 | Formato |
+| --- | --- | --- |
+| `bronze_neon_f2_f3` | `bronze/f2_ledger/fecha=…/hora=HH.jsonl`, `bronze/f3_reservations/…`, `bronze/f3_anomalies/…` | JSON Lines, un archivo por hora |
+| `bronze_f5_reviews` | `bronze/f5_reviews/fecha=…/hora=HH.jsonl` | JSON Lines |
+| `bronze_f7_fx` | `bronze/f7_fx/fecha=YYYY-MM-DD.json` | JSON, tal como lo envió la API |
+| `bronze_f6_holidays` | `bronze/f6_holidays/anio=YYYY/pais=XX.json` | JSON |
+| `bronze_f6_events` | `bronze/f6_events/fecha=….jsonl` | JSON Lines |
+| `bronze_neon_full_load` | `bronze/f3_{reservations,anomalies,inventory,relocations,rejections}_full/fecha=…/part-NNNNN.jsonl` + `_SUCCESS` | JSON Lines |
+| `bronze_neon_dims` | `bronze/neon_dims/<tabla>/fecha=….jsonl` | JSON Lines |
+| `bronze_f4_agencias` | nada nuevo: verifica `bronze/f4_agencias/semana=YYYY-Www/` (15 archivos + resumen) | CSV / Excel |
+| `bronze_f1_historical` | `bronze/f1_historical/hotel_bookings.csv` | CSV |
+| `silver_fx_daily` | `silver/tasa_cambio_diaria/` | Parquet |
+| `silver_reservas_daily` | `silver/reservas/` (particionada por `source`), `silver/cancelaciones/`, `silver/reservas_rechazadas/` | Parquet |
+| `silver_ocupacion_daily` | `silver/ocupacion_diaria/` | Parquet |
+| `silver_calendario_daily` | `silver/calendario_hotel/` | Parquet |
+| `silver_resenas_daily` | `silver/resenas/` | Parquet |
+| `silver_f1_historico` | `silver/historico_f1/` | Parquet |
+| `gold_modelo_daily` | `gold/dim_*`, `gold/fact_*`, `gold/mart_*` (15 tablas) + `gold/neon_cancellation_rate_by_lead/` | Parquet + un JSON |
+| `gold_neon_writeback` | nada en S3: lee el JSON de arriba y lo hace upsert en Neon | – |
+
+## Por qué muchos DAGs pequeños y no un DAG por capa o un solo DAG de ETL
+
+Un diseño más simple sería un DAG `silver` con seis tareas en fila, o un único DAG de ETL `extraer → transformar → cargar`. Se descartó a propósito:
+
+| Un DAG grande con tareas en fila | 17 DAGs encadenados por Assets (lo que usamos) |
+| --- | --- |
+| Todo comparte un horario, pero las fuentes no: F2/F3/F5 cambian cada hora, F7 a diario, F6 al mes, F4 a la semana, F1 una vez | Cada DAG de bronze corre al reloj de su fuente |
+| Una fuente que falla (una API caída) detiene o atrasa todos los pasos que vienen después | Un fallo se queda en su DAG; los demás siguen y silver espera solo lo que de verdad necesita |
+| Las tareas en fila corren una tras otra aunque no dependan entre sí (FX no necesita las reseñas) | Los DAGs independientes corren en paralelo en los 8 espacios de los workers |
+| Repetir una tabla obliga a repetir toda la cadena o a limpiar tareas a mano | Cada tabla tiene su DAG: se repite solo `silver_resenas_daily`, y gold arranca solo si hace falta |
+| El orden se fija adivinando tiempos (`sleep`, o "silver a las 05:00") | Silver y gold arrancan cuando los datos que leen **se escribieron de verdad** (eventos de Asset), con reglas `&` / `|` |
+| Las reservas horarias obligarían a correr toda la cadena 24 veces al día | Solo `silver_reservas_daily` sigue la copia horaria; gold espera las entradas nocturnas y corre una vez |
+| Pesos distintos en un DAG (bronze ligero, Spark pesado) son más difíciles de mandar a workers distintos | Una cola por capa: bronze nunca espera detrás de un job de Spark |
+
+En resumen: **un DAG por fuente en bronze y uno por tabla en silver** siguen las dependencias reales de los datos. Los Assets dan el orden que daría un solo DAG, sin su acoplamiento. Las dependencias están en [Correr los DAGs](./running-dags.mdx).
+

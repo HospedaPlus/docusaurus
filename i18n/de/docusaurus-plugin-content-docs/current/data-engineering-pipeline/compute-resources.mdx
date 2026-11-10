@@ -1,0 +1,73 @@
+---
+sidebar_position: 6
+sidebar_label: Rechenleistung und Ressourcen
+title: Rechenleistung und Ressourcen
+---
+
+# Rechenleistung und Ressourcen
+
+## In Zahlen
+
+| | Wie viele | Wofür |
+| --- | --- | --- |
+| EC2 der Pipeline | **2** | Der Kern (t3.medium) betreibt Airflow und RabbitMQ; die Worker (t3.xlarge) führen die Tasks aus |
+| EC2 der Quellen | 1 | c7i-flex.large: Kafka F2 + Consumer, F3-Simulator, wöchentliche F4-Dateien |
+| Celery-Worker | **3** | Einer pro Queue: `bronze`, `silver`, `gold` |
+| Task-Plätze | **8** | bronze 4 + silver 2 + gold 2 Tasks gleichzeitig |
+| DAGs | **17** | 9 Bronze, 6 Silver, 2 Gold |
+| Tasks | **18** | Eine pro DAG, außer `bronze_neon_f2_f3` mit zwei (F2-Ledger und F3-Buchungen) |
+| Spark-Jobs | **7** | 6 Silver (`silver_fx`, `silver_reservas`, `silver_ocupacion`, `silver_calendario`, `silver_resenas`, `silver_f1`) + 1 Gold (`gold_modelo`) |
+| Reine Python-Tasks | 11 | Die 10 Bronze-Tasks (9 DAGs) und `gold_neon_writeback` |
+
+## Die Worker
+
+```yaml
+# docker-compose.workers.yaml
+worker-bronze:
+  command: celery worker --queues bronze --concurrency 4
+worker-silver:
+  command: celery worker --queues silver --concurrency 2
+worker-gold:
+  command: celery worker --queues gold --concurrency 2
+```
+
+| Worker | Parallelität | Führt aus | Warum diese Größe |
+| --- | --- | --- | --- |
+| `bronze` | 4 | Python: SQL gegen Neon, HTTP-Aufrufe an APIs, `put_object` nach S3 | Meist Warten auf das Netz, wenig CPU und Speicher, daher sind 4 gleichzeitig sicher. Um :00 laufen die beiden stündlichen DAGs (3 Tasks) zusammen |
+| `silver` | 2 | Spark-lokal-Jobs | Jeder Job nutzt mehrere Kerne und bis zu 4 GB; 2 gleichzeitig verhindern, dass die Maschine swappt |
+| `gold` | 2 | `gold_modelo` (Spark) und `gold_neon_writeback` (Python) | Gold läuft einmal pro Nacht; der zweite Platz lässt den Write-back starten, während ein Gold-Retry wartet |
+
+Jede Task deklariert ihre Queue (`@task(queue="silver")`), so nimmt ein schwerer Gold-Job der stündlichen Bronze-Kopie nie einen Platz weg.
+
+## Spark-Einstellungen
+
+Spark läuft im **lokalen Modus** im Container jedes Workers: Der Driver ist zugleich der Executor.
+
+```python
+# spark_jobs/session.py
+.master(os.getenv("SPARK_MASTER", "local[*]"))
+.config("spark.driver.memory", os.getenv("SPARK_DRIVER_MEMORY", "4g"))
+.config("spark.sql.shuffle.partitions", os.getenv("SPARK_SHUFFLE_PARTITIONS", "8"))
+.config("spark.sql.adaptive.enabled", "true")
+```
+
+- `local[*]` nutzt alle Kerne der t3.xlarge (4 vCPU).
+- 4 GB pro Job: bis zu 4 Spark-Jobs (2 Silver + 2 Gold) passen neben dem Bronze-Worker in die 16 GB der Maschine.
+- 8 Shuffle-Partitionen statt der standardmäßigen 200: Bei ~200.000 Zeilen wären 200 winzige Tasks reiner Overhead.
+- Für einen Cluster ändert man `SPARK_MASTER`; der Job-Code bleibt gleich.
+
+## Wie lange es dauert
+
+| Schritt | Übliche Dauer |
+| --- | --- |
+| Eine Bronze-Task | Sekunden (der nächtliche Snapshot 1–2 Minuten) |
+| Die ganze Silver-Schicht | etwa 2 Minuten |
+| `gold_modelo_daily` | einige Minuten, fertig gegen 03:35 UTC (22:35 Kolumbien) |
+
+## Warum diese Aufteilung
+
+- **Der Kern verarbeitet nie Daten**, so bleibt Airflow reaktionsfähig, auch wenn einem Spark-Job der Speicher ausgeht: Nur diese Task scheitert und wird wiederholt.
+- **Eine Queue pro Schicht** verhindert, dass eine Schicht eine andere blockiert.
+- **Erst vertikal, dann horizontal**: Wächst das Volumen, wird zuerst der Instanztyp der Worker oder die Parallelität erhöht; dann eine zweite Worker-EC2 auf denselben Queues hinzugefügt; erst danach wandert Spark auf einen Cluster.
+
+Siehe auch [Airflow-Architektur](../airflow-architecture.mdx) und [Technische Entscheidungen](./technical-decisions.mdx).

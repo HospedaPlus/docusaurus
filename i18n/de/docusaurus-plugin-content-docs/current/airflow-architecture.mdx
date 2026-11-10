@@ -1,0 +1,61 @@
+---
+sidebar_position: 5
+sidebar_label: Airflow-Architektur
+title: Airflow-Architektur
+---
+
+import DiagramFigure from '@site/src/components/DiagramFigure';
+
+# Airflow-Architektur
+
+Zwei EC2 mit Docker Compose betreiben die ganze Pipeline: den **Kern** (Airflow 3.1.5, seine Metadaten-Datenbank, RabbitMQ und Flower) und die **Worker** (drei Celery-Worker mit Spark im lokalen Modus). 17 DAGs sind über **Assets** verkettet und schreiben den Data Lake in S3 als Parquet; der Katalog wird per Athena DDL angelegt.
+
+<DiagramFigure
+  src="/img/architecture/hospedaplus-airflow-architecture.png"
+  alt="Airflow-Architektur von HospedaPlus"
+  fileName="hospedaplus-airflow-architecture.png"
+/>
+
+## Die zwei Maschinen
+
+| | Kern-EC2 | Worker-EC2 |
+| --- | --- | --- |
+| Typ | t3.medium · 30 GB · `sg-nucleo` | t3.xlarge (4 vCPU, 16 GB) · 50 GB · `sg-workers` |
+| Compose-Datei | `docker-compose.nucleo.yaml` | `docker-compose.workers.yaml` |
+| Läuft | Airflow 3.1.5 (API-Server, Scheduler, DAG-Prozessor, Triggerer), PostgreSQL (Airflow-Metadaten), RabbitMQ (Queues `bronze`, `silver`, `gold`), Flower (`:5555`) | Celery-Worker `bronze` (4 Tasks gleichzeitig), `silver` (2), `gold` (2), jeder mit Spark 3.5 darin |
+| DAGs | Ordner `dags/`, dasselbe Repo auf beiden Maschinen | ebenso |
+
+## Wie ein Auftrag läuft
+
+1. Der **Scheduler** auf dem Kern entscheidet, dass eine Task laufen muss, und legt sie in ihre **RabbitMQ**-Queue (`bronze`, `silver` oder `gold`).
+2. Der Worker, der diese Queue abhört, nimmt sie und führt sie aus: einfaches Python in Bronze, ein Spark-Job in Silver und Gold.
+3. Der Worker meldet den Task-Status über die private IP des Kerns an den **API-Server** und schreibt das Task-Log nach `s3://…/airflow-logs/`, damit die UI es zeigt.
+4. Am Ende veröffentlicht die Task ihr **Asset**, und der Scheduler startet alle DAGs, die darauf gewartet haben.
+
+## Quellen und Ausgaben
+
+| Quelle | Wie sie nach Bronze kommt |
+| --- | --- |
+| F1 Kaggle | `hotel_bookings.csv` aus dem Repo `hospedaplus-csv`, manuell, einmal |
+| F2 Channel Manager | Kafka → Consumer → Neon (`streaming`); Airflow kopiert es stündlich aus Neon |
+| F3 PostgreSQL (Neon) | Schema `operation`, Rolle `etl_reader` (production), stündlich + Vollladung um 03:00 |
+| F4 Agenturen | `f4-weekly` (Quellen-EC2) legt die Dateien montags um 06:00 in `bronze/f4_agencias` ab; der DAG prüft sie um 07:00 |
+| F5 Bewertungen | Die REST-API des Teams (FastAPI), stündlich inkrementell |
+| F6 Feiertage und Events | Nager.Date (am 1. jedes Monats); lokale Events aus Neon (täglich) |
+| F7 Wechselkurse | Frankfurter (REST), täglich 01:00 UTC |
+
+Die Ausgaben sind `bronze/` (roh nach Quelle und Datum, F2-Ledger), `silver/` (Parquet, sauber und ohne Duplikate) und `gold/` (Parquet: `dim_`, `fact_`, `mart_`, plus `neon_*.json`). Athena liest nur `gold/` (und `silver/` für Prüfungen), Power BI liest Athena per ODBC mit `powerbi-reader`, und `gold_neon_writeback` schreibt die Stornoquoten mit `app_writer` nach Neon.
+
+## DAG-Gruppen
+
+| Gruppe | DAGs | Queue | Gestartet durch |
+| --- | --- | --- | --- |
+| Bronze | 9: f1 manuell · f4 Montag 07:00 · f5 stündlich · f6 Feiertage am 1. · f6 Events 02:30 · f7 fx 01:00 · neon_f2_f3 stündlich · neon_dims 03:15 · neon_full_load 03:00 | `bronze` | eine Uhr (UTC) |
+| Silver | 6: fx · reservas · ocupacion · calendario · resenas (03:30) · F1-Historie | `silver` | Assets |
+| Gold | 2: `gold_modelo_daily` (4 dim_, 4 fact_, 7 mart_) → `gold_neon_writeback` | `gold` | Assets |
+
+Jeder DAG veröffentlicht am Ende ein Asset, und der nächste startet von selbst; `catchup=False`. Was jeder DAG wann tut: [DAGs und Zeitplan](./data-engineering-pipeline/dags.mdx). Worker, Jobs und Speicher: [Rechenleistung und Ressourcen](./data-engineering-pipeline/compute-resources.mdx).
+
+## Warum Spark lokal und kein Cluster
+
+Spark 3.5 läuft im Container des Workers (`local[*]`) und liest und schreibt S3 mit `s3a://` und der IAM-Rolle der EC2. Kein Cluster, kein Fargate: Die t3.xlarge (4 vCPU, 16 GB) reicht für ~200.000 Buchungen, und derselbe Code kann durch Ändern von `SPARK_MASTER` auf einen Cluster wechseln.

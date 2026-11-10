@@ -1,0 +1,71 @@
+---
+sidebar_position: 5
+sidebar_label: Idempotenz
+title: "Idempotenz: warum und wie"
+---
+
+# Idempotenz: warum und wie
+
+Eine Task ist **idempotent**, wenn sie ein- oder zehnmal ausgeführt genau dasselbe Ergebnis hinterlässt. In dieser Pipeline kann jeder DAG jederzeit erneut laufen (ein Retry, ein manuelles *Clear*, ein Backfill einer verpassten Stunde), und der Lake bleibt gleich: keine doppelten Zeilen, keine halb geschriebenen Tabellen.
+
+## Warum das hier wichtig ist
+
+- **Retries laufen automatisch.** Jeder DAG wiederholt bei Fehlern (Bronze bis zu 3–6-mal, Silver und Gold 2-mal). Ein Retry darf dieselben Zeilen nicht doppelt hinzufügen.
+- **Stunden werden wiederholt.** War Neon oder eine API nicht erreichbar, läuft die verpasste Stunde erneut mit `airflow backfill` oder *Clear*. Sie muss diese Stunde ersetzen, nicht ergänzen.
+- **Silver und Gold speisen Entscheidungen.** Eine doppelt gezählte Buchung ändert Stornoquote, ADR und das an Neon zurückgeschriebene Überbuchungslimit.
+
+## Wie sie garantiert wird, Schicht für Schicht
+
+| Wo | Technik | Ergebnis einer Wiederholung |
+| --- | --- | --- |
+| Bronze, stündlich (Neon, F5) | Der S3-Schlüssel hängt nur von Quelle und **Datenintervall** ab (`fecha=…/hora=HH`), und die Abfrage liest genau `[Start, Ende)` dieses Intervalls | Dasselbe Objekt wird mit denselben Zeilen überschrieben |
+| Bronze, täglich/monatlich (F6, F7, Kataloge) | Schlüssel nach Datum (`fecha=YYYY-MM-DD.json`, `anio=…/pais=…`) | Dasselbe Objekt überschrieben |
+| Bronze, nächtlicher Snapshot | Eine `REPEATABLE READ`-Transaktion, übrige Teile gelöscht, `_SUCCESS` zuletzt; Silver liest nur Ordner mit `_SUCCESS` | Eine halb fehlgeschlagene Kopie wird nie gelesen; der Retry überschreibt sie |
+| Bronze, F1 | sha256 in den Objekt-Metadaten | Liegt die Datei mit gleichem Hash schon vor, wird nichts hochgeladen |
+| Silver | **Vollständig** aus Bronze neu gebaut, eine Zeile pro Schlüssel (neueste Version gewinnt), dann `mode("overwrite")` | Gleiche Eingabe → gleiche Tabelle, nie angehängt |
+| Gold | Vollständig aus Silver neu gebaut und überschrieben, nach `check()` | Wie Silver |
+| Write-back nach Neon | `INSERT … ON CONFLICT (hotel_code, lead_bucket) DO UPDATE` in einer Transaktion | Die Zeile wird ersetzt, nie verdoppelt |
+| Buchungen in Neon (OLTP) | `reservar()` prüft `(Kanal, external_code)` nach dem Sperren der Nächte | Eine wiederholte Anfrage liefert `already_exists`, keine zweite Buchung |
+| Parallelität | `max_active_runs=1` in Silver und Gold | Zwei Läufe schreiben nie gleichzeitig dieselbe Tabelle |
+
+## Im Code
+
+**Schlüssel nach Intervall (Bronze):** Die Stunde im Schlüssel ist der Beginn des Airflow-Intervalls, nicht „jetzt“; der erneute Lauf von 14:00 schreibt also immer `hora=14`.
+
+```python
+def _key(prefix: str, start) -> str:
+    return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
+
+body, n = dump("SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s",
+               (data_interval_start, data_interval_end))
+put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
+```
+
+**Deduplizieren, dann überschreiben (Silver):** Snapshot und Stundendateien überlappen absichtlich; ein Fenster behält eine Zeile pro Buchungscode, und die Tabelle wird ersetzt, nicht ergänzt.
+
+```python
+# spark_jobs/silver_reservas.py (shortened)
+w = Window.partitionBy("code").orderBy(F.col("_version").desc(), F.col("_src").desc())
+latest = (raw.withColumn("_rn", F.row_number().over(w))
+          .filter("_rn = 1").drop("_rn", "_version", "_src"))
+…
+check(reservas, cancel)                          # fails the task before anything is written
+reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
+```
+
+**Upsert (Neon):**
+
+```sql
+INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+VALUES (%s, %s, %s, NOW())
+ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
+```
+
+## Selbst prüfen
+
+1. In der Airflow-UI einen beendeten Lauf von `bronze_neon_f2_f3` wählen und **Clear** drücken. Danach hat das Objekt `bronze/f3_reservations/fecha=…/hora=…/` dieselbe Größe und dieselben Zeilen.
+2. `silver_reservas_daily` zweimal hintereinander ausführen. In Athena liefert `SELECT code, COUNT(*) FROM silver.reservas GROUP BY code HAVING COUNT(*) > 1` keine Zeilen.
+3. `gold_neon_writeback` zweimal ausführen. In Neon behält `operation.cancellation_rate_by_lead` eine Zeile pro Hotel und Vorlaufklasse.
+
+Wie inkrementelles und Batch-Laden zusammenspielen, steht unter [Inkrementelles und Batch-Laden](./loading.mdx).

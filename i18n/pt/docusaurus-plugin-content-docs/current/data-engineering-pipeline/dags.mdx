@@ -77,3 +77,44 @@ hora   hora    bronze_f5_reviews (acumula as avaliações do dia)
 - `max_active_runs=1` no silver e no gold: duas execuções nunca sobrescrevem a mesma tabela ao mesmo tempo.
 - Novas tentativas: bronze de 2 a 6 vezes conforme a fonte; silver e gold 2 vezes, com 10 minutos entre elas e limite de 45 minutos.
 - DAGs novos não ficam pausados ao serem criados, então depois de um deploy tudo continua rodando.
+
+## O que cada DAG deixa no S3
+
+Cada DAG termina gravando no bucket `hospedaplus-lakehouse-buenavista` e publicando um Asset. É aqui que se olha depois de uma execução:
+
+| DAG | Resultado no S3 | Formato |
+| --- | --- | --- |
+| `bronze_neon_f2_f3` | `bronze/f2_ledger/fecha=…/hora=HH.jsonl`, `bronze/f3_reservations/…`, `bronze/f3_anomalies/…` | JSON Lines, um arquivo por hora |
+| `bronze_f5_reviews` | `bronze/f5_reviews/fecha=…/hora=HH.jsonl` | JSON Lines |
+| `bronze_f7_fx` | `bronze/f7_fx/fecha=YYYY-MM-DD.json` | JSON, como a API enviou |
+| `bronze_f6_holidays` | `bronze/f6_holidays/anio=YYYY/pais=XX.json` | JSON |
+| `bronze_f6_events` | `bronze/f6_events/fecha=….jsonl` | JSON Lines |
+| `bronze_neon_full_load` | `bronze/f3_{reservations,anomalies,inventory,relocations,rejections}_full/fecha=…/part-NNNNN.jsonl` + `_SUCCESS` | JSON Lines |
+| `bronze_neon_dims` | `bronze/neon_dims/<tabela>/fecha=….jsonl` | JSON Lines |
+| `bronze_f4_agencias` | nada novo: confere `bronze/f4_agencias/semana=YYYY-Www/` (15 arquivos + resumo) | CSV / Excel |
+| `bronze_f1_historical` | `bronze/f1_historical/hotel_bookings.csv` | CSV |
+| `silver_fx_daily` | `silver/tasa_cambio_diaria/` | Parquet |
+| `silver_reservas_daily` | `silver/reservas/` (particionada por `source`), `silver/cancelaciones/`, `silver/reservas_rechazadas/` | Parquet |
+| `silver_ocupacion_daily` | `silver/ocupacion_diaria/` | Parquet |
+| `silver_calendario_daily` | `silver/calendario_hotel/` | Parquet |
+| `silver_resenas_daily` | `silver/resenas/` | Parquet |
+| `silver_f1_historico` | `silver/historico_f1/` | Parquet |
+| `gold_modelo_daily` | `gold/dim_*`, `gold/fact_*`, `gold/mart_*` (15 tabelas) + `gold/neon_cancellation_rate_by_lead/` | Parquet + um JSON |
+| `gold_neon_writeback` | nada no S3: lê o JSON acima e faz upsert no Neon | – |
+
+## Por que muitos DAGs pequenos, e não um DAG por camada ou um só DAG de ETL
+
+Um desenho mais simples seria um DAG `silver` com seis tarefas em sequência, ou um único DAG de ETL `extrair → transformar → carregar`. Isso foi descartado de propósito:
+
+| Um DAG grande com tarefas em sequência | 17 DAGs encadeados por Assets (o que usamos) |
+| --- | --- |
+| Tudo compartilha um horário, mas as fontes não: F2/F3/F5 mudam a cada hora, F7 diariamente, F6 mensalmente, F4 semanalmente, F1 uma vez | Cada DAG de bronze roda no relógio da sua fonte |
+| Uma fonte que falha (uma API fora do ar) para ou atrasa todos os passos seguintes | A falha fica no seu DAG; os outros continuam e o silver espera só o que realmente precisa |
+| Tarefas em sequência rodam uma após a outra mesmo sem depender entre si (o câmbio não precisa das avaliações) | DAGs independentes rodam em paralelo nas 8 vagas dos workers |
+| Repetir uma tabela obriga a repetir toda a cadeia ou a limpar tarefas à mão | Cada tabela tem seu DAG: repete-se só `silver_resenas_daily`, e o gold começa sozinho se for preciso |
+| A ordem é fixada adivinhando tempos (`sleep`, ou "silver às 05:00") | Silver e gold começam quando os dados que leem **foram realmente gravados** (eventos de Asset), com regras `&` / `|` |
+| As reservas horárias obrigariam a rodar a cadeia inteira 24 vezes por dia | Só `silver_reservas_daily` segue a cópia horária; o gold espera as entradas noturnas e roda uma vez |
+| Pesos diferentes em um DAG (bronze leve, Spark pesado) são mais difíceis de mandar para workers diferentes | Uma fila por camada: o bronze nunca espera atrás de um job Spark |
+
+Em resumo: **um DAG por fonte no bronze e um por tabela no silver** seguem as dependências reais dos dados. Os Assets dão a ordem que um único DAG daria, sem o acoplamento. As dependências estão em [Executar os DAGs](./running-dags.mdx).
+

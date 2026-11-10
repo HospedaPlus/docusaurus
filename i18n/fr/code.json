@@ -512,10 +512,10 @@
     "message": "Où se trouve chaque source et comment s’y connecter."
   },
   "landing.section.architecture.title": {
-    "message": "Architecture et infrastructure"
+    "message": "Architecture"
   },
   "landing.section.architecture.text": {
-    "message": "Comment les données sont ingérées, stockées et visualisées sur AWS."
+    "message": "L'architecture finale sur AWS et comment Airflow exécute le pipeline."
   },
   "landing.meta.title": {
     "message": "Bienvenue"
