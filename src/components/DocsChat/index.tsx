@@ -183,7 +183,9 @@ export default function DocsChat(): ReactNode {
   const [key, setKey] = useState("");
   const [draftKey, setDraftKey] = useState("");
   useEffect(
-    () => setKey(window.localStorage.getItem("hp-gemini-key") ?? ""),
+    () => {
+      setKey(window.localStorage.getItem("hp-gemini-key") ?? "");
+    },
     [],
   );
   const saveKey = (e: FormEvent) => {
@@ -211,7 +213,11 @@ export default function DocsChat(): ReactNode {
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(
-    () => end.current?.scrollIntoView({ behavior: "smooth" }),
+    () => {
+      // Block body on purpose: newer browsers return a Promise from
+      // scrollIntoView, and React would call it as a cleanup and crash.
+      end.current?.scrollIntoView({ behavior: "smooth" });
+    },
     [msgs, busy],
   );
 
