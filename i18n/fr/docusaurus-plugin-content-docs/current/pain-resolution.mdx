@@ -133,6 +133,117 @@ FROM hospedaplus_gold.fact_reservas
 GROUP BY source, channel_type;
 ```
 
+## Où chaque pain est résolu dans le pipeline
+
+Les tableaux ci-dessous indiquent, pour chaque pain, **dans quelle phase** la solution a lieu, **quel DAG** l'exécute et **dans quel fichier et quelle fonction** se trouve le code. Tous les chemins sont dans le dépôt [hospedaplus-pipeline](https://github.com/HospedaPlus/hospedaplus-pipeline), sauf les fonctions Neon, qui sont dans [db_simulated](https://github.com/HospedaPlus/db_simulated).
+
+Certains pains sont résolus **à la source** (dans Neon, avant que les données arrivent au lake) et d'autres **dans le pipeline** (silver ou gold). P1 est résolu dans les deux : le pipeline calcule le taux puis le réécrit dans la source.
+
+### P1 · Annulations
+
+| Phase | DAG | Fichier · fonction | Ce qui se passe |
+| --- | --- | --- | --- |
+| Bronze | `bronze_neon_f2_f3` (toutes les heures) et `bronze_neon_full_load` (03:00 UTC) | `dags/bronze_neon_f2_f3.py`, `dags/bronze_neon_full_load.py` | Copie les réservations, avec leur statut et leur date d'annulation, de Neon vers `bronze/` |
+| Silver | `silver_reservas_daily` | `spark_jobs/silver_reservas.py` | Calcule les heures avant le check-in de chaque annulation et sa tranche d'anticipation → `silver/cancelaciones` |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p1_cancelacion()` | Taux par canal × tranche × remboursable × mois, avec le revenu perdu |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `neon_cancellation_rates()` | Taux par hôtel et tranche sur les séjours de la dernière année → `gold/neon_cancellation_rates.json` |
+| Write-back | `gold_neon_writeback` | `dags/gold_neon_writeback.py` · `upsert()` | `INSERT … ON CONFLICT (hotel_code, lead_bucket) DO UPDATE` dans `operation.cancellation_rate_by_lead` |
+
+```python
+# spark_jobs/gold_modelo.py
+def mart_p1_cancelacion(fr):
+    return (fr.withColumn("anio_mes", F.date_format("check_in", "yyyy-MM"))
+            .groupBy("channel_code", "channel_type", "rango_anticipacion", "reembolsable", "anio_mes")
+            .agg(F.count("*").alias("reservas"),
+                 F.sum(F.col("es_cancelada").cast("int")).alias("canceladas"), ...)
+            .withColumn("tasa_cancelacion", F.round(F.col("canceladas") / F.col("reservas"), 4)))
+```
+
+**Exemple.** Une réservation OTA pour le 15 novembre est annulée le 13 novembre à 10:00. Silver calcule 53 heures avant le check-in (15:00) et la place dans la tranche `"1-3 dias"`. Cette nuit-là, gold la compte dans la ligne de son canal de `mart_p1_cancelacion`. Ensuite `gold_neon_writeback` met à jour le taux de cet hôtel dans Neon, et l'exploitation le voit le lendemain matin.
+
+### P2 · Surréservation
+
+| Phase | Où | Fichier · fonction | Ce qui se passe |
+| --- | --- | --- | --- |
+| Source (OLTP) | Neon, appelée par F2, F3 et F4 | `db_simulated` · `operation.reservar()` | Verrouille les nuits avec `SELECT … FOR UPDATE` ; refuse la réservation si une nuit n'a plus de chambre et l'enregistre dans `reservation_rejections` |
+| Source (OLTP) | Neon | `db_simulated` · `operation.refresh_overbooking_limits()` | Recalcule `overbooking_limit` à partir des taux de P1 ; 0 les nuits d'événement à fort impact |
+| Write-back | `gold_neon_writeback` | `dags/gold_neon_writeback.py` | Appelle `refresh_overbooking_limits()` seulement si `NEON_REFRESH_OVERBOOKING=true` (désactivé aujourd'hui) |
+| Silver | `silver_ocupacion_daily` | `spark_jobs/silver_ocupacion.py` | Inventaire, relogements et refus par hôtel, type de chambre et nuit |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p2_sobreventa()` | Chambres vendues au-delà de la capacité, relogements, refus et % relogé |
+
+**Exemple.** Deux canaux essaient de vendre la dernière chambre Deluxe de la même nuit à la même seconde. Le premier appel à `reservar()` verrouille cette ligne d'inventaire ; le second attend, trouve `available_rooms = 0`, est refusé et arrive dans `reservation_rejections`. La nuit suivante, `mart_p2_sobreventa` montre une chambre refusée et zéro chambre vendue en trop.
+
+### P3 · Prix
+
+| Phase | DAG | Fichier · fonction | Ce qui se passe |
+| --- | --- | --- | --- |
+| Bronze | `bronze_f6_holidays`, `bronze_f6_events`, `bronze_f7_fx`, `bronze_neon_dims` | `dags/bronze_f6_*.py`, `dags/bronze_f7_fx.py`, `dags/bronze_neon_dims.py` | Jours fériés, événements locaux, taux de change et tarifs de base |
+| Silver | `silver_calendario_daily`, `silver_fx_daily`, `silver_ocupacion_daily` | `spark_jobs/silver_calendario.py`, `silver_fx.py`, `silver_ocupacion.py` | Calendrier par hôtel avec marqueurs férié/événement, un taux par devise et par jour, occupation par nuit |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p3_revenue()`, `on_the_books()` | Occupation, ADR, RevPAR et pickup par rapport au même jour de la semaine l'an dernier |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p3_precio_sugerido()` | Prix suggéré pour les 90 prochaines nuits ; `check()` fait échouer l'exécution si un prix sort de la bande RN-06 |
+
+```python
+# spark_jobs/gold_modelo.py · mart_p3_precio_sugerido()
+.withColumn("factor_pickup", F.when(F.col("pickup_pct") > PICKUP_THRESHOLD_PCT, PICKUP_ABOVE)   # 1.10
+            .when(F.col("pickup_pct") < -PICKUP_THRESHOLD_PCT, PICKUP_BELOW).otherwise(1.0))   # 0.92
+.withColumn("precio_sugerido", F.round(F.least(F.col("tarifa_base") * PRICE_CAP,               # 1.60
+            F.greatest(F.col("tarifa_base") * PRICE_FLOOR,                                     # 0.75
+                       F.col("tarifa") * F.col("factor_pickup") * F.col("factor_evento"))), 2))
+```
+
+**Exemple.** Une chambre Deluxe a un tarif de base de 560 000 COP. Pour une nuit avec un événement local, 14 jours avant, il y a 20 % de chambres réservées de plus que l'an dernier. La suggestion est 560 000 × 1,10 × 1,15 = 708 400 COP, dans la bande (420 000 à 896 000).
+
+### P4 · Commissions
+
+| Phase | DAG | Fichier · fonction | Ce qui se passe |
+| --- | --- | --- | --- |
+| Bronze | `bronze_neon_dims`, `bronze_f7_fx` | `dags/bronze_neon_dims.py`, `dags/bronze_f7_fx.py` | Canaux avec leur `commission_pct` et les taux de change |
+| Silver | `silver_reservas_daily` | `spark_jobs/silver_reservas.py` | Convertit en COP et déduit la commission : `comision_cop`, `neto_cop` |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p4_comisiones()` | Brut, commission et net par canal × hôtel × mois, avec le % effectif |
+
+```python
+# spark_jobs/silver_reservas.py
+.withColumn("comision_cop", F.round(F.col("total_cop") * F.col("comision_pct") / 100, 2))
+.withColumn("neto_cop", F.col("total_cop") - F.col("comision_cop"))
+```
+
+**Exemple.** Un séjour de 1 680 000 COP vendu par une OTA avec 18 % de commission laisse 302 400 COP de commission et 1 377 600 COP net. Le même séjour sur le site propre (0 %) laisse les 1 680 000 COP entiers, et `mart_p4_comisiones` montre cette différence par canal.
+
+### P5 · Avis
+
+| Phase | DAG | Fichier · fonction | Ce qui se passe |
+| --- | --- | --- | --- |
+| Bronze | `bronze_f5_reviews` (toutes les heures) | `dags/bronze_f5_reviews.py` | Lit l'API des avis de façon incrémentale avec `updated_from` |
+| Silver | `silver_resenas_daily` | `spark_jobs/silver_resenas.py` | Garde la version la plus récente de chaque avis, retire le même avis publié sur une autre plateforme et ajoute le sentiment |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p5_reputacion()` | Note RN-10 : 90 jours, les 30 derniers comptent double ; % positifs et négatifs |
+
+```python
+# spark_jobs/silver_resenas.py
+key = ["hotel_code", "fecha_estadia", "puntaje", "_texto_norm"]
+w_dup = Window.partitionBy(*key).orderBy("publicada_en", "review_id")   # first one wins
+```
+
+**Exemple.** Un client publie le même texte à 2 étoiles sur deux plateformes. Silver garde le premier, note dans `duplicados` qu'il y avait 2 copies et le marque `negativo`. Dans gold, il compte une seule fois dans le `pct_negativas` de l'hôtel.
+
+### Vue unique des réservations
+
+| Phase | Où | Fichier · fonction | Ce qui se passe |
+| --- | --- | --- | --- |
+| Source (OLTP) | Neon | `db_simulated` · `operation.reservar()` | F2, F3 et F4 réservent dans les mêmes tables ; une réservation d'agence répétée prend le statut `duplicate` |
+| Silver | `silver_reservas_daily` | `spark_jobs/silver_reservas.py` | La version la plus récente de chaque réservation, les mêmes colonnes pour tous les canaux, `es_duplicado` |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `fact_reservas()` | `filter("NOT es_duplicado")` : les doublons ne sont jamais comptés |
+
+## Exemple : une réservation du début à la fin
+
+Voici comment une réservation passe par chaque phase, et où elle aide chaque pain.
+
+1. **Source (14:02 UTC).** Une OTA envoie une réservation par Kafka. Le `neon-consumer` appelle `operation.reservar()`, qui verrouille les nuits et enregistre la réservation (P2).
+2. **Bronze (15:00 UTC).** `bronze_neon_f2_f3` copie les réservations de l'intervalle 14:00–15:00 dans `bronze/f3_reservations/fecha=2026-11-10/hora=14.jsonl`.
+3. **Silver (après bronze).** `silver_reservas_daily` démarre tout seul grâce à son Asset. Il convertit le montant en COP, déduit la commission (P4) et garde une ligne par réservation (vue unique).
+4. **Gold (~03:35 UTC).** `gold_modelo_daily` ajoute la réservation à `fact_reservas`, à l'occupation et au pickup de la nuit (P3), et aux taux d'annulation si elle est annulée plus tard (P1).
+5. **Write-back.** `gold_neon_writeback` met à jour `operation.cancellation_rate_by_lead` dans Neon (P1).
+6. **Analyse.** Power BI lit gold par Athena, et le Revenue Manager voit le résultat avant 06:00.
+
 ## Comment ouvrir ces résultats
 
 1. **Athena** : console AWS, région us-east-2 → Athena → *Query editor* → base `hospedaplus_gold`, puis exécutez l'une des requêtes ci-dessus. Mise en place dans [Configuration d'Athena](./data-engineering-pipeline/athena.mdx).
