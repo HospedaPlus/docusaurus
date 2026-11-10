@@ -367,7 +367,7 @@ export function GitHubActionsLogo({size = 32}: LogoProps): ReactNode {
 export function KafkaLogo({size = 30}: LogoProps): ReactNode {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <g fill="none" stroke="#231f20" strokeWidth="2">
+      <g fill="none" stroke="var(--hp-kafka, #231f20)" strokeWidth="2">
         <circle cx="16" cy="6" r="3" />
         <circle cx="16" cy="16" r="3.6" />
         <circle cx="16" cy="26" r="3" />
