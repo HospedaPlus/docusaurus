@@ -1,9 +1,9 @@
 import type {ReactNode} from 'react';
 
 const SRC =
-  'https://app.powerbi.com/reportEmbed?reportId=9995c244-7e38-4982-aa98-dbe82347573f&autoAuth=true&ctid=bab0b679-bd5f-4fe8-b516-c6b8b317c782&actionBarEnabled=true';
+  'https://app.powerbi.com/view?r=eyJrIjoiZjUyN2E3MTUtNjYyMS00Zjc0LTgyNmYtNjUwMGZhM2UzNGViIiwidCI6ImJhYjBiNjc5LWJkNWYtNGZlOC1iNTE2LWM2YjhiMzE3Yzc4MiIsImMiOjR9';
 
-/** Secure Power BI embed: viewers must sign in with an account that has access to the report. */
+/** Power BI report published to the web: anyone can see it without signing in. */
 export default function PowerBiEmbed(): ReactNode {
   return (
     <div style={{position: 'relative', width: '100%', aspectRatio: '16 / 9', margin: '1rem 0 1.5rem'}}>
