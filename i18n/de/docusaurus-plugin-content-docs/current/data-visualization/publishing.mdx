@@ -1,0 +1,40 @@
+---
+sidebar_position: 4
+sidebar_label: Veröffentlichung und Aktualisierung
+title: Veröffentlichung und automatische Aktualisierung
+---
+
+# Veröffentlichung und automatische Aktualisierung
+
+**Status:** veröffentlicht und seit dem 9. November 2026 automatisch aktualisiert.
+
+| Punkt | Einrichtung |
+| --- | --- |
+| Veröffentlicht in | Power BI Service, *Mein Arbeitsbereich* des Organisationskontos des Projekts (es veröffentlicht den Bericht und besitzt das Gateway) |
+| Öffnen | [Bericht HospedaPlus_Revenue](https://app.powerbi.com/groups/me/reports/7e20788a-a93d-4598-8c59-927aefe49653), Anmeldung mit einem berechtigten Konto |
+| Gateway | On-premises data gateway `hospedaplus-gw`, **Standardmodus**, installiert auf dem Entwicklungs-PC (der den Athena-ODBC-Treiber schon hat) |
+| Gateway-Verbindung | `Athena hospedaplus_gold`, Typ ODBC, dieselbe Verbindungszeichenfolge wie das Modell, Standardauthentifizierung mit den Schlüsseln von `powerbi-reader` |
+| Zeitplan | Täglich um **05:00 Uhr kolumbianischer Zeit** (UTC−05:00), nach dem nächtlichen Gold-Lauf (~22:35). Fehler-E-Mails gehen an den Modellbesitzer |
+
+## So läuft eine geplante Aktualisierung
+
+```text
+Power BI Service ──(05:00 COT)──► gateway hospedaplus-gw ──► Athena ODBC driver
+        ▲                                                          │
+        └──────────── rows ◄── Athena reads gold Parquet in S3 ◄───┘
+```
+
+1. Power BI Service schickt den Aktualisierungsauftrag an `hospedaplus-gw`.
+2. Das Gateway führt die Abfrage jeder Tabelle über den Athena-ODBC-Treiber aus.
+3. Athena liest die Gold-Tabellen in S3.
+4. Die Zeilen gehen zurück an den Service, und der Bericht zeigt die neuen Daten.
+
+## Einschränkung
+
+Das Gateway läuft auf dem Entwicklungs-PC, dieser PC muss also um **05:00 Uhr eingeschaltet (oder im Ruhezustand) und online** sein. Ist er aus, schlägt die Aktualisierung des Tages fehl und der Bericht behält die Daten vom Vortag. Das Gateway kann nicht auf den EC2-Maschinen des Projekts laufen: Sie sind Linux, und das Gateway läuft nur unter Windows.
+
+## Sicherheit
+
+- Das Repository enthält keine AWS-Schlüssel, Neon-Passwörter oder den Gateway-Wiederherstellungsschlüssel.
+- Der Zugriff von Power BI auf AWS ist **nur lesend** (`powerbi-reader`).
+- Werden die Schlüssel rotiert, aktualisiert man sie in Power BI Desktop (*Datenquelleneinstellungen*) und in der Gateway-Verbindung im Service.

@@ -1,0 +1,40 @@
+---
+sidebar_position: 4
+sidebar_label: Publishing and refresh
+title: Publishing and automatic refresh
+---
+
+# Publishing and automatic refresh
+
+**Status:** published and refreshing automatically since 9 November 2026.
+
+| Item | Setup |
+| --- | --- |
+| Published in | Power BI Service, *My workspace* of the project's organizational account (it publishes the report and owns the gateway) |
+| Open it | [HospedaPlus_Revenue report](https://app.powerbi.com/groups/me/reports/7e20788a-a93d-4598-8c59-927aefe49653), signing in with an account that has access |
+| Gateway | On-premises data gateway `hospedaplus-gw`, **standard mode**, installed on the development PC (the one that already has the Athena ODBC driver) |
+| Gateway connection | `Athena hospedaplus_gold`, type ODBC, same connection string as the model, Basic authentication with the `powerbi-reader` keys |
+| Schedule | Every day at **05:00 Colombia time** (UTC−05:00), after the nightly gold run (~22:35). Failure emails go to the model owner |
+
+## How a scheduled refresh works
+
+```text
+Power BI Service ──(05:00 COT)──► gateway hospedaplus-gw ──► Athena ODBC driver
+        ▲                                                          │
+        └──────────── rows ◄── Athena reads gold Parquet in S3 ◄───┘
+```
+
+1. Power BI Service sends the refresh order to `hospedaplus-gw`.
+2. The gateway runs each table's query through the Athena ODBC driver.
+3. Athena reads the gold tables in S3.
+4. The rows go back to the Service, and the report shows the new data.
+
+## Limitation
+
+The gateway runs on the development PC, so that PC must be **on (or asleep) and online at 05:00**. If it is off, that day's refresh fails and the report keeps the previous day's data. The gateway cannot run on the project's EC2 machines: they are Linux and the gateway only runs on Windows.
+
+## Security
+
+- The repository holds no AWS keys, Neon passwords or gateway recovery key.
+- Power BI's access to AWS is **read-only** (`powerbi-reader`).
+- If the keys are rotated, update them in Power BI Desktop (*Data source settings*) and in the gateway connection in the Service.

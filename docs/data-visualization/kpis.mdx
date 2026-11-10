@@ -1,0 +1,47 @@
+---
+sidebar_position: 2
+sidebar_label: KPIs and measures
+title: KPIs and measures
+---
+
+# KPIs and measures
+
+All measures live in the `_Medidas` table of the model, grouped in folders: Occupancy, Revenue, Capacity, Bookings, Channels, Reputation, Pricing and Portfolio.
+
+| KPI (measure) | Formula | Gold source |
+| --- | --- | --- |
+| **Occupancy %** | Rooms sold ÷ rooms available | `fact_ocupacion_diaria` |
+| **ADR** (average daily rate) | Room revenue ÷ rooms sold | `fact_ocupacion_diaria` |
+| **RevPAR** | Room revenue ÷ rooms available | `fact_ocupacion_diaria` |
+| **Cancellation Rate** | Cancelled bookings ÷ bookings | `fact_reservas` |
+| **Lost Revenue** | Σ max(0, total − penalty) over cancelled bookings | `fact_reservas` |
+| **Rejected Rooms** / **Rejection Rate** | Rooms rejected for lack of availability ÷ (sold + rejected) | `fact_ocupacion_diaria` |
+| **Relocated Rooms** | Rooms relocated to another hotel | `fact_ocupacion_diaria` |
+| **Gross / Net Revenue**, **Commission** | Total, net and commission of **non-cancelled** bookings | `fact_reservas` |
+| **Effective Commission %** | Commission ÷ gross revenue | `fact_reservas` |
+| **Avg Suggested Price** / **Avg Current Rate** | Average suggested price (rules RN-05/RN-06) and average current rate | `mart_p3_precio_sugerido` |
+| **Suggested vs Current %** | (Σ suggested price − Σ rate) ÷ Σ rate | `mart_p3_precio_sugerido` |
+| **Pickup %** | Rooms booked 14 days before each night vs. the same night last year (364 days). Only nights with last-year data whose 14-day window has closed | `mart_p3_revenue` |
+| **Pickup Period** | Range of nights included in Pickup % | `mart_p3_revenue` |
+| **Guest Rating** (RN-10) | Average rating (1–5) at the latest cutoff date | `mart_p5_reputacion` |
+| **% Positive** | Positive reviews ÷ all reviews | `fact_resenas` |
+
+## Why "past dates only"
+
+`dim_fecha` reaches one year into the future, and future nights still have few bookings. Mixing them with past nights lowers occupancy artificially (13.4 % instead of 21.7 % in the snapshot below). That is why the Executive summary and the P1, P2, P4 and P5 cards filter `dim_fecha[periodo] = "Ocurrido"` (occurred). P3 does use future nights, because it is about upcoming prices.
+
+## Validation snapshot (data as of 8 November 2026)
+
+These are **not fixed values**: the pipeline loads new data every night and the report refreshes every morning, so most figures change daily. The table was used once to check that the report matched its source tables; the live values are always the ones in the report.
+
+| Item | Value on 8 Nov 2026 | How it changes | Check |
+| --- | --- | --- | --- |
+| Hotels / rooms | 28 / 4,000 | Fixed unless hotels are added | `dim_hotel` |
+| Bookings | 197,101 | Grows every day | F2 OTA 4,520 · F3 direct 162,419 + corporate 29,979 · F4 agencies 183 |
+| Cancellation rate (all history) | 38.1 % | With new bookings and cancellations | Matches `mart_p1_cancelacion` |
+| Cancelled / lost revenue | 75,123 / COP 115,905 M | Grows every day | Matches `fact_cancelaciones` |
+| Rejected rooms | 557 | Grows when there is no availability | Matches `mart_p2_sobreventa` |
+| Occupancy to date | 21.7 % | Daily: one more night becomes "past" | Past nights only |
+| Pickup vs. last year | +12.1 % | Daily: the compared nights move forward | 35,672 vs. 31,829 rooms, nights 27 Sep – 19 Nov 2026 |
+| Effective commission | 0.4 % | With the channel mix | ~82 % of bookings are direct (0 % commission) |
+| RN-10 rating | 3.89 / 5 | At each new cutoff date | Cutoff 2026-11-05 |
