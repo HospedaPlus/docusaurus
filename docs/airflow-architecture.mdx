@@ -1,0 +1,61 @@
+---
+sidebar_position: 5
+sidebar_label: Airflow Architecture
+title: Airflow Architecture
+---
+
+import DiagramFigure from '@site/src/components/DiagramFigure';
+
+# Airflow Architecture
+
+Two EC2 machines with Docker Compose run the whole pipeline: the **core** (Airflow 3.1.5, its metadata database, RabbitMQ and Flower) and the **workers** (three Celery workers with Spark in local mode). 17 DAGs are chained by **Assets** and write the data lake in S3 as Parquet; the catalog is created with Athena DDL.
+
+<DiagramFigure
+  src="/img/architecture/hospedaplus-airflow-architecture.png"
+  alt="HospedaPlus Airflow architecture"
+  fileName="hospedaplus-airflow-architecture.png"
+/>
+
+## The two machines
+
+| | Core EC2 | Workers EC2 |
+| --- | --- | --- |
+| Type | t3.medium · 30 GB · `sg-nucleo` | t3.xlarge (4 vCPU, 16 GB) · 50 GB · `sg-workers` |
+| Compose file | `docker-compose.nucleo.yaml` | `docker-compose.workers.yaml` |
+| Runs | Airflow 3.1.5 (API server, scheduler, DAG processor, triggerer), PostgreSQL (Airflow metadata), RabbitMQ (queues `bronze`, `silver`, `gold`), Flower (`:5555`) | Celery worker `bronze` (4 tasks at a time), `silver` (2), `gold` (2), each with Spark 3.5 inside |
+| DAGs | `dags/` folder, the same repo on both machines | same |
+
+## How an order travels
+
+1. The **scheduler** on the core decides a task must run and puts it on its queue in **RabbitMQ** (`bronze`, `silver` or `gold`).
+2. The worker listening on that queue takes it and runs it: plain Python for bronze, a Spark job for silver and gold.
+3. The worker reports the task state to the **API server** on the core's private IP, and writes the task log to `s3://…/airflow-logs/` so the UI can show it.
+4. When the task finishes it publishes its **Asset**, and the scheduler starts every DAG that was waiting for it.
+
+## Sources and outputs
+
+| Source | How it reaches bronze |
+| --- | --- |
+| F1 Kaggle | `hotel_bookings.csv` from the `hospedaplus-csv` repo, manual, once |
+| F2 Channel Manager | Kafka → consumer → Neon (`streaming`); Airflow copies it from Neon every hour |
+| F3 PostgreSQL (Neon) | Schema `operation`, role `etl_reader` (production), every hour + full copy at 03:00 |
+| F4 Agencies | `f4-weekly` (sources EC2) drops the files in `bronze/f4_agencias` on Monday 06:00; the DAG checks them at 07:00 |
+| F5 Reviews | The team's REST API (FastAPI), incremental every hour |
+| F6 Holidays and events | Nager.Date (day 1 of each month); local events from Neon (daily) |
+| F7 Exchange rates | Frankfurter (REST), daily 01:00 UTC |
+
+The outputs are `bronze/` (raw by source and date, F2 ledger), `silver/` (Parquet, clean and without duplicates) and `gold/` (Parquet: `dim_`, `fact_`, `mart_`, plus `neon_*.json`). Athena reads only `gold/` (and `silver/` for checks), Power BI reads Athena over ODBC with `powerbi-reader`, and `gold_neon_writeback` writes the cancellation rates to Neon with `app_writer`.
+
+## DAG groups
+
+| Group | DAGs | Queue | Started by |
+| --- | --- | --- | --- |
+| Bronze | 9: f1 manual · f4 Monday 07:00 · f5 hourly · f6 holidays day 1 · f6 events 02:30 · f7 fx 01:00 · neon_f2_f3 hourly · neon_dims 03:15 · neon_full_load 03:00 | `bronze` | a clock (UTC) |
+| Silver | 6: fx · reservas · ocupacion · calendario · resenas (03:30) · historico F1 | `silver` | Assets |
+| Gold | 2: `gold_modelo_daily` (4 dim_, 4 fact_, 7 mart_) → `gold_neon_writeback` | `gold` | Assets |
+
+Every DAG publishes an Asset when it ends and the next starts by itself; `catchup=False`. What each DAG does and when: [DAGs and schedule](./data-engineering-pipeline/dags.mdx). Workers, jobs and memory: [Compute and resources](./data-engineering-pipeline/compute-resources.mdx).
+
+## Why Spark local and not a cluster
+
+Spark 3.5 runs inside the worker container (`local[*]`) and reads and writes S3 with `s3a://` and the EC2 IAM role. No cluster or Fargate: the t3.xlarge (4 vCPU, 16 GB) is enough for ~200,000 bookings, and the same code can move to a cluster by changing `SPARK_MASTER`.

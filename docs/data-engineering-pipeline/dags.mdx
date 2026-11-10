@@ -77,3 +77,44 @@ hour   hour    bronze_f5_reviews (accumulates the day's reviews)
 - `max_active_runs=1` on silver and gold: two runs never overwrite the same table at once.
 - Retries: bronze 2–6 times depending on the source; silver and gold 2 times, 10 minutes apart, with a 45-minute timeout.
 - New DAGs are not paused at creation, so after a deploy everything keeps running.
+
+## What each DAG leaves in S3
+
+Every DAG ends by writing to the bucket `hospedaplus-lakehouse-buenavista` and publishing an Asset. This is where to look after a run:
+
+| DAG | Result in S3 | Format |
+| --- | --- | --- |
+| `bronze_neon_f2_f3` | `bronze/f2_ledger/fecha=…/hora=HH.jsonl`, `bronze/f3_reservations/…`, `bronze/f3_anomalies/…` | JSON Lines, one file per hour |
+| `bronze_f5_reviews` | `bronze/f5_reviews/fecha=…/hora=HH.jsonl` | JSON Lines |
+| `bronze_f7_fx` | `bronze/f7_fx/fecha=YYYY-MM-DD.json` | JSON, as the API sent it |
+| `bronze_f6_holidays` | `bronze/f6_holidays/anio=YYYY/pais=XX.json` | JSON |
+| `bronze_f6_events` | `bronze/f6_events/fecha=….jsonl` | JSON Lines |
+| `bronze_neon_full_load` | `bronze/f3_{reservations,anomalies,inventory,relocations,rejections}_full/fecha=…/part-NNNNN.jsonl` + `_SUCCESS` | JSON Lines |
+| `bronze_neon_dims` | `bronze/neon_dims/<table>/fecha=….jsonl` | JSON Lines |
+| `bronze_f4_agencias` | nothing new: checks `bronze/f4_agencias/semana=YYYY-Www/` (15 files + summary) | CSV / Excel |
+| `bronze_f1_historical` | `bronze/f1_historical/hotel_bookings.csv` | CSV |
+| `silver_fx_daily` | `silver/tasa_cambio_diaria/` | Parquet |
+| `silver_reservas_daily` | `silver/reservas/` (partitioned by `source`), `silver/cancelaciones/`, `silver/reservas_rechazadas/` | Parquet |
+| `silver_ocupacion_daily` | `silver/ocupacion_diaria/` | Parquet |
+| `silver_calendario_daily` | `silver/calendario_hotel/` | Parquet |
+| `silver_resenas_daily` | `silver/resenas/` | Parquet |
+| `silver_f1_historico` | `silver/historico_f1/` | Parquet |
+| `gold_modelo_daily` | `gold/dim_*`, `gold/fact_*`, `gold/mart_*` (15 tables) + `gold/neon_cancellation_rate_by_lead/` | Parquet + one JSON |
+| `gold_neon_writeback` | nothing in S3: reads the JSON above and upserts it into Neon | – |
+
+## Why many small DAGs, and not one DAG per layer or one ETL DAG
+
+A simpler design would be one `silver` DAG with six tasks in a row, or a single ETL DAG `extract → transform → load`. It was ruled out on purpose:
+
+| One big DAG with tasks in a row | 17 DAGs chained by Assets (what we use) |
+| --- | --- |
+| Everything shares one schedule, but the sources do not: F2/F3/F5 change every hour, F7 daily, F6 monthly, F4 weekly, F1 once | Each bronze DAG runs on its own source's clock |
+| One failing source (an API down) stops or delays every other step after it | A failure stays in its DAG; the others keep running and silver waits only for what it really needs |
+| Tasks in a row run one after another even when they do not depend on each other (FX does not need reviews) | Independent DAGs run in parallel on the 8 worker slots |
+| Re-running one table means re-running the whole chain, or clearing tasks by hand | Each table has its own DAG: re-run `silver_resenas_daily` alone, and gold starts by itself if needed |
+| The order is fixed by time guesses (`sleep`, or "silver at 05:00") | Silver and gold start when the data they read was **actually written** (Asset events), with `&` / `|` rules |
+| Hourly bookings would force the whole chain to run 24 times a day | Only `silver_reservas_daily` follows the hourly copy; gold waits for the nightly inputs and runs once |
+| Different weights in one DAG (light bronze, heavy Spark) are harder to send to different workers | One queue per layer: bronze never waits behind a Spark job |
+
+In short: **one DAG per source in bronze and one per table in silver** match the real dependencies of the data. Assets give the order a single DAG would give, without its coupling. The dependencies are listed in [Running the DAGs](./running-dags.mdx).
+

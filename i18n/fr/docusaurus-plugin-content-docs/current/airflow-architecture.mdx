@@ -1,0 +1,61 @@
+---
+sidebar_position: 5
+sidebar_label: Architecture d'Airflow
+title: Architecture d'Airflow
+---
+
+import DiagramFigure from '@site/src/components/DiagramFigure';
+
+# Architecture d'Airflow
+
+Deux EC2 avec Docker Compose font tourner tout le pipeline : le **cœur** (Airflow 3.1.5, sa base de métadonnées, RabbitMQ et Flower) et les **workers** (trois workers Celery avec Spark en mode local). 17 DAGs sont enchaînés par des **Assets** et écrivent le data lake S3 en Parquet ; le catalogue est créé par Athena DDL.
+
+<DiagramFigure
+  src="/img/architecture/hospedaplus-airflow-architecture.png"
+  alt="Architecture d'Airflow de HospedaPlus"
+  fileName="hospedaplus-airflow-architecture.png"
+/>
+
+## Les deux machines
+
+| | EC2 cœur | EC2 workers |
+| --- | --- | --- |
+| Type | t3.medium · 30 Go · `sg-nucleo` | t3.xlarge (4 vCPU, 16 Go) · 50 Go · `sg-workers` |
+| Fichier compose | `docker-compose.nucleo.yaml` | `docker-compose.workers.yaml` |
+| Exécute | Airflow 3.1.5 (API server, scheduler, DAG processor, triggerer), PostgreSQL (métadonnées Airflow), RabbitMQ (files `bronze`, `silver`, `gold`), Flower (`:5555`) | Worker Celery `bronze` (4 tâches à la fois), `silver` (2), `gold` (2), chacun avec Spark 3.5 à l'intérieur |
+| DAGs | dossier `dags/`, le même dépôt sur les deux machines | idem |
+
+## Comment circule un ordre
+
+1. Le **scheduler** du cœur décide qu'une tâche doit tourner et la place dans sa file **RabbitMQ** (`bronze`, `silver` ou `gold`).
+2. Le worker qui écoute cette file la prend et l'exécute : Python simple pour bronze, un job Spark pour silver et gold.
+3. Le worker renvoie l'état de la tâche à l'**API server** par l'IP privée du cœur et écrit le log dans `s3://…/airflow-logs/` pour que l'UI l'affiche.
+4. À la fin, la tâche publie son **Asset** et le scheduler démarre tous les DAGs qui l'attendaient.
+
+## Sources et sorties
+
+| Source | Comment elle arrive en bronze |
+| --- | --- |
+| F1 Kaggle | `hotel_bookings.csv` du dépôt `hospedaplus-csv`, manuel, une fois |
+| F2 Channel Manager | Kafka → consommateur → Neon (`streaming`) ; Airflow le copie depuis Neon chaque heure |
+| F3 PostgreSQL (Neon) | Schéma `operation`, rôle `etl_reader` (production), chaque heure + chargement complet à 03:00 |
+| F4 Agences | `f4-weekly` (EC2 des sources) dépose les fichiers dans `bronze/f4_agencias` le lundi à 06:00 ; le DAG les vérifie à 07:00 |
+| F5 Avis | L'API REST de l'équipe (FastAPI), incrémental chaque heure |
+| F6 Jours fériés et événements | Nager.Date (le 1er de chaque mois) ; événements locaux depuis Neon (quotidien) |
+| F7 Taux de change | Frankfurter (REST), quotidien à 01:00 UTC |
+
+Les sorties sont `bronze/` (brut par source et date, ledger F2), `silver/` (Parquet, propre et sans doublons) et `gold/` (Parquet : `dim_`, `fact_`, `mart_`, plus `neon_*.json`). Athena lit seulement `gold/` (et `silver/` pour les contrôles), Power BI lit Athena via ODBC avec `powerbi-reader`, et `gold_neon_writeback` écrit les taux d'annulation dans Neon avec `app_writer`.
+
+## Groupes de DAGs
+
+| Groupe | DAGs | File | Déclenché par |
+| --- | --- | --- | --- |
+| Bronze | 9 : f1 manuel · f4 lundi 07:00 · f5 chaque heure · f6 fériés le 1er · f6 événements 02:30 · f7 fx 01:00 · neon_f2_f3 chaque heure · neon_dims 03:15 · neon_full_load 03:00 | `bronze` | une horloge (UTC) |
+| Silver | 6 : fx · reservas · ocupacion · calendario · resenas (03:30) · historique F1 | `silver` | Assets |
+| Gold | 2 : `gold_modelo_daily` (4 dim_, 4 fact_, 7 mart_) → `gold_neon_writeback` | `gold` | Assets |
+
+Chaque DAG publie un Asset à la fin et le suivant démarre seul ; `catchup=False`. Ce que fait chaque DAG et quand : [DAGs et planification](./data-engineering-pipeline/dags.mdx). Workers, jobs et mémoire : [Calcul et ressources](./data-engineering-pipeline/compute-resources.mdx).
+
+## Pourquoi Spark local et pas un cluster
+
+Spark 3.5 tourne dans le conteneur du worker (`local[*]`) et lit et écrit S3 avec `s3a://` et le rôle IAM de l'EC2. Ni cluster ni Fargate : le t3.xlarge (4 vCPU, 16 Go) suffit pour ~200 000 réservations, et le même code peut passer sur un cluster en changeant `SPARK_MASTER`.

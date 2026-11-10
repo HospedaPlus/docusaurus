@@ -59,8 +59,8 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'data-access/f7-exchange-rates', className: 'source-icon source-icon-currency source-tone-teal'},
       ],
     },
-    'architecture-infrastructure',
     'architecture-v2',
+    'airflow-architecture',
     {
       type: 'html',
       value: engineeringTitles[locale] ?? engineeringTitles.en,
@@ -77,6 +77,8 @@ const sidebars: SidebarsConfig = {
         'data-engineering-pipeline/aws-services',
         'data-engineering-pipeline/neon-connection',
         'data-engineering-pipeline/loading',
+        'data-engineering-pipeline/idempotency',
+        'data-engineering-pipeline/compute-resources',
         {
           type: 'category',
           label: 'Medallion architecture',

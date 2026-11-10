@@ -1,0 +1,71 @@
+---
+sidebar_position: 5
+sidebar_label: Idempotence
+title: "Idempotence : pourquoi et comment"
+---
+
+# Idempotence : pourquoi et comment
+
+Une tâche est **idempotente** quand l'exécuter une ou dix fois laisse exactement le même résultat. Dans ce pipeline, n'importe quel DAG peut être relancé à tout moment (une nouvelle tentative, un *Clear* manuel, un backfill d'une heure manquée) et le lac reste identique, sans lignes en double ni tables à moitié écrites.
+
+## Pourquoi c'est important ici
+
+- **Les nouvelles tentatives sont automatiques.** Chaque DAG réessaie en cas d'échec (bronze jusqu'à 3–6 fois, silver et gold 2 fois). Une nouvelle tentative ne doit pas ajouter deux fois les mêmes lignes.
+- **Des heures sont rejouées.** Si Neon ou une API était indisponible, l'heure manquée est relancée avec `airflow backfill` ou *Clear*. Elle doit remplacer cette heure, pas s'y ajouter.
+- **Silver et gold alimentent des décisions.** Une réservation comptée deux fois change le taux d'annulation, l'ADR et la limite de surréservation renvoyée à Neon.
+
+## Comment c'est garanti, couche par couche
+
+| Où | Technique | Résultat d'une relance |
+| --- | --- | --- |
+| Bronze, chaque heure (Neon, F5) | La clé S3 dépend seulement de la source et de l'**intervalle de données** (`fecha=…/hora=HH`), et la requête lit exactement `[début, fin)` de cet intervalle | Le même objet est écrasé avec les mêmes lignes |
+| Bronze, quotidien/mensuel (F6, F7, catalogues) | Clé par date (`fecha=YYYY-MM-DD.json`, `anio=…/pais=…`) | Même objet écrasé |
+| Bronze, instantané nocturne | Une transaction `REPEATABLE READ`, parties restantes supprimées, `_SUCCESS` écrit en dernier ; silver ne lit que les dossiers avec `_SUCCESS` | Une copie échouée à mi-chemin n'est jamais lue ; la nouvelle tentative l'écrase |
+| Bronze, F1 | sha256 enregistré dans les métadonnées de l'objet | Si le fichier est déjà là avec le même hash, rien n'est envoyé |
+| Silver | Reconstruit **entièrement** depuis bronze, une ligne par clé (la version la plus récente gagne), puis `mode("overwrite")` | Même entrée → même table, jamais d'ajout |
+| Gold | Reconstruit entièrement depuis silver et écrasé, après `check()` | Comme silver |
+| Write-back vers Neon | `INSERT … ON CONFLICT (hotel_code, lead_bucket) DO UPDATE` dans une transaction | La ligne est remplacée, jamais dupliquée |
+| Réservations dans Neon (OLTP) | `reservar()` vérifie `(canal, external_code)` après avoir verrouillé les nuits | Une demande répétée renvoie `already_exists`, pas une seconde réservation |
+| Concurrence | `max_active_runs=1` sur silver et gold | Deux exécutions n'écrivent jamais la même table en même temps |
+
+## En code
+
+**Clé par intervalle (bronze) :** l'heure dans la clé est le début de l'intervalle Airflow, pas « maintenant » : relancer l'exécution de 14:00 écrit toujours `hora=14`.
+
+```python
+def _key(prefix: str, start) -> str:
+    return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
+
+body, n = dump("SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s",
+               (data_interval_start, data_interval_end))
+put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
+```
+
+**Dédoublonner puis écraser (silver) :** l'instantané et les fichiers horaires se chevauchent volontairement ; une fenêtre garde une ligne par code de réservation, et la table est remplacée, pas complétée.
+
+```python
+# spark_jobs/silver_reservas.py (shortened)
+w = Window.partitionBy("code").orderBy(F.col("_version").desc(), F.col("_src").desc())
+latest = (raw.withColumn("_rn", F.row_number().over(w))
+          .filter("_rn = 1").drop("_rn", "_version", "_src"))
+…
+check(reservas, cancel)                          # fails the task before anything is written
+reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
+```
+
+**Upsert (Neon) :**
+
+```sql
+INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+VALUES (%s, %s, %s, NOW())
+ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
+```
+
+## Comment le vérifier
+
+1. Dans l'UI Airflow, choisissez une exécution terminée de `bronze_neon_f2_f3` et cliquez sur **Clear**. À la fin, l'objet `bronze/f3_reservations/fecha=…/hora=…/` a la même taille et les mêmes lignes.
+2. Lancez `silver_reservas_daily` deux fois de suite. Dans Athena, `SELECT code, COUNT(*) FROM silver.reservas GROUP BY code HAVING COUNT(*) > 1` ne renvoie aucune ligne.
+3. Lancez `gold_neon_writeback` deux fois. Dans Neon, `operation.cancellation_rate_by_lead` garde une ligne par hôtel et tranche d'anticipation.
+
+La combinaison des chargements incrémentaux et par lots est expliquée dans [Chargement incrémental et par lots](./loading.mdx).
