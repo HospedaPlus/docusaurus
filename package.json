@@ -12,7 +12,9 @@
     "serve": "docusaurus serve",
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "prestart": "node scripts/build-chat-index.mjs",
+    "prebuild": "node scripts/build-chat-index.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.2",
