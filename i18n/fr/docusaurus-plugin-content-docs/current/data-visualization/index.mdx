@@ -4,6 +4,8 @@ sidebar_label: Vue d'ensemble
 title: Visualisation des données
 ---
 
+import PowerBiEmbed from '@site/src/components/PowerBiEmbed';
+
 # Visualisation des données
 
 **HospedaPlus Revenue** est le rapport Power BI que le Revenue Manager et les directeurs d'hôtel utilisent pour décider des prix, de l'occupation et des canaux de vente. C'est la dernière étape de la plateforme : il **lit seulement la couche gold** du lakehouse S3 via Amazon Athena et n'écrit rien en retour.
@@ -16,6 +18,12 @@ title: Visualisation des données
 | Ouvrir le rapport | [HospedaPlus_Revenue dans Power BI](https://app.powerbi.com/groups/me/reports/7e20788a-a93d-4598-8c59-927aefe49653) (connexion requise avec un compte autorisé) |
 | Source de données | Athena, base `hospedaplus_gold` (15 tables), via le pilote ODBC Amazon Athena |
 | Devise | Pesos colombiens (COP), convertis en silver avec le taux de change du jour (F7) |
+
+## Rapport en direct
+
+Le rapport ci-dessous est publié sur le web : tout le monde peut l'explorer sans se connecter. Les captures de cette page restent comme référence.
+
+<PowerBiEmbed />
 
 ## D'où viennent les données
 
