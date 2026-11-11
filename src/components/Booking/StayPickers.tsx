@@ -191,7 +191,7 @@ function Counter({
   hint,
   value,
   min,
-  canAdd,
+  max,
   onChange,
   s,
 }: {
@@ -199,7 +199,7 @@ function Counter({
   hint: string;
   value: number;
   min: number;
-  canAdd: boolean;
+  max: number;
   onChange: (n: number) => void;
   s: BookingStrings;
 }): ReactNode {
@@ -209,12 +209,24 @@ function Counter({
         <strong>{label}</strong>
         <small>{hint}</small>
       </span>
-      <div className={styles.counter}>
+      <div className={styles.guestCounter}>
         <button type="button" aria-label={`${s.remove}: ${label}`} disabled={value <= min} onClick={() => onChange(value - 1)}>
           −
         </button>
-        <output aria-live="polite">{value}</output>
-        <button type="button" aria-label={`${s.add}: ${label}`} disabled={!canAdd} onClick={() => onChange(value + 1)}>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          value={value}
+          aria-label={label}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => {
+            const n = Number.parseInt(e.target.value, 10);
+            onChange(Number.isNaN(n) ? min : Math.min(max, Math.max(min, n)));
+          }}
+        />
+        <button type="button" aria-label={`${s.add}: ${label}`} disabled={value >= max} onClick={() => onChange(value + 1)}>
           +
         </button>
       </div>
@@ -238,7 +250,6 @@ export function GuestPicker({
   const box = useRef<HTMLDivElement>(null);
   const close = useMemo(() => () => setOpen(false), []);
   useDismiss(open, box, close);
-  const room = adults + children < MAX_GUESTS;
   const summary = `${adults} ${s.adultsShort}${children > 0 ? ` · ${children} ${s.children.toLowerCase()}` : ''}`;
 
   return (
@@ -258,8 +269,8 @@ export function GuestPicker({
       </button>
       {open && (
         <div className={clsx(styles.popover, styles.guestPopover)} role="dialog" aria-label={s.guests}>
-          <Counter label={s.adults} hint={s.adultsHint} value={adults} min={1} canAdd={room} onChange={(n) => onChange(n, children)} s={s} />
-          <Counter label={s.children} hint={s.childrenHint} value={children} min={0} canAdd={room} onChange={(n) => onChange(adults, n)} s={s} />
+          <Counter label={s.adults} hint={s.adultsHint} value={adults} min={1} max={MAX_GUESTS - children} onChange={(n) => onChange(n, children)} s={s} />
+          <Counter label={s.children} hint={s.childrenHint} value={children} min={0} max={MAX_GUESTS - adults} onChange={(n) => onChange(adults, n)} s={s} />
           <div className={styles.guestFoot}>
             <small>
               {adults + children}/{MAX_GUESTS} · {s.maxGuests}

@@ -521,7 +521,7 @@
     "message": "Boas-vindas"
   },
   "landing.meta.description": {
-    "message": "Seu guia completo para entender, explorar e usar a plataforma de dados HospedaPlus."
+    "message": "Seu guia completo para entender, explorar e usar a solução de dados HospedaPlus."
   },
   "landing.badge": {
     "message": "Documentação"
@@ -530,13 +530,13 @@
     "message": "Bem-vindo ao"
   },
   "landing.subtitle": {
-    "message": "Seu guia completo para entender, explorar e usar a plataforma de dados HospedaPlus."
+    "message": "Seu guia completo para entender, explorar e usar a solução de dados HospedaPlus."
   },
   "landing.text": {
     "message": "Aqui você encontra todas as informações de que precisa sobre as fontes de dados, a arquitetura, a infraestrutura e como trabalhar com a plataforma."
   },
   "landing.cta": {
-    "message": "Ir para o início"
+    "message": "Ir para a documentação"
   },
   "landing.tagline.line1": {
     "message": "Dados melhores."

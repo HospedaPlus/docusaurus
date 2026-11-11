@@ -115,7 +115,7 @@ export default function Landing(): ReactNode {
       title={translate({id: 'landing.meta.title', message: 'Welcome'})}
       description={translate({
         id: 'landing.meta.description',
-        message: 'Your complete guide to understanding, exploring and using the HospedaPlus data platform.',
+        message: 'Your complete guide to understanding, exploring and using the HospedaPlus data solution.',
       })}>
       <main className={styles.landing}>
         <div className={styles.waves} aria-hidden="true">
@@ -139,7 +139,7 @@ export default function Landing(): ReactNode {
             </h1>
             <p className={styles.subtitle}>
               <Translate id="landing.subtitle">
-                Your complete guide to understanding, exploring and using the HospedaPlus data platform.
+                Your complete guide to understanding, exploring and using the HospedaPlus data solution.
               </Translate>
             </p>
             <p className={styles.text}>
@@ -151,7 +151,7 @@ export default function Landing(): ReactNode {
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M12 2.5 1.6 11.4c-.6.5-.2 1.6.6 1.6H4v8a1.5 1.5 0 0 0 1.5 1.5H10v-6h4v6h4.5A1.5 1.5 0 0 0 20 21v-8h1.8c.8 0 1.2-1.1.6-1.6z" />
               </svg>
-              <Translate id="landing.cta">Go to Home</Translate>
+              <Translate id="landing.cta">Go to Documentation</Translate>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M5 12h14M13 6l6 6-6 6" />
               </svg>

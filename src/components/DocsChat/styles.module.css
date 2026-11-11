@@ -163,8 +163,50 @@
   border: 1px solid var(--ifm-color-emphasis-300);
 }
 
+.panel {
+  transform-origin: bottom right;
+  animation: chatIn 0.18s ease-out;
+}
+
+@keyframes chatIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+
 .minimized {
+  width: auto;
   height: auto;
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 22%);
+}
+
+.minimized .head {
+  gap: 0.9rem;
+  padding: 0.45rem 0.5rem 0.45rem 1.1rem;
+}
+
+.minimized .headTitle {
+  font-size: 0.92rem;
+}
+
+.minimized .headTitle::before {
+  content: "💬 ";
+}
+
+.minimized .head button:not(.headTitle) {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 18%);
+  font-size: 1.05rem;
+}
+
+.minimized .head button:not(.headTitle):hover {
+  background: rgb(255 255 255 / 30%);
 }
 
 .minimized > :not(header) {
