@@ -118,7 +118,7 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://github.com/HospedaPlus/docusaurus',
+          href: 'https://github.com/orgs/HospedaPlus/repositories',
           label: 'GitHub',
           position: 'right',
           className: 'navbar-github-link',

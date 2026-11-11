@@ -6,6 +6,7 @@ hide_table_of_contents: true
 ---
 
 import {CardGrid, DataSourceCard, Note, AccessNote} from '@site/src/components/Overview';
+import {SourcesFlow} from '@site/src/components/Flows';
 
 # Data Sources
 
@@ -117,16 +118,7 @@ HospedaPlus Revenue integrates seven data sources, from F1 to F7. F1, F6 and F7 
 
 ## Where each source is stored first
 
-```text
-Simulators on AWS                          Stored first in                    Lake (S3)
-F2 producer ─► Kafka ─► consumer ─────────► Neon · streaming + operation ─┐
-F3 seed + simulator ──────────────────────► Neon · operation ─────────────┤ Airflow, hourly
-F6 local events CSV ──────────────────────► Neon · operation.local_events ┤ and nightly
-F4 weekly generator ──┬─ reservar() ──────► Neon · operation ─────────────┤
-                      └─ raw files ────────────────────────────────────────┼─► S3 bronze ─► silver ─► gold
-F5 reviews API ───────────────────────────► API PostgreSQL ── Airflow ────┤
-F1 CSV, F6 holidays API, F7 FX API ── Airflow ─────────────────────────────┘
-```
+<SourcesFlow />
 
 - **Neon first (F2, F3, F6 events, F4 bookings).** These are operational data: every booking, from any channel, goes through the same function `operation.reservar()`, so all channels share one inventory and nothing is oversold. The pipeline reads Neon with a read-only role and copies the changes to S3 every hour, plus a full snapshot every night.
 - **S3 first (F1, F4 files, F6 holidays, F7).** These are files or public APIs with nothing to operate on, so they go to `s3://…/bronze/` as they arrive, unchanged.

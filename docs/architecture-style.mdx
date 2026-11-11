@@ -1,0 +1,56 @@
+---
+sidebar_position: 7
+sidebar_label: Lambda, medallion or both?
+title: 'Architecture style: lambda, medallion or both?'
+---
+
+import {LambdaMedallion} from '@site/src/components/Flows';
+
+# Architecture style: lambda, medallion or both?
+
+**Short answer: it is a combination.** HospedaPlus uses a **medallion lakehouse** (bronze → silver → gold in S3) for everything analytical, fed in **batch** by Airflow, plus a **streaming path** for the F2 channel-manager events (producer → Kafka → consumer → Neon) that keeps the operation up to date in seconds. That streaming path plays the role of the *speed layer* of a **lambda** architecture, so the system is best described as a **lambda-style hybrid with a medallion batch layer**.
+
+<LambdaMedallion />
+
+## The two ideas, in one line each
+
+| Pattern | What it means | Where it appears in HospedaPlus |
+| --- | --- | --- |
+| **Lambda** | Two paths for the same data: a fast *speed layer* (streaming, seconds) and a complete *batch layer* (recomputed periodically), joined in a *serving layer*. | F2 events go through Kafka in real time (speed). Every hour and every night Airflow copies all of Neon to the lake and recomputes silver and gold (batch). |
+| **Medallion** | A way of organizing the lake in quality layers: **bronze** (raw), **silver** (clean, one truth per entity), **gold** (modelled for analysis). | `s3://hospedaplus-lakehouse-buenavista/bronze/`, `silver/`, `gold/`, built by the bronze, silver and gold Celery workers. |
+
+They answer different questions, which is why they combine well: **lambda** is about *how fast* data moves (streaming + batch), **medallion** is about *how the lake is organized* (raw → clean → modelled).
+
+## How each path works
+
+### 1. Streaming path (speed layer)
+
+1. The F2 producer publishes booking events to the Kafka topic `reservation.events.v1_3` (base 0.05 events/s, peaks of 15 events/s).
+2. Two `neon-consumer` containers read the topic and, in the same transaction, write the event to `streaming.reservation_event_ledger` and apply it to `operation` through `reservar()` / `modificar` / `cancelar`.
+3. Invalid messages go to `reservation.events.dlq` instead of stopping the stream.
+
+**Result:** inventory and overbooking checks see an OTA booking a few seconds after it happens. This is what prevents overbooking (pain P2) in real time.
+
+### 2. Batch path (medallion layers)
+
+1. **Extract (bronze):** Airflow copies what changed in Neon every hour (by `updated_at` / `received_at`) and a full consistent snapshot every night; it also downloads F1, F5, F6 and F7 and registers the F4 files. Bronze keeps everything *as it came*.
+2. **Transform (silver):** Spark cleans, deduplicates, converts every amount to **COP** and keeps the newest version of each booking.
+3. **Model (gold):** Spark builds the star model (`dim_*`, `fact_*`) and the marts P1–P5.
+4. **Serve:** Athena exposes gold (Glue Data Catalog) and Power BI reads it.
+
+### 3. Where the two paths meet
+
+- **Neon** is the meeting point: the stream writes there, and the batch path reads from there. The lake never reads Kafka directly (a design decision: one single storage path for F2 events, so the ledger in Neon is the source of truth).
+- **Write-back:** `gold_neon_writeback` sends the cancellation rates computed in gold back to `operation.cancellation_rate_by_lead`, so the operational system uses the same numbers the business sees in Power BI.
+
+## Why not a "pure" lambda or a kappa architecture?
+
+| Option | Why it was not chosen |
+| --- | --- |
+| **Pure lambda** (a speed view merged with the batch view in the serving layer) | Power BI only needs data that is ~1 hour old, and the hourly bronze → silver refresh already gives that. Keeping two analytical views in sync would double the code for no business gain. The real-time need is operational (avoid overbooking), and Neon already serves it. |
+| **Kappa** (everything as a stream, no batch) | Most sources are batch by nature: F1 is a fixed CSV, F4 agencies send weekly files, F6 holidays change once a year, F7 rates once a day. Reprocessing history as a stream would also require keeping all events in Kafka forever. |
+| **Only batch** | OTA bookings would reach the inventory late, and the overbooking problem (P2) would come back. |
+
+**In one sentence for the presentation:** *"HospedaPlus is a lambda-style hybrid: Kafka gives the operation real-time bookings, and Airflow + Spark build a medallion lakehouse (bronze, silver, gold) in batch for analytics; Neon connects both, and gold writes its cancellation rates back to the operation."*
+
+See also: [Medallion architecture](./data-engineering-pipeline/medallion/index.mdx), [Incremental and batch loading](./data-engineering-pipeline/loading.mdx) and [F2 channel manager events](./data-access/f2-channel-manager-events.mdx).

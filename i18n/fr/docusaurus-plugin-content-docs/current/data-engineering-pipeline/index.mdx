@@ -7,6 +7,7 @@ slug: /data-engineering-pipeline
 
 import {StatGrid, Stat, Note} from '@site/src/components/Overview';
 import PipelineFlow from '@site/src/components/PipelineFlow';
+import {EtlFlow, LakeTree} from '@site/src/components/Flows';
 
 # Pipeline d'ingénierie des données
 
@@ -62,14 +63,7 @@ La plateforme sépare deux mondes : le côté **opérationnel (OLTP)**, où les 
 
 Airflow (EC2 cœur) ne déplace pas les données lui-même : il **orchestre** seulement, en décidant quand chaque étape tourne et sur quel worker.
 
-```text
- OLTP (opération)                 E · Extraction           T · Transformation         L · Chargement           OLAP (analyse)
- ─────────────────                ───────────              ─────────────              ────────                 ───────────────
- Neon · operation / streaming ─►  bronze DAGs ──► S3 bronze ──► Spark silver ──► S3 silver ──► Spark gold ──► S3 gold ──► Athena ──► Power BI
- (F2, F3, F4 bookings,            worker bronze             worker silver             worker gold
-  F6 local events)                (Python, raw copy)        (clean, COP, dedup)       (star + marts)
- APIs / files (F1, F5, F6, F7) ─► bronze DAGs ──┘
-```
+<EtlFlow />
 
 ## Où il tourne
 
@@ -84,22 +78,7 @@ Chaque tâche choisit son worker avec `queue="bronze" | "silver" | "gold"`. L'UI
 
 ## Organisation du lac
 
-```text
-s3://hospedaplus-lakehouse-buenavista/
-├── bronze/   copies brutes, JSON Lines / JSON / CSV / Excel, nommées par source et date
-│   ├── f2_ledger/fecha=YYYY-MM-DD/hora=HH.jsonl
-│   ├── f3_reservations/fecha=…/hora=HH.jsonl      f3_anomalies/…
-│   ├── f3_reservations_full/fecha=…/part-NNNNN.jsonl + _SUCCESS   (et f3_anomalies/inventory/relocations/rejections _full)
-│   ├── neon_dims/<table>/fecha=YYYY-MM-DD.jsonl
-│   ├── f4_agencias/semana=YYYY-Www/
-│   ├── f5_reviews/fecha=…/hora=HH.jsonl
-│   ├── f6_holidays/anio=YYYY/pais=XX.json      f6_events/fecha=….jsonl
-│   ├── f7_fx/fecha=YYYY-MM-DD.json
-│   └── f1_historical/hotel_bookings.csv
-├── silver/   Parquet propre : reservas, cancelaciones, reservas_rechazadas, tasa_cambio_diaria,
-│             ocupacion_diaria, calendario_hotel, resenas, historico_f1
-└── gold/     Parquet : dim_*, fact_*, mart_p1…p5 (+ neon_cancellation_rate_by_lead en JSON)
-```
+<LakeTree />
 
 <Note>
 Chaque clé ne dépend que de la source et de la date (ou de l'heure), et chaque table silver et gold est réécrite en entier. N'importe quel DAG peut donc être relancé à tout moment et donne le même résultat : le pipeline est **idempotent**.

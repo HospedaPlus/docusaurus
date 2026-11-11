@@ -7,6 +7,7 @@ title: F4 · Dateien klassischer Reisebüros
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F4Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="file" tone="sky" />F4 · Dateien klassischer Reisebüros <SourceType>CSV- / Excel-Dateien</SourceType>
 
@@ -56,11 +57,7 @@ Die Woche `2026-W45` ergab 183 Zeilen: 21 ohne Währung und 3 Duplikate von F2-B
 
 ## Speicherort
 
-```text
-f4-weekly ─┬─ Dateien ─► EC2 ./output/f4_agency_files/<Woche>/ ─► S3 bronze/f4_agencias/semana=<Woche>/
-           └─ Zeilen  ─► Neon operation.reservar('AGxx', …)
-Airflow bronze_f4_agencias (Montag 07:00 UTC) prüft und registriert die Woche in S3
-```
+<F4Flow />
 
 Die Dateien gehen **direkt nach S3**, unverändert, weil es Dateien sind und der Lake die Rohkopie behält. Die darin enthaltenen Buchungen gehen nach **Neon**, weil sie echte Zimmer belegen. Der Airflow-DAG `bronze_f4_agencias` läuft eine Stunde später und prüft, ob die 15 Dateien der Woche in S3 liegen.
 

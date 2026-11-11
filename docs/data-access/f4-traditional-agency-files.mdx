@@ -7,6 +7,7 @@ title: F4 · Traditional agency files
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F4Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="file" tone="sky" />F4 · Traditional agency files <SourceType>CSV / Excel files</SourceType>
 
@@ -56,11 +57,7 @@ Week `2026-W45` produced 183 rows: 21 without currency and 3 duplicates of F2 bo
 
 ## Where it is stored
 
-```text
-f4-weekly ─┬─ files ─► EC2 ./output/f4_agency_files/<week>/ ─► S3 bronze/f4_agencias/semana=<week>/
-           └─ rows  ─► Neon operation.reservar('AGxx', …)
-Airflow bronze_f4_agencias (Monday 07:00 UTC) checks and registers the week in S3
-```
+<F4Flow />
 
 The files go **straight to S3**, unchanged, because they are files and the lake keeps the raw copy. The bookings in them go to **Neon**, because they take real rooms. The Airflow DAG `bronze_f4_agencias` runs one hour later and checks that the 15 files of the week are in S3.
 

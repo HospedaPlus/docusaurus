@@ -4,6 +4,8 @@ sidebar_label: Visión general
 title: Arquitectura medallion
 ---
 
+import {MedallionFlow} from '@site/src/components/Flows';
+
 # Arquitectura medallion
 
 El lago se divide en tres capas. Los datos solo avanzan (bronze → silver → gold), cada capa la escriben sus propios DAGs y su propio worker Celery, y cada una tiene un contrato claro.
@@ -14,10 +16,7 @@ El lago se divide en tres capas. Los datos solo avanzan (bronze → silver → g
 | [**Silver**](./silver.mdx) | *¿Cuál es la versión limpia y confiable de cada entidad?* | Parquet | DAGs de silver (cola `silver`), Spark | Una fila por entidad, defectos tratados, montos en COP, controles antes de escribir. |
 | [**Gold**](./gold.mdx) | *¿Qué necesita el negocio para decidir?* | Parquet (un JSON para Neon) | `gold_modelo_daily` (cola `gold`), Spark | Esquema estrella + un mart por pain, reconstruido cada noche. |
 
-```text
- bronze/  ── crudo, reprocesable ──►  silver/  ── limpio, estandarizado ──►  gold/  ── modelado, listo ──►  Athena / Power BI
- (como llegó)                         (una verdad por entidad)              (estrella + marts P1–P5)
-```
+<MedallionFlow />
 
 ## Por qué tres capas
 

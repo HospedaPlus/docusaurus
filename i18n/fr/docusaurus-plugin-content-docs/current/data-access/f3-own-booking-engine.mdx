@@ -5,6 +5,7 @@ title: F3 · Moteur de réservation propre
 ---
 
 import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F3Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="database" tone="teal" />F3 · Moteur de réservation propre <SourceType>Base de données PostgreSQL</SourceType>
 
@@ -45,12 +46,7 @@ Deux tâches, toutes deux avec l'image du dépôt :
 
 ## Stockage
 
-```text
-seed + simulateur ─► Neon operation ◄─ consommateur F2 et chargeur F4 (le même reservar())
-Neon ─► Airflow bronze_neon_f2_f3 (toutes les heures, par updated_at) ─► S3 bronze/f3_reservations/, f3_anomalies/
-Neon ─► Airflow bronze_neon_full_load (instantané nocturne)         ─► S3 bronze/f3_*_full/
-Neon ─► Airflow bronze_neon_dims (catalogue nocturne)               ─► S3 bronze/neon_dims/
-```
+<F3Flow />
 
 Neon est le stockage opérationnel. Le lac reçoit F3 de deux façons : toutes les heures, les lignes modifiées depuis la dernière exécution (`reservations.updated_at` est mis à jour par un trigger à chaque changement), et chaque nuit un instantané complet des réservations, anomalies, inventaire, relogements et refus, pris dans une seule transaction et marqué par `_SUCCESS`. La table `guests` n'est jamais copiée : les données personnelles restent dans Neon.
 

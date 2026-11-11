@@ -4,6 +4,8 @@ sidebar_label: Publicación y actualización
 title: Publicación y actualización automática
 ---
 
+import {PublishingFlow} from '@site/src/components/Flows';
+
 # Publicación y actualización automática
 
 **Estado:** publicado y con actualización automática desde el 9 de noviembre de 2026.
@@ -18,11 +20,7 @@ title: Publicación y actualización automática
 
 ## Cómo funciona una actualización programada
 
-```text
-Power BI Service ──(05:00 COT)──► gateway hospedaplus-gw ──► Athena ODBC driver
-        ▲                                                          │
-        └──────────── rows ◄── Athena reads gold Parquet in S3 ◄───┘
-```
+<PublishingFlow />
 
 1. Power BI Service envía la orden de actualización a `hospedaplus-gw`.
 2. El gateway ejecuta la consulta de cada tabla con el driver ODBC de Athena.

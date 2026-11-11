@@ -5,6 +5,7 @@ title: Visualización de datos
 ---
 
 import PowerBiEmbed from '@site/src/components/PowerBiEmbed';
+import {PowerBiFlow} from '@site/src/components/Flows';
 
 # Visualización de datos
 
@@ -27,21 +28,7 @@ El reporte de abajo está publicado en la web, así que cualquiera puede explora
 
 ## De dónde vienen los datos
 
-```text
-F1 Kaggle · F2 channel manager (Kafka) · F3 bookings (Neon) · F4 agencies · F5 reviews · F6 holidays/events · F7 FX
-        │
-        ▼  Airflow (hospedaplus-pipeline)
-S3  bronze  →  silver  →  gold                       bucket hospedaplus-lakehouse-buenavista
-                            │
-                            ▼  external tables over the gold Parquet files
-               Glue Data Catalog · database hospedaplus_gold
-                            │
-                            ▼  Amazon Athena (workgroup primary, us-east-2)
-                      Athena ODBC driver
-                            │
-                            ▼
-              Power BI Desktop  /  Power BI Service (through the gateway)
-```
+<PowerBiFlow />
 
 `gold_modelo_daily` reconstruye todas las tablas gold una vez por noche (hacia las 03:35 UTC, 22:35 hora de Colombia). El reporte se actualiza a las 05:00 hora de Colombia, así que cada mañana muestra los datos de la noche anterior. Ver [DAGs y horarios](../data-engineering-pipeline/dags.mdx).
 

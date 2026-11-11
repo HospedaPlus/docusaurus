@@ -5,6 +5,7 @@ title: F3 · Motor de reservas próprio
 ---
 
 import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F3Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="database" tone="teal" />F3 · Motor de reservas próprio <SourceType>Banco de dados PostgreSQL</SourceType>
 
@@ -45,12 +46,7 @@ Dois jobs, ambos com a imagem do repositório:
 
 ## Onde é armazenada
 
-```text
-seed + simulador ─► Neon operation ◄─ consumidor F2 e carregador F4 (o mesmo reservar())
-Neon ─► Airflow bronze_neon_f2_f3 (a cada hora, por updated_at) ─► S3 bronze/f3_reservations/, f3_anomalies/
-Neon ─► Airflow bronze_neon_full_load (foto noturna)            ─► S3 bronze/f3_*_full/
-Neon ─► Airflow bronze_neon_dims (catálogo noturno)             ─► S3 bronze/neon_dims/
-```
+<F3Flow />
 
 O Neon é o armazenamento operacional. O lago recebe a F3 de duas formas: a cada hora, as linhas que mudaram desde a execução anterior (`reservations.updated_at` é preenchido por um trigger a cada mudança), e toda noite uma foto completa de reservas, anomalias, inventário, realocações e rejeições, tirada em uma única transação e marcada com `_SUCCESS`. A tabela `guests` nunca é copiada: os dados pessoais ficam no Neon.
 

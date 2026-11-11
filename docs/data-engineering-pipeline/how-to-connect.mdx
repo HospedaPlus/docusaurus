@@ -1,0 +1,208 @@
+---
+sidebar_position: 3.6
+sidebar_label: 'How to connect: Neon and S3'
+title: 'Extraction and load: how to connect to Neon and S3'
+---
+
+import {UriAnatomy} from '@site/src/components/Flows';
+
+# Extraction and load: how to connect to Neon and S3
+
+The whole pipeline is **two connections**: it **extracts** from Neon (and a few APIs) and **loads** into S3. This page is the practical guide: what string each one needs, an example of every string, and the code to test it in one minute.
+
+:::warning[Placeholders only]
+Every value in `<angle brackets>` is a placeholder. Real passwords live only in the `.env` of each machine (never in git) and are shared by the team privately. If a password was ever pasted in a chat or a commit, rotate it in Neon (**Roles → Reset password**).
+:::
+
+## The process in 6 steps
+
+| Step | From | To | How | Connection used |
+| --- | --- | --- | --- | --- |
+| 1. Extract every hour | Neon `operation`, `streaming` | S3 `bronze/f2_ledger/`, `f3_reservations/`… | `SELECT … WHERE updated_at >= start AND < end` → JSON Lines → `put_object` | `NEON_READ_URL` + IAM role |
+| 2. Extract every night | Neon (whole tables) | S3 `bronze/*_full/fecha=…/` | one `REPEATABLE READ` transaction, pages of 50,000 rows, `_SUCCESS` at the end | `NEON_READ_URL` + IAM role |
+| 3. Extract from APIs and files | F1, F5, F6, F7 (HTTP) | S3 `bronze/…` | `requests.get` → `put_object` | base URLs in `.env` + IAM role |
+| 4. Load files of F4 | EC2 sources | S3 `bronze/f4_agencias/semana=…/` | `s3.upload_file` from `f4-weekly` | IAM role of the EC2 sources |
+| 5. Transform and load | S3 bronze / silver | S3 silver / gold | Spark `read.json` / `write.mode("overwrite").parquet` | IAM role (`s3a://`) |
+| 6. Write back | S3 gold | Neon `operation.cancellation_rate_by_lead` | `INSERT … ON CONFLICT DO UPDATE` | `NEON_WRITE_URL` |
+
+## Neon (PostgreSQL)
+
+### Anatomy of the connection string
+
+<UriAnatomy parts={[
+  ['postgresql', 'scheme', 'airflow'], ['://'], ['etl_reader', 'role', 'neon'], [':'], ['<password>', 'password', 'bad'], ['@'],
+  ['ep-<endpoint-id>-pooler.us-east-2.aws.neon.tech', 'host (endpoint of the branch)', 'aws'], ['/'], ['hospedaplus', 'database', 'neon'],
+  ['?'], ['sslmode=require', 'SSL required', 'out'],
+]} />
+
+| Part | Value in HospedaPlus | Notes |
+| --- | --- | --- |
+| Scheme | `postgresql://` | `postgresql+psycopg2://` for SQLAlchemy |
+| Role | `etl_reader` (read only), `app_writer` (read/write), `hospedaplus_owner` (schema changes) | Use the role with the fewest rights that is enough |
+| Host | `ep-<endpoint-id>.us-east-2.aws.neon.tech` | Each branch (`production`, `development`) has its own endpoint |
+| `-pooler` | `ep-<endpoint-id>-pooler…` | Pooled host (PgBouncer): for many short connections (simulators, apps). Use the **direct** host for migrations and `SET`-based sessions |
+| Port | `5432` | Default, can be omitted |
+| Database | `hospedaplus` | Not `neondb` |
+| Parameters | `sslmode=require` (always), `channel_binding=require` (optional, for the owner) | Neon refuses connections without SSL |
+
+### Example strings by use
+
+```bash title=".env examples (placeholders)"
+# Airflow bronze DAGs: read only
+NEON_READ_URL=postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# gold_neon_writeback: writes operation.cancellation_rate_by_lead
+NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# F3 simulator / F2 consumer / F4 loader: many short writes, pooled host
+NEON_APP_URL=postgresql://app_writer:<password>@ep-<endpoint-id>-pooler.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# Schema changes and seed (db_simulated init, buenavista-streaming migrations): owner, direct host
+NEON_OWNER_URL=postgresql://hospedaplus_owner:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
+```
+
+**Where to copy it:** Neon console → project `hospedaplus_database` → **Connect** → choose branch `production`, database `hospedaplus` and the role → copy the *connection string*. Toggle **Connection pooling** for the `-pooler` host.
+
+### How to connect (test in one minute)
+
+```bash title="psql"
+psql "postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require" \
+  -c "SELECT count(*) FROM operation.reservations;"
+```
+
+```python title="Python · psycopg2 (what the DAGs use)"
+import os, psycopg2
+
+with psycopg2.connect(os.environ["NEON_READ_URL"]) as conn, conn.cursor() as cur:
+    cur.execute("SELECT code, status, updated_at FROM operation.reservations ORDER BY updated_at DESC LIMIT 5")
+    for row in cur.fetchall():
+        print(row)
+```
+
+```python title="Python · psycopg 3 (what the simulators use)"
+import os, psycopg
+
+with psycopg.connect(os.environ["NEON_APP_URL"], connect_timeout=10) as conn:
+    print(conn.execute("SELECT current_user, now()").fetchone())
+```
+
+```python title="Python · SQLAlchemy + pandas (notebooks, exploration)"
+import os, pandas as pd
+from sqlalchemy import create_engine
+
+url = os.environ["NEON_READ_URL"].replace("postgresql://", "postgresql+psycopg2://", 1)
+engine = create_engine(url, pool_pre_ping=True)
+df = pd.read_sql("SELECT * FROM operation.hotels", engine)
+```
+
+### Common errors
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `password authentication failed` | Wrong password or role | Copy the string again from **Connect**; check the branch |
+| `could not translate host name` / `invalid URI` | The password has `@`, `#`, `/` or `:` | Reset it with only letters, digits, `-` and `_`, or URL-encode it (`@` → `%40`) |
+| `SSL connection is required` | `sslmode` missing | Add `?sslmode=require` |
+| `permission denied for table …` | `etl_reader` trying to write | Use `app_writer` (`NEON_WRITE_URL`) only where writing is intended |
+| `prepared statement … does not exist` | Session features through `-pooler` | Use the direct host (without `-pooler`) |
+
+## S3 (lakehouse)
+
+### Anatomy of the addresses
+
+<UriAnatomy parts={[
+  ['s3', 'scheme', 'airflow'], ['://'], ['hospedaplus-lakehouse-buenavista', 'bucket', 'aws'], ['/'], ['bronze', 'layer', 'bronze'], ['/'],
+  ['f3_reservations', 'source', 'neon'], ['/'], ['fecha=2026-11-10', 'partition by date', 'gold'], ['/'], ['hora=14.jsonl', 'file', 'out'],
+]} />
+
+- `s3a://hospedaplus-lakehouse-buenavista/silver/reservas`: the same kind of address with the scheme Spark (Hadoop) uses.
+- `https://hospedaplus-lakehouse-buenavista.s3.us-east-2.amazonaws.com/<key>`: HTTP form; the bucket is private, so it needs a signed request.
+
+| What | Value |
+| --- | --- |
+| Bucket | `hospedaplus-lakehouse-buenavista` (variable `S3_BUCKET`) |
+| Region | `us-east-2` (variable `AWS_DEFAULT_REGION`) |
+| Credentials on AWS | IAM role of the EC2 (`hospedaplus-pipeline-role`): **no keys** |
+| Credentials on a laptop | `aws configure` / `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` of your IAM user |
+| Local tests (MinIO) | `S3_ENDPOINT_URL=http://localhost:9000` |
+
+```bash title=".env example"
+S3_BUCKET=hospedaplus-lakehouse-buenavista
+AWS_DEFAULT_REGION=us-east-2
+# Only on a laptop without a role (never on the EC2, never in git):
+# AWS_ACCESS_KEY_ID=<access-key-id>
+# AWS_SECRET_ACCESS_KEY=<secret-access-key>
+# Only for MinIO:
+# S3_ENDPOINT_URL=http://localhost:9000
+```
+
+### Minimum IAM permissions
+
+```json title="Policy attached to hospedaplus-pipeline-role (bucket part)"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:ListBucket"],
+     "Resource": "arn:aws:s3:::hospedaplus-lakehouse-buenavista"},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+     "Resource": "arn:aws:s3:::hospedaplus-lakehouse-buenavista/*"}
+  ]
+}
+```
+
+### How to connect (test in one minute)
+
+```bash title="AWS CLI"
+aws s3 ls s3://hospedaplus-lakehouse-buenavista/bronze/ --region us-east-2
+aws s3 cp s3://hospedaplus-lakehouse-buenavista/bronze/f7_fx/fecha=2026-11-10.json - | head
+```
+
+```python title="Python · boto3 (what the bronze DAGs use)"
+import boto3, json
+
+s3 = boto3.client("s3", region_name="us-east-2")         # finds the IAM role or your profile by itself
+bucket = "hospedaplus-lakehouse-buenavista"
+
+# load (write)
+s3.put_object(Bucket=bucket, Key="bronze/test/hello.json", Body=json.dumps({"ok": True}).encode(),
+              ContentType="application/json")
+# extract (read)
+body = s3.get_object(Bucket=bucket, Key="bronze/test/hello.json")["Body"].read()
+# list
+for obj in s3.list_objects_v2(Bucket=bucket, Prefix="bronze/f7_fx/").get("Contents", []):
+    print(obj["Key"], obj["Size"])
+```
+
+```python title="Python · upload a whole file (what f4-weekly does)"
+s3.upload_file("output/f4_agency_files/2026-W46/AG01.xlsx", bucket,
+               "bronze/f4_agencias/semana=2026-W46/AG01.xlsx")
+```
+
+```python title="PySpark · read bronze, write silver (what the silver/gold jobs do)"
+from spark_jobs.session import spark, path
+
+s = spark("test")                                             # local[*] + s3a jars + IAM role
+raw = s.read.json("s3a://hospedaplus-lakehouse-buenavista/bronze/f3_reservations/fecha=2026-11-10/")
+raw.write.mode("overwrite").parquet(path("silver", "reservas_test"))   # s3a://…/silver/reservas_test
+```
+
+### Common errors
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `NoCredentialsError` / `Unable to locate credentials` | No role and no keys | On EC2: attach the IAM role to the instance. On a laptop: `aws configure` |
+| `AccessDenied` | The role lacks `s3:PutObject` / `ListBucket` | Add the policy above |
+| `PermanentRedirect` / `AuthorizationHeaderMalformed` | Wrong region | `AWS_DEFAULT_REGION=us-east-2` |
+| Spark `ClassNotFoundException: S3AFileSystem` | Missing jars | Use the pipeline image (it has `hadoop-aws` and `aws-java-sdk-bundle`) |
+| Spark `No FileSystem for scheme "s3"` | `s3://` used in Spark | Use `s3a://` in Spark; `s3://` in boto3 and the CLI |
+
+## Writing back to Neon (the only load into Neon)
+
+```python title="dags/gold_neon_writeback.py"
+UPSERT = """
+INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+VALUES (%s, %s, %s, NOW())
+ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
+"""
+with psycopg2.connect(os.environ["NEON_WRITE_URL"]) as conn, conn.cursor() as cur:
+    cur.executemany(UPSERT, rows)          # one transaction; re-running gives the same table
+```
+
+See also: [Connection to Neon](./neon-connection.mdx), [Airflow connections](./airflow-connections.mdx), [Incremental and batch loading](./loading.mdx) and, for Power BI, the [Athena ODBC connection](../data-visualization/athena-connection.mdx).

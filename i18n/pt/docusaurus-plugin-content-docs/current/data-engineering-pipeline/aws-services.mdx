@@ -4,16 +4,13 @@ sidebar_label: Serviços da AWS
 title: Serviços da AWS usados pelo pipeline
 ---
 
+import {AwsServicesFlow} from '@site/src/components/Flows';
+
 # Serviços da AWS usados pelo pipeline
 
 Todo o pipeline roda na AWS em **us-east-2 (Ohio)**, exceto a API de avaliações F5, que roda no ECS em us-east-1. Esta página percorre cada serviço da AWS na ordem em que os dados passam por ele, do papel IAM que dá o acesso até o Athena, onde os dados são consultados.
 
-```text
- IAM role ──► EC2 (core + workers) ──► S3 lakehouse ──► Glue Data Catalog ──► Athena ──► Power BI
-   │            │  Elastic IP, SGs         │ bronze/silver/gold   ▲ Lake Formation permissions
-   │            └─ Airflow, Celery, Spark  └ airflow-logs/        │
-   └── temporary credentials for S3, no access keys on disk ──────┘
-```
+<AwsServicesFlow />
 
 | # | Serviço | Para que é usado | Onde é configurado |
 | --- | --- | --- | --- |

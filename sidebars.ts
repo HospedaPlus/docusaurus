@@ -25,6 +25,13 @@ const visualizationTitles: Record<string, string> = {
   fr: 'Visualisation des données',
   de: 'Datenvisualisierung',
 };
+const devopsTitles: Record<string, string> = {
+  en: 'DevOps: CI/CD and Docker',
+  es: 'DevOps: CI/CD y Docker',
+  pt: 'DevOps: CI/CD e Docker',
+  fr: 'DevOps : CI/CD et Docker',
+  de: 'DevOps: CI/CD und Docker',
+};
 const locale = process.env.DOCUSAURUS_CURRENT_LOCALE ?? 'en';
 
 const sidebars: SidebarsConfig = {
@@ -61,6 +68,7 @@ const sidebars: SidebarsConfig = {
     },
     'architecture-v2',
     'airflow-architecture',
+    'architecture-style',
     {
       type: 'html',
       value: engineeringTitles[locale] ?? engineeringTitles.en,
@@ -76,6 +84,8 @@ const sidebars: SidebarsConfig = {
         'data-engineering-pipeline/technical-decisions',
         'data-engineering-pipeline/aws-services',
         'data-engineering-pipeline/neon-connection',
+        'data-engineering-pipeline/airflow-connections',
+        'data-engineering-pipeline/how-to-connect',
         'data-engineering-pipeline/loading',
         'data-engineering-pipeline/idempotency',
         'data-engineering-pipeline/compute-resources',
@@ -97,6 +107,14 @@ const sidebars: SidebarsConfig = {
       ],
     },
     'pain-resolution',
+    {
+      type: 'html',
+      value: devopsTitles[locale] ?? devopsTitles.en,
+      className: 'sidebar-section-title',
+      defaultStyle: true,
+    },
+    'devops/ci-cd',
+    'devops/docker',
     {
       type: 'html',
       value: visualizationTitles[locale] ?? visualizationTitles.en,

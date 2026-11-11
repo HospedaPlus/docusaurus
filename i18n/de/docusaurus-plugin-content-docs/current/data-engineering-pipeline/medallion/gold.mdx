@@ -4,6 +4,8 @@ sidebar_label: Gold und Datenmodell
 title: Gold-Schicht und Datenmodell
 ---
 
+import {StarSchema} from '@site/src/components/Flows';
+
 # Gold-Schicht und Datenmodell
 
 Gold ist die analytische Schicht. Einmal pro Nacht liest `gold_modelo_daily` (`spark_jobs/gold_modelo.py`, Queue `gold`) die Silver-Tabellen und die neuesten Neon-Kataloge, baut **alle** Gold-Tabellen vollständig neu, prüft sie alle und überschreibt sie. Alle Beträge sind in **COP**, und doppelte Buchungen (F4) zählen nie.
@@ -18,28 +20,7 @@ Das Modell ist ein **Sternschema**, keine Schneeflocke. Jede Faktentabelle ist *
 
 ### Wie es aussieht
 
-```text
-                              ┌──────────────────────┐
-                              │      dim_fecha       │
-                              │ PK fecha             │
-                              │ anio, mes, semana…   │
-                              └──────────┬───────────┘
-                                         │
- ┌──────────────────────┐     ┌──────────┴───────────┐     ┌──────────────────────┐
- │      dim_canal       │     │        FAKTEN        │     │ dim_tipo_habitacion  │
- │ PK channel_code      ├─────┤ fact_reservas        ├─────┤ PK room_type         │
- │ channel_type, comis. │     │ fact_cancelaciones   │     │ nombre, capacidad    │
- └──────────────────────┘     │ fact_ocupacion_diaria│     └──────────────────────┘
-                              │ fact_resenas         │
-                              └──────────┬───────────┘
-                                         │
-                              ┌──────────┴───────────┐
-                              │      dim_hotel       │
-                              │ PK hotel_code        │
-                              │ ciudad, pais, categ. │
-                              └──────────────────────┘
-                     die Marts P1–P5 werden aus den Fakten gebaut
-```
+<StarSchema />
 
 Beziehungen (alle 1:n, von der Dimension zum Fakt):
 

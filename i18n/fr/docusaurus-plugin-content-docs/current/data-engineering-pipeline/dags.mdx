@@ -4,6 +4,8 @@ sidebar_label: DAGs et planning
 title: DAGs et planning
 ---
 
+import {DagsTimeline} from '@site/src/components/Flows';
+
 # DAGs et planning
 
 Il y a 17 DAGs : 9 bronze, 6 silver et 2 gold. Les DAGs bronze tournent sur une **horloge** (chaque source a son rythme). Les DAGs silver et gold tournent sur les **données** : ils sont planifiés sur des **Assets** Airflow et démarrent seuls quand les données bronze ou silver qu'ils lisent ont été écrites. Les heures sont en UTC ; la Colombie (COT) est à UTC−5.
@@ -44,21 +46,7 @@ Il y a 17 DAGs : 9 bronze, 6 silver et 2 gold. Les DAGs bronze tournent sur une 
 
 ## Une nuit dans le pipeline
 
-```text
-UTC    COT     ───────────────────────────────────────────────────────────────────────────
-chaque chaque  bronze_neon_f2_f3 ─► silver_reservas_daily (rafraîchi chaque heure, silver ≈ 1 h derrière Neon)
-heure  heure   bronze_f5_reviews (accumule les avis du jour)
-01:00  20:00   bronze_f7_fx ─► silver_fx_daily ··················┐
-02:00  21:00   (le 1er) bronze_f6_holidays ─► silver_calendario  │
-02:30  21:30   bronze_f6_events ·································┼──┐
-03:00  22:00   bronze_neon_full_load ····························┤  │
-03:15  22:15   bronze_neon_dims ─────────────────────────────────┴──┴─► silver_reservas_daily
-                                                                      ─► silver_ocupacion_daily
-                                                                      ─► silver_calendario_daily
-03:30  22:30   silver_resenas_daily
-~03:35 22:35   les quatre silver rafraîchies ─► gold_modelo_daily ─► gold_neon_writeback
-05:00  00:00   06:00 à Madrid (hiver), le premier matin d'hôtel : gold est déjà là
-```
+<DagsTimeline />
 
 ## Pourquoi cet ordre
 

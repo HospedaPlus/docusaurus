@@ -4,6 +4,8 @@ sidebar_label: Publishing and refresh
 title: Publishing and automatic refresh
 ---
 
+import {PublishingFlow} from '@site/src/components/Flows';
+
 # Publishing and automatic refresh
 
 **Status:** published and refreshing automatically since 9 November 2026.
@@ -18,11 +20,7 @@ title: Publishing and automatic refresh
 
 ## How a scheduled refresh works
 
-```text
-Power BI Service ──(05:00 COT)──► gateway hospedaplus-gw ──► Athena ODBC driver
-        ▲                                                          │
-        └──────────── rows ◄── Athena reads gold Parquet in S3 ◄───┘
-```
+<PublishingFlow />
 
 1. Power BI Service sends the refresh order to `hospedaplus-gw`.
 2. The gateway runs each table's query through the Athena ODBC driver.

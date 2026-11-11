@@ -4,22 +4,15 @@ sidebar_label: Ejecutar los DAGs
 title: Ejecutar los DAGs a mano
 ---
 
+import {DagDependencies} from '@site/src/components/Flows';
+
 # Ejecutar los DAGs a mano
 
 En la operación normal **no hay que disparar nada a mano**: bronze corre con su reloj y silver y gold arrancan solos por los Assets. Una corrida manual solo hace falta la primera vez, para llenar un hueco o para ver un cambio de inmediato. Todos los DAGs son idempotentes, así volver a correr uno siempre es seguro: sobrescribe los mismos archivos con el mismo resultado.
 
 ## Qué depende de qué
 
-```text
-silver_fx_daily            ◄── bronze_f7_fx
-silver_reservas_daily      ◄── (silver_fx_daily & bronze_neon_full_load & bronze_neon_dims) | bronze_neon_f2_f3
-silver_ocupacion_daily     ◄── bronze_neon_full_load & bronze_neon_dims
-silver_calendario_daily    ◄── (bronze_f6_events & bronze_neon_dims) | bronze_f6_holidays
-silver_resenas_daily       ◄── reloj 03:30 UTC (lee bronze_f5_reviews)
-silver_f1_historico        ◄── bronze_f1_historical
-gold_modelo_daily          ◄── silver_ocupacion & silver_calendario & silver_reservas & silver_resenas
-gold_neon_writeback        ◄── gold_modelo_daily
-```
+<DagDependencies />
 
 `&` significa *todas deben haber escrito desde la última corrida*; `|` significa *basta con una*. Por eso, disparar un DAG de bronze también arranca los DAGs de silver cuyas otras entradas ya están frescas, y estos a su vez arrancan gold.
 

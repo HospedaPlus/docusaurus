@@ -4,23 +4,13 @@ sidebar_label: Connection to Neon
 title: Connection to Neon
 ---
 
+import {NeonFlow} from '@site/src/components/Flows';
+
 # Connection to Neon
 
 Neon (serverless PostgreSQL, AWS us-east-2) is the operational database. The pipeline talks to it in two directions: it **reads** bookings, events and catalogs into bronze, and it **writes back** one gold result.
 
-```text
-                 ┌──────────────────── Neon · database hospedaplus ────────────────────┐
- F2 consumer ──► │ streaming.reservation_event_ledger                                    │
- F3 simulator ─► │ operation.reservations · reservation_anomalies · inventory           │
- F4 loader ────► │ operation.relocations · reservation_rejections · local_events        │
-                 │ operation.hotels · room_types · channels · rates · cancellation_…    │
-                 │ operation.cancellation_rate_by_lead  ◄─────────────── write-back ─────┼── gold_neon_writeback (app_writer)
-                 └───────────────┬──────────────────────────────────────────────────────┘
-                                 │ read only (etl_reader)
-          bronze_neon_f2_f3 (hourly) · bronze_neon_full_load (03:00) · bronze_neon_dims (03:15) · bronze_f6_events (02:30)
-                                 ▼
-                              S3 bronze/
-```
+<NeonFlow />
 
 ## Roles and connection strings
 
@@ -30,6 +20,20 @@ Neon (serverless PostgreSQL, AWS us-east-2) is the operational database. The pip
 | `NEON_WRITE_URL` | `app_writer` | Read and write | Only `gold_neon_writeback` |
 
 The connection strings use `sslmode=require` and are never written in the repository or on this site. The code fails on purpose with a clear message if `NEON_READ_URL` is empty. Reads use `psycopg2` and return JSON Lines (`dags/hospedaplus/neon.py`); numbers and dates are written as text so nothing is lost on the way.
+
+### How to connect (string example)
+
+```bash title=".env of the workers (placeholders)"
+NEON_READ_URL=postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+```
+
+```bash title="Test it"
+psql "$NEON_READ_URL" -c "SELECT count(*) FROM operation.reservations;"
+python -c "import os, psycopg2; print(psycopg2.connect(os.environ['NEON_READ_URL']).server_version)"
+```
+
+Every part of the string, the pooled host, S3 and the common errors are explained in [How to connect: Neon and S3](./how-to-connect.mdx).
 
 ## The three ways the pipeline reads Neon
 
