@@ -7,6 +7,7 @@ title: F5 · Avaliações de hóspedes
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import {AccessTable, AccessNote, Note, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F5Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="message" tone="purple" />F5 · Avaliações de hóspedes <SourceType>API REST</SourceType>
 
@@ -41,10 +42,7 @@ A API roda no AWS ECS Fargate (us-east-1) como dois serviços com a mesma imagem
 
 ## Onde é armazenada
 
-```text
-api-reviews-simulator ─► PostgreSQL da API (AWS) ─► GET /api/v1/reviews?updated_from=…
-                                                     └─► Airflow bronze_f5_reviews (a cada hora) ─► S3 bronze/f5_reviews/
-```
+<F5Flow />
 
 A F5 não passa pelo Neon: como uma plataforma de avaliações real, guarda as avaliações no seu próprio banco e só as expõe pela API. A cada hora o DAG do Airflow `bronze_f5_reviews` pede as avaliações criadas ou editadas desde a execução anterior (`updated_from`), percorre todas as páginas e as grava no S3. Toda noite `silver_resenas_daily` mantém a última versão de cada avaliação e remove as duplicadas.
 

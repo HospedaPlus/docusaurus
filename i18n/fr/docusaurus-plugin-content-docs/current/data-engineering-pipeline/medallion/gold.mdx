@@ -4,6 +4,8 @@ sidebar_label: Gold et modèle de données
 title: Couche gold et modèle de données
 ---
 
+import {StarSchema} from '@site/src/components/Flows';
+
 # Couche gold et modèle de données
 
 Gold est la couche analytique. Une fois par nuit, `gold_modelo_daily` (`spark_jobs/gold_modelo.py`, file `gold`) lit les tables silver et les derniers catalogues Neon, reconstruit **toutes** les tables gold en entier, les vérifie toutes et les réécrit. Tous les montants sont en **COP** et les réservations en double (F4) ne comptent jamais.
@@ -18,28 +20,7 @@ Le modèle est un **schéma en étoile**, pas un flocon. Chaque table de faits s
 
 ### À quoi il ressemble
 
-```text
-                              ┌──────────────────────┐
-                              │      dim_fecha       │
-                              │ PK fecha             │
-                              │ anio, mes, semana…   │
-                              └──────────┬───────────┘
-                                         │
- ┌──────────────────────┐     ┌──────────┴───────────┐     ┌──────────────────────┐
- │      dim_canal       │     │        FAITS         │     │ dim_tipo_habitacion  │
- │ PK channel_code      ├─────┤ fact_reservas        ├─────┤ PK room_type         │
- │ channel_type, comis. │     │ fact_cancelaciones   │     │ nombre, capacidad    │
- └──────────────────────┘     │ fact_ocupacion_diaria│     └──────────────────────┘
-                              │ fact_resenas         │
-                              └──────────┬───────────┘
-                                         │
-                              ┌──────────┴───────────┐
-                              │      dim_hotel       │
-                              │ PK hotel_code        │
-                              │ ciudad, pais, categ. │
-                              └──────────────────────┘
-                     les marts P1–P5 sont construits à partir des faits
-```
+<StarSchema />
 
 Relations (toutes un-à-plusieurs, de la dimension vers le fait) :
 

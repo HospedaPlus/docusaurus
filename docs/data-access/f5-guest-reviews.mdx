@@ -7,6 +7,7 @@ title: F5 · Guest reviews
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import {AccessTable, AccessNote, Note, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F5Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="message" tone="purple" />F5 · Guest reviews <SourceType>REST API</SourceType>
 
@@ -41,10 +42,7 @@ The API runs on AWS ECS Fargate (us-east-1) as two services with the same image:
 
 ## Where it is stored
 
-```text
-api-reviews-simulator ─► API PostgreSQL (AWS) ─► GET /api/v1/reviews?updated_from=…
-                                                   └─► Airflow bronze_f5_reviews (every hour) ─► S3 bronze/f5_reviews/
-```
+<F5Flow />
 
 F5 does not go through Neon: like a real review platform, it keeps the reviews in its own database and exposes them only through the API. Every hour the Airflow DAG `bronze_f5_reviews` asks for the reviews created or edited since the last run (`updated_from`), walks every page and writes them to S3. Every night `silver_resenas_daily` keeps the last version of each review and removes the duplicates.
 

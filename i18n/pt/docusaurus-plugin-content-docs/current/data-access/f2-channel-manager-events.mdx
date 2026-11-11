@@ -5,6 +5,7 @@ title: F2 · Eventos do channel manager
 ---
 
 import {AccessTable, AccessNote, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F2Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="stream" tone="blue" />F2 · Eventos do channel manager <SourceType>Stream JSON</SourceType>
 
@@ -43,12 +44,7 @@ O ritmo é definido com variáveis de ambiente, assim cumpre o requisito sem enc
 
 ## Onde é armazenada
 
-```text
-produtor ─► Kafka reservation.events.v1_3 ─► neon-consumer ─► Neon streaming.reservation_event_ledger
-                                   │                      └──► Neon operation (reservar / modificar / cancelar / liberar)
-                                   └─ mensagens inválidas ─► Kafka reservation.events.dlq
-Neon ─► Airflow bronze_neon_f2_f3 (a cada hora) ─► S3 bronze/f2_ledger/
-```
+<F2Flow />
 
 - **Primeira parada, Neon.** O consumidor grava cada evento no ledger (uma linha por `event_id`, então repetir não causa dano) e, na mesma transação, o aplica ao inventário da F3: `created` → `operation.reservar()`, `updated` → `modificar()`, `cancelled` → `cancelar()`, `no_show` → `liberar()`. As reservas de OTA ocupam quartos do mesmo inventário que os outros canais, então o overbooking fica em 0. O offset do Kafka só é confirmado depois que o Neon confirma, então nenhum evento se perde.
 - **Depois, S3.** O Kafka não grava no S3. A cada hora o DAG do Airflow `bronze_neon_f2_f3` copia as linhas novas do ledger para `s3://…/bronze/f2_ledger/`, em JSON Lines.

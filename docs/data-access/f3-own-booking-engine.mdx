@@ -5,6 +5,7 @@ title: F3 · Own booking engine
 ---
 
 import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F3Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="database" tone="teal" />F3 · Own booking engine <SourceType>PostgreSQL database</SourceType>
 
@@ -45,12 +46,7 @@ Two jobs, both with the image of the repository:
 
 ## Where it is stored
 
-```text
-seed + simulator ─► Neon operation ◄─ F2 consumer and F4 loader (same reservar())
-Neon ─► Airflow bronze_neon_f2_f3 (every hour, by updated_at) ─► S3 bronze/f3_reservations/, f3_anomalies/
-Neon ─► Airflow bronze_neon_full_load (nightly snapshot)    ─► S3 bronze/f3_*_full/
-Neon ─► Airflow bronze_neon_dims (nightly catalog)           ─► S3 bronze/neon_dims/
-```
+<F3Flow />
 
 Neon is the operational store. The lake gets F3 two ways: every hour, the rows changed since the last run (`reservations.updated_at` is set by a trigger on every change), and every night a full snapshot of reservations, anomalies, inventory, relocations and rejections, taken in one transaction and marked with `_SUCCESS`. The `guests` table is never copied: personal data stays in Neon.
 

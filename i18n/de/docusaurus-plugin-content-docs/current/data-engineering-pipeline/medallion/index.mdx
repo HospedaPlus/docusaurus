@@ -4,6 +4,8 @@ sidebar_label: Überblick
 title: Medallion-Architektur
 ---
 
+import {MedallionFlow} from '@site/src/components/Flows';
+
 # Medallion-Architektur
 
 Der Lake ist in drei Schichten geteilt. Daten bewegen sich nur vorwärts (Bronze → Silver → Gold), jede Schicht wird von eigenen DAGs und einem eigenen Celery-Worker geschrieben, und jede hat einen klaren Vertrag.
@@ -14,10 +16,7 @@ Der Lake ist in drei Schichten geteilt. Daten bewegen sich nur vorwärts (Bronze
 | [**Silver**](./silver.mdx) | *Was ist die saubere, verlässliche Version jeder Entität?* | Parquet | Silver-DAGs (Queue `silver`), Spark | Eine Zeile pro Entität, Fehler behandelt, Beträge in COP, Prüfungen vor dem Schreiben. |
 | [**Gold**](./gold.mdx) | *Was braucht das Geschäft für Entscheidungen?* | Parquet (eine JSON-Datei für Neon) | `gold_modelo_daily` (Queue `gold`), Spark | Sternschema + ein Mart pro Pain, jede Nacht neu gebaut. |
 
-```text
- bronze/  ── roh, wiederabspielbar ──►  silver/  ── bereinigt, vereinheitlicht ──►  gold/  ── modelliert, fertig ──►  Athena / Power BI
- (wie angeliefert)                      (eine Wahrheit pro Entität)              (Stern + Marts P1–P5)
-```
+<MedallionFlow />
 
 ## Warum drei Schichten
 

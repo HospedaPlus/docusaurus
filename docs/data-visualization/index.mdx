@@ -5,6 +5,7 @@ title: Data Visualization
 ---
 
 import PowerBiEmbed from '@site/src/components/PowerBiEmbed';
+import {PowerBiFlow} from '@site/src/components/Flows';
 
 # Data Visualization
 
@@ -27,21 +28,7 @@ The report below is published to the web, so anyone can explore it without signi
 
 ## Where the data comes from
 
-```text
-F1 Kaggle · F2 channel manager (Kafka) · F3 bookings (Neon) · F4 agencies · F5 reviews · F6 holidays/events · F7 FX
-        │
-        ▼  Airflow (hospedaplus-pipeline)
-S3  bronze  →  silver  →  gold                       bucket hospedaplus-lakehouse-buenavista
-                            │
-                            ▼  external tables over the gold Parquet files
-               Glue Data Catalog · database hospedaplus_gold
-                            │
-                            ▼  Amazon Athena (workgroup primary, us-east-2)
-                      Athena ODBC driver
-                            │
-                            ▼
-              Power BI Desktop  /  Power BI Service (through the gateway)
-```
+<PowerBiFlow />
 
 `gold_modelo_daily` rebuilds every gold table once a night (about 03:35 UTC, 22:35 Colombia time). The report refreshes at 05:00 Colombia time, so every morning it shows the previous night's data. See [DAGs and schedule](../data-engineering-pipeline/dags.mdx).
 

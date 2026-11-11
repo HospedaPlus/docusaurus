@@ -4,6 +4,8 @@ sidebar_label: Vue d'ensemble
 title: Architecture médaillon
 ---
 
+import {MedallionFlow} from '@site/src/components/Flows';
+
 # Architecture médaillon
 
 Le lac est découpé en trois couches. Les données ne font qu'avancer (bronze → silver → gold), chaque couche est écrite par ses propres DAGs et son propre worker Celery, et chacune a un contrat clair.
@@ -14,10 +16,7 @@ Le lac est découpé en trois couches. Les données ne font qu'avancer (bronze �
 | [**Silver**](./silver.mdx) | *Quelle est la version propre et fiable de chaque entité ?* | Parquet | DAGs silver (file `silver`), Spark | Une ligne par entité, défauts traités, montants en COP, contrôles avant écriture. |
 | [**Gold**](./gold.mdx) | *De quoi le métier a-t-il besoin pour décider ?* | Parquet (un JSON pour Neon) | `gold_modelo_daily` (file `gold`), Spark | Schéma en étoile + un mart par pain, reconstruit chaque nuit. |
 
-```text
- bronze/  ── brut, rejouable ──►  silver/  ── propre, normalisé ──►  gold/  ── modélisé, prêt ──►  Athena / Power BI
- (tel qu'arrivé)                  (une vérité par entité)            (étoile + marts P1–P5)
-```
+<MedallionFlow />
 
 ## Pourquoi trois couches
 

@@ -1,0 +1,178 @@
+---
+sidebar_position: 3.5
+sidebar_label: Connexions Airflow
+title: Les connexions Airflow et leur utilisation
+---
+
+import {ConnectionsFlow} from '@site/src/components/Flows';
+
+# Les connexions Airflow et leur utilisation
+
+Un DAG n'est utile que si ses tâches peuvent joindre les systèmes qui l'entourent : Neon, S3, les APIs des sources, ainsi que le broker et la base de données d'Airflow lui-même. Cette page montre **chaque connexion utilisée par le pipeline, où elle est définie et le code exact qui l'ouvre**.
+
+<ConnectionsFlow />
+
+## Les quatre types de connexions
+
+| # | Connexion | Définie dans | Format | Utilisée par |
+| --- | --- | --- | --- | --- |
+| 1 | Infrastructure d'Airflow : base de métadonnées, broker Celery, result backend | `environment:` des fichiers Compose | URLs SQLAlchemy / AMQP | Scheduler, API server, workers |
+| 2 | **Connection** Airflow `aws_default` | Variable d'environnement `AIRFLOW_CONN_AWS_DEFAULT` (URI) | `aws://?region_name=us-east-2` | Logs distants des tâches dans `s3://…/airflow-logs/` |
+| 3 | Connexions des tâches vers **Neon** | `NEON_READ_URL`, `NEON_WRITE_URL` dans `.env` | URI PostgreSQL | DAGs bronze (lecture) et `gold_neon_writeback` (écriture) |
+| 4 | Connexions des tâches vers **S3** et les **APIs HTTP** | Rôle IAM de l'EC2 + `S3_BUCKET`, `F5_API_URL`, `NAGER_BASE_URL` | Nom du bucket / URL de base | Toutes les tâches bronze, silver et gold |
+
+## 1. Les connexions propres à Airflow (infrastructure)
+
+Airflow a besoin d'une base de données pour stocker les exécutions des DAGs et d'un broker pour envoyer les tâches aux workers Celery. On les configure avec des variables d'environnement `AIRFLOW__<SECTION>__<CLE>`, qu'Airflow lit à la place de `airflow.cfg` :
+
+```yaml title="docker-compose.workers.yaml (les workers joignent le cœur par son IP privée)"
+AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+# metadata DB (Postgres on the core EC2)
+AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD}@${NUCLEO_HOST}:5432/airflow
+# Celery broker (RabbitMQ on the core EC2): where the scheduler puts the tasks
+AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${NUCLEO_HOST}:5672//
+# where the workers write the result of each task
+AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:${POSTGRES_PASSWORD}@${NUCLEO_HOST}:5432/airflow
+# Airflow 3: workers report task state to the API server
+AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://${NUCLEO_HOST}:8080/execution/'
+```
+
+**Fonctionnement :** le scheduler (cœur) dépose un message dans la file RabbitMQ `bronze`, `silver` ou `gold` ; le worker qui écoute cette file le prend, exécute la tâche et remonte l'état via l'execution API. Les ports 5432, 5672 et 8080 du cœur sont ouverts **uniquement au security group des workers**.
+
+## 2. La Connection Airflow `aws_default`
+
+Une *Airflow Connection* est un ensemble nommé d'identifiants que les hooks Airflow retrouvent par son `conn_id`. Au lieu de la créer à la main dans *Admin → Connections* (elle serait perdue si la base de métadonnées était recréée), on la déclare comme variable d'environnement `AIRFLOW_CONN_<CONN_ID>` avec une URI :
+
+```yaml title="docker-compose.nucleo.yaml / docker-compose.workers.yaml"
+AIRFLOW_CONN_AWS_DEFAULT: 'aws://?region_name=${AWS_DEFAULT_REGION:-us-east-2}'
+AIRFLOW__LOGGING__REMOTE_LOGGING: 'true'
+AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: s3://${S3_BUCKET}/airflow-logs
+AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: aws_default
+```
+
+L'URI **ne contient aucune clé d'accès** : quand le provider Amazon ne trouve pas de clé, boto3 utilise le **rôle IAM de l'EC2** (`hospedaplus-pipeline-role`) et obtient des identifiants temporaires. Elle sert aux logs : une tâche tourne sur l'EC2 workers, son log est envoyé dans S3 et l'UI du cœur le lit depuis là.
+
+```bash title="La vérifier depuis n'importe quel conteneur Airflow"
+docker compose -f docker-compose.nucleo.yaml exec airflow-scheduler airflow connections get aws_default
+docker compose -f docker-compose.nucleo.yaml exec airflow-scheduler \
+  python -c "import boto3; print(boto3.client('sts').get_caller_identity()['Arn'])"   # shows the IAM role in use
+```
+
+## 3. Neon : variable d'environnement + psycopg2
+
+Les DAGs n'utilisent pas de hook Airflow pour Neon. La chaîne de connexion vit dans le `.env` des workers et le module partagé `dags/hospedaplus/lake.py` la lit ; si elle est vide, la tâche échoue volontairement avec un message clair.
+
+```python title="dags/hospedaplus/lake.py"
+def neon_url() -> str:
+    url = os.getenv("NEON_READ_URL", "")
+    if not url:
+        raise RuntimeError("NEON_READ_URL is empty: set it in .env (role etl_reader)")
+    return url
+```
+
+```python title="dags/hospedaplus/neon.py : chaque lecture renvoie du JSON Lines"
+def dump(sql: str, params: tuple = ()) -> tuple[bytes, int]:
+    with psycopg2.connect(neon_url()) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        cols = [c.name for c in cur.description]
+        rows = cur.fetchall()
+    lines = [json.dumps(dict(zip(cols, r)), default=str, ensure_ascii=False) for r in rows]
+    return ("\n".join(lines) + ("\n" if lines else "")).encode(), len(rows)
+```
+
+Une seule tâche écrit dans Neon, avec un autre rôle et une autre variable :
+
+```python title="dags/gold_neon_writeback.py"
+url = os.getenv("NEON_WRITE_URL", "")          # role app_writer
+with psycopg2.connect(url) as conn, conn.cursor() as cur:   # one transaction: all rows or none
+    cur.executemany(UPSERT, rows)
+```
+
+```bash title=".env de l'EC2 workers (placeholders : ne jamais commiter les vraies valeurs)"
+NEON_READ_URL=postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+```
+
+## 4. S3 et les APIs HTTP
+
+**S3 avec boto3.** Aucune clé dans le code ni dans `.env` : `boto3.client("s3")` trouve tout seul le rôle IAM de l'EC2. `S3_ENDPOINT_URL` est vide sur AWS et n'est rempli que pour les tests locaux avec MinIO.
+
+```python title="dags/hospedaplus/lake.py"
+BUCKET = os.getenv("S3_BUCKET", "hospedaplus-lakehouse")
+
+def s3_client():
+    return boto3.client("s3", endpoint_url=os.getenv("S3_ENDPOINT_URL") or None)
+
+def put(key: str, body: bytes, content_type: str = "application/json") -> str:
+    s3_client().put_object(Bucket=BUCKET, Key=key, Body=body, ContentType=content_type)
+    return f"s3://{BUCKET}/{key}"
+```
+
+**S3 avec Spark.** Spark utilise le protocole `s3a://` (jars `hadoop-aws` + `aws-java-sdk-bundle` dans l'image) et le même rôle IAM via `DefaultAWSCredentialsProviderChain` :
+
+```python title="spark_jobs/session.py"
+SparkSession.builder.appName(app).master("local[*]")
+    .config("spark.jars", jars)
+    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+    .config("spark.hadoop.fs.s3a.aws.credentials.provider",
+            "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
+
+def path(layer: str, name: str) -> str:
+    return f"s3a://{os.getenv('S3_BUCKET')}/{layer}/{name}"     # s3a://bucket/silver/reservas
+```
+
+**APIs HTTP avec requests.** L'URL de base vient du `.env`, la clé d'API optionnelle va dans un en-tête :
+
+```python title="dags/bronze_f5_reviews.py"
+base = os.getenv("F5_API_URL", "").rstrip("/")
+headers = {"x-api-key": os.environ["F5_API_KEY"]} if os.getenv("F5_API_KEY") else {}
+r = requests.get(f"{base}/api/v1/reviews", headers=headers, timeout=60,
+                 params={"updated_from": data_interval_start.isoformat(), "page": page, "page_size": 100})
+```
+
+## Pourquoi des variables d'environnement plutôt que des hooks pour Neon et S3
+
+| Raison | Détail |
+| --- | --- |
+| Un seul endroit pour tout | Le même `.env` configure Airflow, les DAGs et les jobs Spark ; de toute façon, les jobs Spark tournent hors des hooks Airflow. |
+| Survit à une reconstruction | Rien n'est stocké dans la base de métadonnées : recréer Postgres ne fait perdre aucune connexion. |
+| Même code en CI | Les tests exécutent le code des DAGs avec de fausses variables, sans l'UI d'Airflow. |
+| Aucune clé AWS | L'accès à S3 vient du rôle IAM ; il n'y a rien à faire tourner ni à divulguer. |
+
+## La même chose avec des hooks Airflow (optionnel)
+
+Les providers Amazon et Postgres sont déjà installés (`apache-airflow-providers-amazon==9.16.0`, `apache-airflow-providers-postgres==6.4.0`), le projet peut donc passer aux hooks sans changer l'image. Déclarez la connexion comme URI :
+
+```bash title=".env (exemple, placeholders)"
+AIRFLOW_CONN_NEON_READER='postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech:5432/hospedaplus?sslmode=require'
+```
+
+```python title="Une tâche qui utilise les hooks"
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+
+@task(queue="bronze")
+def copy_hotels():
+    rows = PostgresHook(postgres_conn_id="neon_reader").get_records("SELECT * FROM operation.hotels")
+    body = "\n".join(json.dumps(r, default=str) for r in rows)
+    S3Hook(aws_conn_id="aws_default").load_string(body, key="bronze/neon_dims/hotels/test.jsonl",
+                                                  bucket_name="hospedaplus-lakehouse-buenavista", replace=True)
+```
+
+Les deux approches ouvrent les mêmes connexions ; le projet utilise des variables d'environnement pour les raisons ci-dessus.
+
+## Relier les DAGs entre eux : les Assets
+
+Les DAGs sont aussi « connectés » entre eux, sans horaires fixes, grâce aux **Assets** (Airflow 3). Une tâche déclare ce qu'elle écrit avec `outlets=`, et un DAG déclare ce qu'il attend avec `schedule=` :
+
+```python title="dags/hospedaplus/lake.py + dags/silver_reservas_daily.py"
+BRONZE_F3_RESERVATIONS = Asset("s3://hospedaplus-lakehouse/bronze/f3_reservations")
+
+@task(queue="bronze", outlets=[BRONZE_F3_RESERVATIONS])      # bronze: "I updated this"
+def f3_reservations(...): ...
+
+@dag(schedule=((SILVER_FX_DAILY & BRONZE_F3_FULL & BRONZE_NEON_DIMS) | BRONZE_F3_RESERVATIONS))
+def silver_reservas_daily(): ...                              # silver: runs when its inputs change
+```
+
+`&` attend tous les assets, `|` s'exécute dès que l'un d'eux change. Voir [DAGs](./dags.mdx) et [Se connecter à Neon et S3](./how-to-connect.mdx).

@@ -4,6 +4,8 @@ sidebar_label: Veröffentlichung und Aktualisierung
 title: Veröffentlichung und automatische Aktualisierung
 ---
 
+import {PublishingFlow} from '@site/src/components/Flows';
+
 # Veröffentlichung und automatische Aktualisierung
 
 **Status:** veröffentlicht und seit dem 9. November 2026 automatisch aktualisiert.
@@ -18,11 +20,7 @@ title: Veröffentlichung und automatische Aktualisierung
 
 ## So läuft eine geplante Aktualisierung
 
-```text
-Power BI Service ──(05:00 COT)──► gateway hospedaplus-gw ──► Athena ODBC driver
-        ▲                                                          │
-        └──────────── rows ◄── Athena reads gold Parquet in S3 ◄───┘
-```
+<PublishingFlow />
 
 1. Power BI Service schickt den Aktualisierungsauftrag an `hospedaplus-gw`.
 2. Das Gateway führt die Abfrage jeder Tabelle über den Athena-ODBC-Treiber aus.

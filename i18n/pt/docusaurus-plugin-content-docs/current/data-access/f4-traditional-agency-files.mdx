@@ -7,6 +7,7 @@ title: F4 · Arquivos de agências tradicionais
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import {AccessTable, AccessNote, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F4Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="file" tone="sky" />F4 · Arquivos de agências tradicionais <SourceType>Arquivos CSV / Excel</SourceType>
 
@@ -56,11 +57,7 @@ A semana `2026-W45` produziu 183 linhas: 21 sem moeda e 3 duplicadas de reservas
 
 ## Onde é armazenada
 
-```text
-f4-weekly ─┬─ arquivos ─► EC2 ./output/f4_agency_files/<semana>/ ─► S3 bronze/f4_agencias/semana=<semana>/
-           └─ linhas   ─► Neon operation.reservar('AGxx', …)
-Airflow bronze_f4_agencias (segunda 07:00 UTC) verifica e registra a semana no S3
-```
+<F4Flow />
 
 Os arquivos vão **direto para o S3**, sem mudanças, porque são arquivos e o lago guarda a cópia bruta. As reservas que eles trazem vão para o **Neon**, porque ocupam quartos reais. O DAG do Airflow `bronze_f4_agencias` roda uma hora depois e verifica que os 15 arquivos da semana estão no S3.
 

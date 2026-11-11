@@ -7,6 +7,7 @@ title: F5 · Avis clients
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import {AccessTable, AccessNote, Note, StatGrid, Stat, SourceTitleIcon, SourceType} from '@site/src/components/Overview';
+import {F5Flow} from '@site/src/components/Flows';
 
 # <SourceTitleIcon icon="message" tone="purple" />F5 · Avis clients <SourceType>API REST</SourceType>
 
@@ -41,10 +42,7 @@ L'API tourne sur AWS ECS Fargate (us-east-1) sous la forme de deux services avec
 
 ## Stockage
 
-```text
-api-reviews-simulator ─► PostgreSQL de l'API (AWS) ─► GET /api/v1/reviews?updated_from=…
-                                                       └─► Airflow bronze_f5_reviews (toutes les heures) ─► S3 bronze/f5_reviews/
-```
+<F5Flow />
 
 F5 ne passe pas par Neon : comme une vraie plateforme d'avis, elle garde les avis dans sa propre base et ne les expose que par l'API. Toutes les heures, le DAG Airflow `bronze_f5_reviews` demande les avis créés ou modifiés depuis la dernière exécution (`updated_from`), parcourt toutes les pages et les écrit dans S3. Chaque nuit, `silver_resenas_daily` garde la dernière version de chaque avis et supprime les doublons.
 

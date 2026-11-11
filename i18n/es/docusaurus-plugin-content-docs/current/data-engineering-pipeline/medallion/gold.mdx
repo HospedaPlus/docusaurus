@@ -4,6 +4,8 @@ sidebar_label: Gold y modelo de datos
 title: Capa gold y modelo de datos
 ---
 
+import {StarSchema} from '@site/src/components/Flows';
+
 # Capa gold y modelo de datos
 
 Gold es la capa analítica. Una vez por noche `gold_modelo_daily` (`spark_jobs/gold_modelo.py`, cola `gold`) lee las tablas silver y los últimos catálogos de Neon, reconstruye **todas** las tablas gold completas, las valida todas y las sobrescribe. Todos los montos están en **COP** y las reservas duplicadas (F4) nunca cuentan.
@@ -18,28 +20,7 @@ El modelo es un **esquema estrella**, no un copo de nieve. Cada tabla de hechos 
 
 ### Cómo se ve
 
-```text
-                              ┌──────────────────────┐
-                              │      dim_fecha       │
-                              │ PK fecha             │
-                              │ anio, mes, semana…   │
-                              └──────────┬───────────┘
-                                         │
- ┌──────────────────────┐     ┌──────────┴───────────┐     ┌──────────────────────┐
- │      dim_canal       │     │        HECHOS        │     │ dim_tipo_habitacion  │
- │ PK channel_code      ├─────┤ fact_reservas        ├─────┤ PK room_type         │
- │ channel_type, comis. │     │ fact_cancelaciones   │     │ nombre, capacidad    │
- └──────────────────────┘     │ fact_ocupacion_diaria│     └──────────────────────┘
-                              │ fact_resenas         │
-                              └──────────┬───────────┘
-                                         │
-                              ┌──────────┴───────────┐
-                              │      dim_hotel       │
-                              │ PK hotel_code        │
-                              │ ciudad, pais, categ. │
-                              └──────────────────────┘
-                    los marts P1–P5 se construyen con los hechos
-```
+<StarSchema />
 
 Relaciones (todas uno a muchos, de la dimensión al hecho):
 

@@ -1,0 +1,341 @@
+---
+sidebar_position: 1
+sidebar_label: CI/CD
+title: CI/CD de cada repositório
+---
+
+import {CiCdFlow} from '@site/src/components/Flows';
+
+# CI/CD de cada repositório
+
+Todos os repositórios do HospedaPlus usam **GitHub Actions**. A ideia é a mesma em todos:
+
+1. **CI (Integração Contínua)** roda em cada Pull Request: verifica o estilo, roda os testes e constrói a imagem Docker *sem publicá-la*. Se algo falhar, o PR mostra um ❌ vermelho e não é mesclado.
+2. **CD (Entrega/Implantação Contínua)** roda quando a mudança chega à `main`: publica uma **imagem versionada** e a **implanta** na AWS.
+3. O deploy fica **desligado até que seus segredos existam**: se faltar um segredo, o job termina em verde com um aviso (`Deploy skipped`) em vez de falhar.
+
+<CiCdFlow />
+
+## Resumo
+
+| Repositório | Arquivos de workflow | O que o CI verifica | Imagem publicada em | Implanta em |
+| --- | --- | --- | --- | --- |
+| [hospedaplus-pipeline](https://github.com/HospedaPlus/hospedaplus-pipeline) | `ci-cd.yml` | ruff, `docker compose config`, validação de DAGs, testes de Spark e de qualidade de dados | GHCR | EC2 núcleo + EC2 workers (SSH) |
+| [buenavista-streaming](https://github.com/HospedaPlus/buenavista-streaming) (F2) | `ci.yml` + `cd.yml` | ruff lint + formatação, pytest, build da imagem | GHCR | EC2 fontes (SSH) |
+| [db_simulated](https://github.com/HospedaPlus/db_simulated) (F3) | `ci.yml` + `cd.yml` | pytest contra um PostgreSQL 16 real, ruff, build da imagem | GHCR | EC2 fontes (SSH), reaplica o SQL se mudou |
+| [hospedaplus-csv](https://github.com/HospedaPlus/hospedaplus-csv) (F4) | `cd.yml` | ruff, build da imagem | GHCR | EC2 fontes (SSH), serviço `f4-weekly` |
+| [api-reviews](https://github.com/HospedaPlus/api-reviews) (F5) | `ci.yml` + `cd.yml` | ruff, gitleaks, pytest com cobertura ≥ 90 %, migrações para cima/para baixo, seed idempotente, smoke test do Docker | Amazon ECR | ECS Fargate (OIDC, sem chaves AWS) |
+| [docusaurus](https://github.com/HospedaPlus/docusaurus) (este site) | `deploy.yml` | Verificação de TypeScript, build completo em 5 idiomas | — | GitHub Pages |
+
+### Palavras usadas nesta página
+
+| Termo | Significado |
+| --- | --- |
+| **Workflow** | Um arquivo YAML em `.github/workflows/`. O GitHub o executa quando ocorre seu evento `on:`. |
+| **Job** | Um grupo de passos que roda numa máquina Linux nova (`runs-on: ubuntu-latest`). Os jobs rodam em paralelo, a menos que um diga `needs:`. |
+| **GHCR** | GitHub Container Registry, `ghcr.io/hospedaplus/<repo>`: onde as imagens ficam guardadas, ao lado do código. |
+| **Segredo** | Um valor guardado criptografado em *Settings → Secrets and variables → Actions* (chave SSH, host). Nunca aparece nos logs. |
+| **Environment `production`** | Um ambiente do GitHub: agrupa os segredos do deploy e mostra o histórico de implantações. |
+
+## 1. hospedaplus-pipeline (CI/CD II: engenharia de dados)
+
+Um único arquivo, `.github/workflows/ci-cd.yml`, com quatro jobs encadeados com `needs:`: **lint → test → image → deploy**.
+
+```yaml title=".github/workflows/ci-cd.yml (gatilhos)"
+on:
+  pull_request:
+    branches: [main]      # every PR: lint + tests + image build (not published)
+  push:
+    branches: [main]      # merge: the same, then publish and deploy
+    tags: ["v*"]          # tag v1.2.3: the image also gets the version as tag
+  workflow_dispatch:      # "Run workflow" button
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true   # a new push cancels the old run of the same branch
+```
+
+**Lint** verifica o estilo Python com ruff e se os três arquivos Compose são válidos (um erro de YAML falha aqui, não no servidor):
+
+```yaml
+  lint:
+    steps:
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.14.3"
+          args: check dags spark_jobs tests
+      - name: Compose files are valid
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yaml config -q
+          docker compose -f docker-compose.nucleo.yaml config -q
+          docker compose -f docker-compose.workers.yaml config -q
+```
+
+**Test** instala o Airflow exatamente como a imagem Docker faz e roda o pytest: cada DAG deve importar sem erros (DagBag), os jobs Spark rodam com pequenos dados de exemplo e os controles de qualidade de `spark_jobs/quality.py` são testados. O Java 17 é instalado porque o Spark precisa dele.
+
+```yaml
+  test:
+    env:
+      AIRFLOW_HOME: ${{ github.workspace }}/.airflow-ci
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: "17"}
+      - uses: astral-sh/setup-uv@v6
+        with: {activate-environment: true}
+      - name: Install Airflow + requirements (same pins as the image)
+        run: scripts/ci-install.sh pytest==8.4.2
+      - name: DAG validation, Spark jobs and data quality tests
+        run: python -m pytest -v -p no:logging
+```
+
+`scripts/ci-install.sh` resolve um problema real: o Airflow é instalado com seu arquivo oficial de *constraints*, mas nossas versões fixadas em `requirements.txt` precisam prevalecer. Sem isso, o uv subia o SQLAlchemy para 2.x e quebrava o Airflow.
+
+```bash title="scripts/ci-install.sh"
+AIRFLOW_VERSION=3.1.5
+PY=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+curl -fsSL "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PY}.txt" \
+  -o /tmp/constraints.txt
+# Drop from the constraints every package we pin ourselves
+names=$(grep -vE '^\s*(#|$)' requirements.txt | sed -E 's/[=<>!~ ].*//' | paste -sd'|')
+grep -viE "^(${names}|botocore|s3transfer|py4j)==" /tmp/constraints.txt > /tmp/constraints-ci.txt
+uv pip install "apache-airflow==${AIRFLOW_VERSION}" -r requirements.txt -c /tmp/constraints-ci.txt "$@"
+```
+
+**Image** constrói o Dockerfile e, fora dos PRs, publica no GHCR com três tipos de tag: o SHA curto do commit (`3f2a1bc`), a branch (`main`) e a versão (`1.2.3` quando uma tag `v1.2.3` é enviada). O cache do build fica no GitHub Actions (`type=gha`), então um build em que só os DAGs mudaram leva segundos.
+
+```yaml
+  image:
+    needs: [lint, test]
+    permissions: {contents: read, packages: write}
+    steps:
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+      - uses: docker/build-push-action@v6
+        with:
+          push: ${{ github.event_name != 'pull_request' }}   # PRs only build
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+**Deploy** conecta por SSH nas duas EC2. Primeiro o **núcleo** (Airflow + RabbitMQ), depois os **workers**, para que os workers sempre encontrem o scheduler novo. Cada máquina faz pull da `main` e recria só os contêineres que mudaram.
+
+```yaml
+  deploy:
+    needs: image
+    if: github.event_name != 'pull_request'
+    environment: production
+    env:
+      SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      NUCLEO_HOST: ${{ secrets.NUCLEO_HOST }}
+      WORKERS_HOST: ${{ secrets.WORKERS_HOST }}
+      SSH_USER: ${{ secrets.DEPLOY_SSH_USER || 'ubuntu' }}
+    steps:
+      - name: Deploy is off until the secrets exist
+        id: gate
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$NUCLEO_HOST" ] || [ -z "$WORKERS_HOST" ]; then
+            echo "::notice::Deploy skipped: add DEPLOY_SSH_KEY, NUCLEO_HOST and WORKERS_HOST to turn it on."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.enabled == 'true'
+        name: Núcleo (Airflow + RabbitMQ), then workers
+        run: |
+          run() { ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=accept-new "$SSH_USER@$1" "$2"; }
+          run "$NUCLEO_HOST"  'cd ~/hospedaplus-pipeline && git pull --ff-only && docker compose -f docker-compose.nucleo.yaml up -d --build'
+          run "$WORKERS_HOST" 'cd ~/hospedaplus-pipeline && git pull --ff-only && docker compose -f docker-compose.workers.yaml up -d --build && docker compose -f docker-compose.workers.yaml restart'
+```
+
+## 2. buenavista-streaming (F2), db_simulated (F3) e hospedaplus-csv (F4): CI/CD I
+
+Os três simuladores de fontes compartilham o mesmo `cd.yml` (lint → image → deploy na **EC2 de fontes**). F2 e F3 também têm um `ci.yml` que roda seus testes.
+
+### buenavista-streaming (F2 Kafka)
+
+```yaml title=".github/workflows/ci.yml"
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+jobs:
+  test:
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check .             # lint
+      - run: ruff format --check .    # formatting
+      - run: pytest                   # events, Kafka producer/consumer, Neon sinks
+```
+
+```yaml title=".github/workflows/cd.yml (passo de deploy)"
+      - if: steps.gate.outputs.enabled == 'true'
+        name: Update the EC2 sources
+        run: |
+          ssh -i ~/.ssh/deploy "$SSH_USER@$HOST" \
+            'cd ~/buenavista-streaming && git pull --ff-only && docker compose up -d --build'
+```
+
+`docker compose up -d --build` recria `producer` e `neon-consumer` com o código novo; o Kafka continua rodando e mantém seus dados (volume `kafka_data`), então nenhum evento se perde durante o deploy.
+
+### db_simulated (F3 motor de reservas)
+
+O CI sobe um **PostgreSQL 16** descartável ao lado do job, assim os testes rodam contra um banco real: `reservar()`, 50 compradores simultâneos pelo último quarto, penalidades etc.
+
+```yaml title=".github/workflows/ci.yml"
+jobs:
+  test:
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: {POSTGRES_USER: hospedaplus, POSTGRES_PASSWORD: hospedaplus, POSTGRES_DB: hospedaplus_test}
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U hospedaplus" --health-interval 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://hospedaplus:hospedaplus@localhost:5432/hospedaplus_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[test]"
+      - run: pytest -v
+```
+
+O deploy é mais esperto que um simples reinício: compara o commit antes e depois do `git pull` e só mexe no Neon quando o SQL ou os eventos locais mudaram.
+
+```bash title="cd.yml: o que roda na EC2 de fontes"
+cd ~/db_simulated && OLD=$(git rev-parse HEAD) && git pull --ff-only
+if ! git diff --quiet "$OLD" HEAD -- sql/; then          # schema/functions changed
+  docker compose --profile neon run --rm neon-check init  # applies it (init never deletes data)
+fi
+docker compose --profile neon up -d --build neon-simulator
+if ! git diff --quiet "$OLD" HEAD -- data/local_events.csv; then
+  docker compose --profile neon run --rm neon-check events   # reloads F6b local events
+fi
+```
+
+### hospedaplus-csv (F4 agências)
+
+Só `cd.yml`: ruff lint, build da imagem e deploy do único serviço `f4-weekly`.
+
+```bash title="cd.yml: o que roda na EC2 de fontes"
+cd ~/hospedaplus-csv && git pull --ff-only && docker compose up -d --build f4-weekly
+```
+
+### Segredos dos três repositórios de fontes
+
+| Segredo | Valor |
+| --- | --- |
+| `DEPLOY_SSH_KEY` | Chave privada (conteúdo do `.pem`) da EC2 de fontes |
+| `SOURCES_HOST` | IP público ou DNS da EC2 de fontes |
+| `DEPLOY_SSH_USER` | Opcional, padrão `ubuntu` |
+
+## 3. api-reviews (F5): o pipeline mais completo
+
+`ci.yml` tem cinco jobs. O último, **CI passed**, é o único check obrigatório da proteção de branch: fica verde só se todos os outros estiverem.
+
+| Job | O que garante |
+| --- | --- |
+| **Lint and format** | `uv sync --frozen` (versões exatas do `uv.lock`), `ruff check`, `ruff format --check` |
+| **Secret scan** | O `gitleaks` lê *todo* o histórico git e falha se alguma senha ou chave já foi commitada |
+| **Tests (PostgreSQL)** | Alembic `upgrade → downgrade → upgrade`, `alembic check` (modelos = migrações), pytest com **cobertura ≥ 90 %**, e o seed é idempotente (uma segunda execução insere 0 linhas) e reproduzível (mesmo digest) |
+| **Docker build and smoke test** | Constrói a imagem, sobe contra um serviço PostgreSQL, espera `/health/ready`, roda o seed dentro da imagem, chama a API e verifica que o contêiner roda com o usuário não root `app` |
+| **CI passed** | Falha se algum job acima não terminou com sucesso |
+
+```yaml title="ci.yml: o seed deve ser idempotente e reproduzível"
+      - name: Seed is idempotent and reproducible
+        run: |
+          count()  { psql "$DATABASE_URL" -tAc "SELECT count(*) FROM reviews"; }
+          digest() { psql "$DATABASE_URL" -tAc "SELECT md5(string_agg(platform || external_id || rating || text, ',' ORDER BY platform, external_id)) FROM reviews"; }
+          uv run python -m src.seed --mode dev
+          first_count=$(count); first_digest=$(digest)
+          uv run python -m src.seed --mode dev
+          [ "$(count)" = "$first_count" ] || { echo "::error::Second seed run inserted rows"; exit 1; }
+```
+
+`cd.yml` começa **só depois que o CI terminou em verde na `main`** (`workflow_run`) e implanta exatamente o commit que o CI testou. Entra na AWS com **OIDC**: o GitHub obtém um token temporário para uma role IAM, então nenhuma chave de acesso AWS fica guardada em lugar nenhum.
+
+```yaml title=".github/workflows/cd.yml"
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+permissions:
+  id-token: write                 # GitHub OIDC -> AWS IAM role
+jobs:
+  deploy:
+    if: vars.AWS_ROLE_ARN != '' && github.event.workflow_run.conclusion == 'success'
+    env:
+      IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/build-push-action@v7
+        with:
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+      - run: envsubst < deploy/ecs/task-definition.json > task-definition.rendered.json
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.rendered.json
+          container-name: api
+          image: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+      - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true    # fails if the new task does not become healthy
+```
+
+A URL do banco também não está no repositório: a task definition aponta para um ARN do **Secrets Manager** (`DATABASE_URL_SECRET_ARN`) e o ECS a injeta quando o contêiner inicia.
+
+## 4. docusaurus (este site)
+
+```yaml title=".github/workflows/deploy.yml"
+on:
+  push: {branches: [main]}
+  pull_request: {branches: [main]}
+jobs:
+  build:
+    steps:
+      - run: npm ci
+      - run: npm run typecheck     # TypeScript of the React components
+      - run: npm run build         # prebuild generates the docs-chat index, then 5 languages
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with: {path: build}
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    permissions: {pages: write, id-token: write}
+    steps:
+      - uses: actions/deploy-pages@v4
+```
+
+Se o job **Deploy** falhar por timeout, é o GitHub Pages que está lento, não o site: abra a execução e clique em **Re-run failed jobs**.
+
+## Como ativar os deploys
+
+1. Abra a porta 22 do security group da EC2 para o GitHub Actions (os IPs deles mudam, por isso neste projeto está aberta para `0.0.0.0/0` com login só por chave).
+2. Em cada repositório: **Settings → Secrets and variables → Actions → New repository secret**. Pipeline: `DEPLOY_SSH_KEY`, `NUCLEO_HOST`, `WORKERS_HOST`. Fontes: `DEPLOY_SSH_KEY`, `SOURCES_HOST`. O api-reviews usa *variáveis* do repositório (`AWS_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`, `ECS_CLUSTER`, `ECS_SERVICE`, …).
+3. Faça push na `main` (ou clique em **Run workflow**). A execução mostra `Deploy` em verde e o log do passo mostra a saída do `docker compose` do servidor.
+
+**Como verificar uma execução:** aba **Actions** do repositório → clique na execução → cada job mostra seus passos; um passo com ❌ vermelho tem o erro exato. Um PR só pode ser mesclado quando seus checks estão verdes.

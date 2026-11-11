@@ -4,6 +4,8 @@ sidebar_label: Gold and data model
 title: Gold layer and data model
 ---
 
+import {StarSchema} from '@site/src/components/Flows';
+
 # Gold layer and data model
 
 Gold is the analytical layer. Once a night `gold_modelo_daily` (`spark_jobs/gold_modelo.py`, queue `gold`) reads the silver tables and the latest Neon catalogs, rebuilds **every** gold table in full, checks them all and overwrites them. All amounts are in **COP** and duplicated bookings (F4) never count.
@@ -18,28 +20,7 @@ The model is a **star schema**, not a snowflake. Every fact table joins **direct
 
 ### How it looks
 
-```text
-                              ┌──────────────────────┐
-                              │      dim_fecha       │
-                              │ PK fecha             │
-                              │ anio, mes, semana…   │
-                              └──────────┬───────────┘
-                                         │
- ┌──────────────────────┐     ┌──────────┴───────────┐     ┌──────────────────────┐
- │      dim_canal       │     │        FACTS         │     │ dim_tipo_habitacion  │
- │ PK channel_code      ├─────┤ fact_reservas        ├─────┤ PK room_type         │
- │ channel_type, comis. │     │ fact_cancelaciones   │     │ nombre, capacidad    │
- └──────────────────────┘     │ fact_ocupacion_diaria│     └──────────────────────┘
-                              │ fact_resenas         │
-                              └──────────┬───────────┘
-                                         │
-                              ┌──────────┴───────────┐
-                              │      dim_hotel       │
-                              │ PK hotel_code        │
-                              │ ciudad, pais, categ. │
-                              └──────────────────────┘
-                     marts P1–P5 are built from the facts
-```
+<StarSchema />
 
 Relationships (all one-to-many, from the dimension to the fact):
 

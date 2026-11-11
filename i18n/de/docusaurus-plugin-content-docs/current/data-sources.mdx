@@ -6,6 +6,7 @@ hide_table_of_contents: true
 ---
 
 import {CardGrid, DataSourceCard, Note, AccessNote} from '@site/src/components/Overview';
+import {SourcesFlow} from '@site/src/components/Flows';
 
 # Datenquellen
 
@@ -117,16 +118,7 @@ HospedaPlus Revenue integriert sieben Datenquellen, von F1 bis F7. F1, F6 und F7
 
 ## Wo jede Quelle zuerst gespeichert wird
 
-```text
-Simulatoren auf AWS                         Zuerst gespeichert in              Lake (S3)
-F2-Producer ─► Kafka ─► Consumer ──────────► Neon · streaming + operation ─┐
-F3-Seed + Simulator ───────────────────────► Neon · operation ─────────────┤ Airflow, stündlich
-F6-CSV lokaler Veranstaltungen ────────────► Neon · operation.local_events ┤ und nächtlich
-F4-Wochengenerator ──┬─ reservar() ────────► Neon · operation ─────────────┤
-                     └─ Rohdateien ─────────────────────────────────────────┼─► S3 Bronze ─► Silver ─► Gold
-F5-Bewertungs-API ─────────────────────────► PostgreSQL der API ─ Airflow ─┤
-F1-CSV, F6-Feiertags-API, F7-Kurs-API ── Airflow ───────────────────────────┘
-```
+<SourcesFlow />
 
 - **Zuerst Neon (F2, F3, F6-Veranstaltungen, F4-Buchungen).** Das sind operative Daten: Jede Buchung, egal aus welchem Kanal, läuft über dieselbe Funktion `operation.reservar()`, daher teilen sich alle Kanäle einen Bestand und es gibt nie eine Überbuchung. Die Pipeline liest Neon mit einer Nur-Lese-Rolle und kopiert die Änderungen stündlich nach S3, dazu jede Nacht einen vollständigen Snapshot.
 - **Zuerst S3 (F1, F4-Dateien, F6-Feiertage, F7).** Das sind Dateien oder öffentliche APIs ohne operative Logik, daher gehen sie unverändert nach `s3://…/bronze/`.

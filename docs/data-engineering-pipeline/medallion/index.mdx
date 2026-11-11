@@ -4,6 +4,8 @@ sidebar_label: Overview
 title: Medallion architecture
 ---
 
+import {MedallionFlow} from '@site/src/components/Flows';
+
 # Medallion architecture
 
 The lake is split into three layers. Data only moves forward (bronze → silver → gold), each layer is written by its own DAGs and its own Celery worker, and each one has a clear contract.
@@ -14,10 +16,7 @@ The lake is split into three layers. Data only moves forward (bronze → silver 
 | [**Silver**](./silver.mdx) | *What is the clean, trustworthy version of each entity?* | Parquet | Silver DAGs (queue `silver`), Spark | One row per entity, defects handled, amounts in COP, checks before writing. |
 | [**Gold**](./gold.mdx) | *What does the business need to decide?* | Parquet (one JSON file for Neon) | `gold_modelo_daily` (queue `gold`), Spark | Star schema + one mart per pain, rebuilt every night. |
 
-```text
- bronze/  ── raw, replayable ──►  silver/  ── clean, conformed ──►  gold/  ── modelled, ready ──►  Athena / Power BI
- (as it came)                     (one truth per entity)           (star + marts P1–P5)
-```
+<MedallionFlow />
 
 ## Why three layers
 

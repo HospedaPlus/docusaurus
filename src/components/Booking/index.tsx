@@ -1,4 +1,4 @@
-import {useMemo, useState, type FormEvent, type ReactNode} from 'react';
+import {useEffect, useMemo, useState, type FormEvent, type ReactNode} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
@@ -7,6 +7,7 @@ import Icon from '@site/src/components/Icon';
 import {bookingStrings, type BookingStrings} from './strings';
 import {HOTELS} from './hotels';
 import DestinationPicker from './DestinationPicker';
+import {DateRangePicker, GuestPicker, addDays, isoOf} from './StayPickers';
 import styles from './styles.module.css';
 
 /** Sample data only: prices in COP per night, as in the mock-up. */
@@ -104,12 +105,24 @@ export default function Booking(): ReactNode {
   const [code, setCode] = useState('');
   const heroUrl = useBaseUrl('/img/booking/hero.jpg');
 
+  // The sample dates are fixed; once they are in the past, move them to the coming days.
+  useEffect(() => {
+    const today = isoOf(new Date());
+    if (checkIn < today) {
+      setCheckIn(addDays(today, 3));
+      setCheckOut(addDays(today, 6));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const hotel = HOTELS.find((h) => h.code === destination) ?? HOTELS[4];
   const room = ROOMS.find((r) => r.id === roomId) ?? ROOMS[2];
   const text = s.rooms.find((r) => r.id === roomId) ?? s.rooms[2];
   const nights = nightsBetween(checkIn, checkOut);
   const datesOk = nights > 0;
-  const subtotal = room.price * Math.max(nights, 0);
+  const roomsFor = (capacity: number) => Math.max(1, Math.ceil((adults + children) / capacity));
+  const roomCount = roomsFor(room.guests);
+  const subtotal = room.price * Math.max(nights, 0) * roomCount;
   const taxes = subtotal * VAT;
   const total = subtotal + taxes;
   const gallery = useMemo(() => [roomId, ...GALLERY.filter((g) => g !== roomId)], [roomId]);
@@ -166,6 +179,7 @@ export default function Booking(): ReactNode {
             <span>
               {adults} {s.adultsShort}
               {children > 0 && ` + ${children} ${s.children.toLowerCase()}`} · {Math.max(nights, 0)} {s.nightsWord}
+              {roomCount > 1 && ` · ${roomCount} ${s.roomsWord}`}
             </span>
             <span>
               {fmtDate(checkIn, locale)} → {fmtDate(checkOut, locale)}
@@ -174,7 +188,8 @@ export default function Booking(): ReactNode {
         </div>
         <dl className={styles.lines}>
           <dt>
-            {s.rate} ({Math.max(nights, 0)} {s.nightsWord})
+            {s.rate} ({Math.max(nights, 0)} {s.nightsWord}
+            {roomCount > 1 && ` × ${roomCount} ${s.roomsWord}`})
           </dt>
           <dd>{cop(subtotal)}</dd>
           <dt>{s.taxes}</dt>
@@ -217,22 +232,27 @@ export default function Booking(): ReactNode {
   );
 
   const stayFields = (
-    <>
-      <label className={styles.searchField}>
-        <Icon name="calendar" size={18} />
-        <span>
-          <small>{s.checkIn}</small>
-          <input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
-        </span>
-      </label>
-      <label className={styles.searchField}>
-        <Icon name="calendar" size={18} />
-        <span>
-          <small>{s.checkOut}</small>
-          <input type="date" value={checkOut} min={checkIn} onChange={(e) => setCheckOut(e.target.value)} />
-        </span>
-      </label>
-    </>
+    <DateRangePicker
+      checkIn={checkIn}
+      checkOut={checkOut}
+      onChange={(a, b) => {
+        setCheckIn(a);
+        setCheckOut(b);
+      }}
+      s={s}
+      locale={locale}
+    />
+  );
+  const guestField = (
+    <GuestPicker
+      adults={adults}
+      children={children}
+      onChange={(a, c) => {
+        setAdults(a);
+        setChildren(c);
+      }}
+      s={s}
+    />
   );
 
   if (step === -1) {
@@ -255,19 +275,7 @@ export default function Booking(): ReactNode {
             }}>
             <DestinationPicker value={destination} onChange={setDestination} label={s.destination} placeholder={s.searchHotel} empty={s.noHotels} locale={locale} />
             {stayFields}
-            <label className={styles.searchField}>
-              <Icon name="users" size={18} />
-              <span>
-                <small>{s.guests}</small>
-                <select value={adults} onChange={(e) => setAdults(Number(e.target.value))}>
-                  {[1, 2, 3, 4].map((n) => (
-                    <option key={n} value={n}>
-                      {n} {s.adultsShort}
-                    </option>
-                  ))}
-                </select>
-              </span>
-            </label>
+            {guestField}
             <button type="submit" className={styles.primary}>
               {s.search}
             </button>
@@ -279,9 +287,9 @@ export default function Booking(): ReactNode {
           <div className={styles.cards}>
             {ROOMS.map((r) => {
               const t = s.rooms.find((x) => x.id === r.id)!;
-              const fits = adults + children <= r.guests;
+              const needed = roomsFor(r.guests);
               return (
-                <article key={r.id} className={clsx(styles.card, !fits && styles.dim)}>
+                <article key={r.id} className={styles.card}>
                   <Img name={r.id} alt={t.name} />
                   <div className={styles.cardBody}>
                     <h3>{t.name}</h3>
@@ -292,6 +300,11 @@ export default function Booking(): ReactNode {
                       <span>
                         <Icon name="bed" size={15} /> {t.bed}
                       </span>
+                      {needed > 1 && (
+                        <span className={styles.roomsBadge}>
+                          × {needed} {s.roomsWord}
+                        </span>
+                      )}
                     </p>
                     <div className={styles.cardFoot}>
                       <span>
@@ -300,7 +313,6 @@ export default function Booking(): ReactNode {
                       <button
                         type="button"
                         className={styles.secondary}
-                        disabled={!fits}
                         onClick={() => {
                           setRoomId(r.id);
                           setPhoto(0);
@@ -385,26 +397,12 @@ export default function Booking(): ReactNode {
             {!datesOk && <p className={styles.error}>{s.dateInvalid}</p>}
             <h4>{s.guests}</h4>
             <div className={styles.stay}>
-              <label className={styles.searchField}>
-                <span>
-                  <small>{s.adults}</small>
-                  <select value={adults} onChange={(e) => setAdults(Number(e.target.value))}>
-                    {Array.from({length: room.guests}, (_, i) => i + 1).map((n) => (
-                      <option key={n}>{n}</option>
-                    ))}
-                  </select>
+              {guestField}
+              {roomCount > 1 && (
+                <span className={styles.nights}>
+                  {roomCount} {s.roomsWord} · {room.guests} {s.guestsN} / {s.roomWord}
                 </span>
-              </label>
-              <label className={styles.searchField}>
-                <span>
-                  <small>{s.children}</small>
-                  <select value={children} onChange={(e) => setChildren(Number(e.target.value))}>
-                    {Array.from({length: Math.max(room.guests - adults, 0) + 1}, (_, i) => i).map((n) => (
-                      <option key={n}>{n}</option>
-                    ))}
-                  </select>
-                </span>
-              </label>
+              )}
             </div>
           </div>
           {summary}

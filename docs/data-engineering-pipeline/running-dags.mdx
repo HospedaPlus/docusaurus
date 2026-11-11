@@ -4,22 +4,15 @@ sidebar_label: Running the DAGs
 title: Running the DAGs by hand
 ---
 
+import {DagDependencies} from '@site/src/components/Flows';
+
 # Running the DAGs by hand
 
 In normal operation **nothing has to be triggered by hand**: bronze runs on its clock and silver and gold start by themselves through Assets. A manual run is needed only the first time, to fill a gap, or to see a change right away. Every DAG is idempotent, so running one again is always safe: it overwrites the same files with the same result.
 
 ## What depends on what
 
-```text
-silver_fx_daily            ◄── bronze_f7_fx
-silver_reservas_daily      ◄── (silver_fx_daily & bronze_neon_full_load & bronze_neon_dims) | bronze_neon_f2_f3
-silver_ocupacion_daily     ◄── bronze_neon_full_load & bronze_neon_dims
-silver_calendario_daily    ◄── (bronze_f6_events & bronze_neon_dims) | bronze_f6_holidays
-silver_resenas_daily       ◄── clock 03:30 UTC (reads bronze_f5_reviews)
-silver_f1_historico        ◄── bronze_f1_historical
-gold_modelo_daily          ◄── silver_ocupacion & silver_calendario & silver_reservas & silver_resenas
-gold_neon_writeback        ◄── gold_modelo_daily
-```
+<DagDependencies />
 
 `&` means *all of them must have written since the last run*; `|` means *any one is enough*. So triggering a bronze DAG also starts the silver DAGs whose other inputs are already fresh, and they in turn start gold.
 
