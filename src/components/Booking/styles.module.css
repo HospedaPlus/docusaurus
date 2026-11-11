@@ -904,13 +904,14 @@
   opacity: 0.65;
 }
 
-.counter {
+.guestCounter {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 0.7rem;
 }
 
-.counter button {
+.guestCounter button {
   display: grid;
   place-items: center;
   width: 2.1rem;
@@ -926,18 +927,26 @@
   transition: background 0.15s, color 0.15s;
 }
 
-.counter button:hover:not(:disabled) {
+.guestCounter button:hover:not(:disabled) {
   background: var(--bk);
   color: #fff;
 }
 
-.counter button:disabled {
+.guestCounter button:disabled {
   border-color: var(--bk-line);
   color: var(--bk-line);
   cursor: not-allowed;
 }
 
-.counter output {
+.guestCounter input {
+  width: 2.6rem;
+  padding: 0.25rem 0;
+  border: 1px solid var(--bk-line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  -moz-appearance: textfield;
+  appearance: textfield;
   min-width: 1.4rem;
   font-size: 1rem;
   font-weight: 700;
@@ -974,4 +983,15 @@
     left: 0;
     right: auto;
   }
+}
+
+.guestCounter input::-webkit-outer-spin-button,
+.guestCounter input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.guestCounter input:focus {
+  border-color: var(--bk);
+  outline: none;
 }

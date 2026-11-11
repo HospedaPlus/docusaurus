@@ -521,7 +521,7 @@
     "message": "Willkommen"
   },
   "landing.meta.description": {
-    "message": "Ihr vollständiger Leitfaden, um die Datenplattform HospedaPlus zu verstehen, zu erkunden und zu nutzen."
+    "message": "Ihr vollständiger Leitfaden, um die Datenlösung HospedaPlus zu verstehen, zu erkunden und zu nutzen."
   },
   "landing.badge": {
     "message": "Dokumentation"
@@ -530,13 +530,13 @@
     "message": "Willkommen bei"
   },
   "landing.subtitle": {
-    "message": "Ihr vollständiger Leitfaden, um die Datenplattform HospedaPlus zu verstehen, zu erkunden und zu nutzen."
+    "message": "Ihr vollständiger Leitfaden, um die Datenlösung HospedaPlus zu verstehen, zu erkunden und zu nutzen."
   },
   "landing.text": {
     "message": "Hier finden Sie alle Informationen zu den Datenquellen, der Architektur, der Infrastruktur und der Arbeit mit der Plattform."
   },
   "landing.cta": {
-    "message": "Zur Startseite"
+    "message": "Zur Dokumentation"
   },
   "landing.tagline.line1": {
     "message": "Bessere Daten."

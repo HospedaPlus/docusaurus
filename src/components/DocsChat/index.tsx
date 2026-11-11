@@ -568,7 +568,7 @@ export default function DocsChat(): ReactNode {
                 aria-label={min ? t.expand : t.minimize}
                 title={min ? t.expand : t.minimize}
               >
-                {min ? "▴" : "–"}
+                {min ? "⌃" : "–"}
               </button>
               <button
                 type="button"
@@ -658,33 +658,35 @@ export default function DocsChat(): ReactNode {
           )}
         </section>
       )}
-      <button
-        type="button"
-        className={styles.fab}
-        onClick={() => {
-          setOpen(!open);
-          setMin(false);
-        }}
-        aria-label={open ? t.close : t.open}
-      >
-        {open ? (
-          "×"
-        ) : (
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
-        )}
-      </button>
+      {!(open && min) && (
+        <button
+          type="button"
+          className={styles.fab}
+          onClick={() => {
+            setOpen(!open);
+            setMin(false);
+          }}
+          aria-label={open ? t.close : t.open}
+        >
+          {open ? (
+            "×"
+          ) : (
+            <svg
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          )}
+        </button>
+      )}
     </div>
   );
 }
