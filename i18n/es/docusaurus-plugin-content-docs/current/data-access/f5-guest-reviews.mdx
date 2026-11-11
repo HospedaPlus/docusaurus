@@ -95,6 +95,7 @@ Para cargar un día, llama a la lista con `published_from` y `published_to` igua
 <TabItem value="curl" label="curl" default>
 
 ```bash
+# Pide a la API las reseñas publicadas el 2026-09-30, primera página de 100
 curl "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews?published_from=2026-09-30&published_to=2026-09-30&page=1&page_size=100"
 ```
 
@@ -102,28 +103,44 @@ curl "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews?published_fro
 <TabItem value="python" label="Python">
 
 ```python
+# Librería para llamar APIs HTTP
 import requests
 
+# Dirección del endpoint de reseñas
 BASE_URL = "https://api-reviews-buenavista.coderhivex.com/api/v1/reviews"
 
 
+# Función que descarga todas las páginas de un día
 def load_day(day: str) -> list[dict]:
     """Return every review published on one UTC day (YYYY-MM-DD)."""
+    # Lista de resultados vacía, empieza en la página 1
     reviews, page = [], 1
+    # Repite hasta que no haya más páginas
     while True:
+        # Pide una página de hasta 100 reseñas de ese día
         response = requests.get(
+            # El endpoint
             BASE_URL,
+            # Filtros: desde/hasta el mismo día, número de página y tamaño de página
             params={"published_from": day, "published_to": day, "page": page, "page_size": 100},
+            # Se rinde si la API no responde en 30 s
             timeout=30,
         )
+        # Se detiene con error si la API respondió 4xx o 5xx
         response.raise_for_status()
+        # Lee la respuesta JSON
         body = response.json()
+        # Agrega las reseñas de esta página a la lista
         reviews.extend(body["items"])
+        # Si no hay página siguiente, terminamos
         if not body["pagination"]["has_next"]:
+            # Devuelve todo lo recolectado
             return reviews
+        # Si no, pasa a la siguiente página
         page += 1
 
 
+# Ejemplo: todas las reseñas del 30 de septiembre de 2026
 reviews = load_day("2026-09-30")
 ```
 
@@ -255,8 +272,11 @@ Las reseñas siguen llegando gracias al **simulador** (`python -m src.seed --liv
 Con Docker instalado, clona el repositorio y levanta la API, la base de datos y la semilla con un solo comando:
 
 ```bash
+# Descarga el repositorio F5
 git clone https://github.com/HospedaPlus/api-reviews.git
+# Entra a su carpeta
 cd api-reviews
+# Construye y arranca la base de datos, la API, el seed y el simulador
 docker compose up --build
 ```
 

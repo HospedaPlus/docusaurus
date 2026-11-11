@@ -24,12 +24,16 @@ Les chaînes de connexion utilisent `sslmode=require` et ne sont jamais écrites
 ### Se connecter (chaîne d'exemple)
 
 ```bash title=".env des workers (placeholders)"
+# Rôle en lecture seule pour les extractions bronze
 NEON_READ_URL=postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# Rôle d'écriture pour gold_neon_writeback
 NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
 ```
 
 ```bash title="Tester"
+# Compte les réservations avec psql
 psql "$NEON_READ_URL" -c "SELECT count(*) FROM operation.reservations;"
+# Le même test depuis Python : affiche la version de PostgreSQL s'il se connecte
 python -c "import os, psycopg2; print(psycopg2.connect(os.environ['NEON_READ_URL']).server_version)"
 ```
 

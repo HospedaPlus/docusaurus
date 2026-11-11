@@ -104,9 +104,14 @@ Junto aos arquivos, `_generation_summary.json` informa as linhas por arquivo, as
 ## Executar localmente
 
 ```bash
+# Baixa o repositório F4
 git clone https://github.com/HospedaPlus/hospedaplus-csv.git
+# Entra na pasta dele
 cd hospedaplus-csv
-cp .env.example .env          # opcional: NEON_READ_URL, NEON_DATABASE_URL, F4_S3_BUCKET
+# Cria seu .env a partir do exemplo (opcional: NEON_READ_URL, NEON_DATABASE_URL, F4_S3_BUCKET)
+cp .env.example .env
+# Constrói a imagem e inicia o job semanal em segundo plano
 docker compose up -d --build
+# Acompanha os logs (Ctrl+C para sair)
 docker compose logs -f f4-weekly
 ```

@@ -28,7 +28,8 @@ Feriados do país de cada hotel (F6a, dados reais de uma API pública) mais um a
 **F6a · Feriados → S3.** No dia 1 de cada mês (02:00 UTC) o DAG do Airflow `bronze_f6_holidays` chama a API para Portugal, Colômbia, México, Brasil e Espanha, para o ano atual e o seguinte (as reservas são feitas com meses de antecedência), e guarda cada resposta como chega:
 
 ```bash
-curl https://nagerholidays.com/api/v4/Holidays/PT/2026   # $NAGER_BASE_URL
+# Feriados de Portugal em 2026 ($NAGER_BASE_URL é o endereço base)
+curl https://nagerholidays.com/api/v4/Holidays/PT/2026
 # -> s3://…/bronze/f6_holidays/anio=2026/pais=PT.json
 ```
 

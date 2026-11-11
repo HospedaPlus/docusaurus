@@ -24,12 +24,16 @@ Die Verbindungszeichenfolgen nutzen `sslmode=require` und stehen nie im Reposito
 ### Verbinden (Beispiel-String)
 
 ```bash title=".env der Worker (Platzhalter)"
+# Nur-Lese-Rolle für die Bronze-Extrakte
 NEON_READ_URL=postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# Schreibrolle für gold_neon_writeback
 NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
 ```
 
 ```bash title="Testen"
+# Zählt die Buchungen mit psql
 psql "$NEON_READ_URL" -c "SELECT count(*) FROM operation.reservations;"
+# Derselbe Test aus Python: gibt die PostgreSQL-Version aus, wenn die Verbindung klappt
 python -c "import os, psycopg2; print(psycopg2.connect(os.environ['NEON_READ_URL']).server_version)"
 ```
 

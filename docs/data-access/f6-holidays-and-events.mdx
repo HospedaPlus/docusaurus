@@ -28,7 +28,8 @@ Public holidays of each hotel's country (F6a, real data from a public API) plus 
 **F6a · Holidays → S3.** On day 1 of each month (02:00 UTC) the Airflow DAG `bronze_f6_holidays` calls the API for Portugal, Colombia, Mexico, Brazil and Spain, for the current and the next year (bookings are made months ahead), and saves each answer as it comes:
 
 ```bash
-curl https://nagerholidays.com/api/v4/Holidays/PT/2026   # $NAGER_BASE_URL
+# Public holidays of Portugal in 2026 ($NAGER_BASE_URL is the base address)
+curl https://nagerholidays.com/api/v4/Holidays/PT/2026
 # -> s3://…/bronze/f6_holidays/anio=2026/pais=PT.json
 ```
 

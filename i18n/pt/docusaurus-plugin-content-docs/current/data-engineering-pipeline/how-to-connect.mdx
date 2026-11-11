@@ -48,13 +48,13 @@ Todo valor entre `<sinais de menor e maior>` é um placeholder. As senhas reais 
 ### Strings de exemplo por uso
 
 ```bash title="Exemplos de .env (placeholders)"
-# Airflow bronze DAGs: read only
+# DAGs bronze do Airflow: só leitura
 NEON_READ_URL=postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
-# gold_neon_writeback: writes operation.cancellation_rate_by_lead
+# gold_neon_writeback: grava operation.cancellation_rate_by_lead
 NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
-# F3 simulator / F2 consumer / F4 loader: many short writes, pooled host
+# Simulador F3 / consumidor F2 / carregador F4: muitas gravações curtas, host com pool
 NEON_APP_URL=postgresql://app_writer:<password>@ep-<endpoint-id>-pooler.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
-# Schema changes and seed (db_simulated init, buenavista-streaming migrations): owner, direct host
+# Mudanças de esquema e seed (init do db_simulated, migrações do buenavista-streaming): dono, host direto
 NEON_OWNER_URL=postgresql://hospedaplus_owner:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require&channel_binding=require
 ```
 
@@ -63,32 +63,46 @@ NEON_OWNER_URL=postgresql://hospedaplus_owner:<password>@ep-<endpoint-id>.us-eas
 ### Como conectar (teste em um minuto)
 
 ```bash title="psql"
+# Conecta com a string completa e roda uma consulta (-c), depois sai
 psql "postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require" \
   -c "SELECT count(*) FROM operation.reservations;"
 ```
 
 ```python title="Python · psycopg2 (o que os DAGs usam)"
+# os lê variáveis de ambiente; psycopg2 é o driver do PostgreSQL
 import os, psycopg2
 
+# Abre a conexão com a string do .env e um cursor
 with psycopg2.connect(os.environ["NEON_READ_URL"]) as conn, conn.cursor() as cur:
+    # As 5 reservas alteradas mais recentemente
     cur.execute("SELECT code, status, updated_at FROM operation.reservations ORDER BY updated_at DESC LIMIT 5")
+    # Percorre as linhas do resultado
     for row in cur.fetchall():
+        # Imprime cada uma
         print(row)
 ```
 
 ```python title="Python · psycopg 3 (o que os simuladores usam)"
+# psycopg é a versão 3 do driver do PostgreSQL
 import os, psycopg
 
+# Conecta (desiste após 10 s); fecha no fim do bloco
 with psycopg.connect(os.environ["NEON_APP_URL"], connect_timeout=10) as conn:
+    # Quem sou eu e que horas são no banco
     print(conn.execute("SELECT current_user, now()").fetchone())
 ```
 
 ```python title="Python · SQLAlchemy + pandas (notebooks, exploração)"
+# pandas para tabelas em Python
 import os, pandas as pd
+# O SQLAlchemy gerencia as conexões para o pandas
 from sqlalchemy import create_engine
 
+# O SQLAlchemy precisa do driver no esquema: postgresql+psycopg2://
 url = os.environ["NEON_READ_URL"].replace("postgresql://", "postgresql+psycopg2://", 1)
+# pool_pre_ping testa a conexão antes de usá-la (o Neon fecha as ociosas)
 engine = create_engine(url, pool_pre_ping=True)
+# Roda a consulta e obtém um DataFrame
 df = pd.read_sql("SELECT * FROM operation.hotels", engine)
 ```
 
@@ -123,12 +137,14 @@ df = pd.read_sql("SELECT * FROM operation.hotels", engine)
 | Testes locais (MinIO) | `S3_ENDPOINT_URL=http://localhost:9000` |
 
 ```bash title="Exemplo de .env"
+# Nome do bucket do lago
 S3_BUCKET=hospedaplus-lakehouse-buenavista
+# Região do bucket
 AWS_DEFAULT_REGION=us-east-2
-# Only on a laptop without a role (never on the EC2, never in git):
+# Só num notebook sem role (nunca na EC2, nunca no git):
 # AWS_ACCESS_KEY_ID=<access-key-id>
 # AWS_SECRET_ACCESS_KEY=<secret-access-key>
-# Only for MinIO:
+# Só para MinIO:
 # S3_ENDPOINT_URL=http://localhost:9000
 ```
 
@@ -149,37 +165,48 @@ AWS_DEFAULT_REGION=us-east-2
 ### Como conectar (teste em um minuto)
 
 ```bash title="AWS CLI"
+# Lista as pastas dentro de bronze/
 aws s3 ls s3://hospedaplus-lakehouse-buenavista/bronze/ --region us-east-2
+# Imprime as primeiras linhas de um arquivo (- significa "na tela")
 aws s3 cp s3://hospedaplus-lakehouse-buenavista/bronze/f7_fx/fecha=2026-11-10.json - | head
 ```
 
 ```python title="Python · boto3 (o que os DAGs bronze usam)"
+# boto3 é o SDK da AWS para Python
 import boto3, json
 
-s3 = boto3.client("s3", region_name="us-east-2")         # finds the IAM role or your profile by itself
+# acha sozinho a role IAM ou o seu perfil
+s3 = boto3.client("s3", region_name="us-east-2")
+# O bucket do lago
 bucket = "hospedaplus-lakehouse-buenavista"
 
-# load (write)
+# carga (gravar)
 s3.put_object(Bucket=bucket, Key="bronze/test/hello.json", Body=json.dumps({"ok": True}).encode(),
               ContentType="application/json")
-# extract (read)
+# extração (ler)
 body = s3.get_object(Bucket=bucket, Key="bronze/test/hello.json")["Body"].read()
-# list
+# listar
 for obj in s3.list_objects_v2(Bucket=bucket, Prefix="bronze/f7_fx/").get("Contents", []):
+    # Nome e tamanho em bytes de cada arquivo
     print(obj["Key"], obj["Size"])
 ```
 
 ```python title="Python · enviar um arquivo inteiro (o que o f4-weekly faz)"
+# Envia um arquivo local (caminho no disco, bucket, key no S3)
 s3.upload_file("output/f4_agency_files/2026-W46/AG01.xlsx", bucket,
                "bronze/f4_agencias/semana=2026-W46/AG01.xlsx")
 ```
 
 ```python title="PySpark · ler bronze, gravar silver (o que os jobs silver/gold fazem)"
+# Utilitários do projeto: sessão Spark e endereços do lago
 from spark_jobs.session import spark, path
 
-s = spark("test")                                             # local[*] + s3a jars + IAM role
+# local[*] + jars s3a + role IAM
+s = spark("test")
+# Lê todos os arquivos JSON Lines de um dia de bronze
 raw = s.read.json("s3a://hospedaplus-lakehouse-buenavista/bronze/f3_reservations/fecha=2026-11-10/")
-raw.write.mode("overwrite").parquet(path("silver", "reservas_test"))   # s3a://…/silver/reservas_test
+# Grava como Parquet em s3a://…/silver/reservas_test, substituindo o que havia
+raw.write.mode("overwrite").parquet(path("silver", "reservas_test"))
 ```
 
 ### Erros comuns
@@ -195,14 +222,17 @@ raw.write.mode("overwrite").parquet(path("silver", "reservas_test"))   # s3a://�
 ## Write-back para o Neon (a única carga no Neon)
 
 ```python title="dags/gold_neon_writeback.py"
+# Insere uma linha, ou atualiza se (hotel, faixa de antecedência) já existe
 UPSERT = """
 INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
 VALUES (%s, %s, %s, NOW())
 ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
    SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
 """
+# Conecta com a role de escrita
 with psycopg2.connect(os.environ["NEON_WRITE_URL"]) as conn, conn.cursor() as cur:
-    cur.executemany(UPSERT, rows)          # one transaction; re-running gives the same table
+    # uma transação; rodar de novo deixa a mesma tabela
+    cur.executemany(UPSERT, rows)
 ```
 
 Veja também: [Conexão com o Neon](./neon-connection.mdx), [Conexões do Airflow](./airflow-connections.mdx), [Carga incremental e em lote](./loading.mdx) e, para o Power BI, a [conexão ODBC do Athena](../data-visualization/athena-connection.mdx).

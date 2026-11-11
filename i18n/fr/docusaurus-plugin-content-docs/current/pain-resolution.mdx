@@ -29,12 +29,18 @@ Cette page reprend chaque point de friction de [Les points de friction](./the-pa
 **Où la voir.**
 
 ```sql
+-- Canal, tranche d'anticipation et remboursable, avec leurs totaux
 SELECT channel_type, rango_anticipacion, reembolsable,
        SUM(reservas) AS reservas, SUM(canceladas) AS canceladas,
+       -- Taux d'annulation = annulées / réservations (* 1.0 évite la division entière)
        ROUND(SUM(canceladas) * 1.0 / SUM(reservas), 3) AS tasa_cancelacion,
+       -- Revenu perdu à cause des annulations
        SUM(ingreso_perdido_cop) AS ingreso_perdido_cop
+-- Depuis le mart P1 d'annulation
 FROM hospedaplus_gold.mart_p1_cancelacion
+-- Une ligne par combinaison
 GROUP BY channel_type, rango_anticipacion, reembolsable
+-- Les combinaisons les plus risquées d'abord
 ORDER BY tasa_cancelacion DESC;
 ```
 
@@ -61,10 +67,14 @@ ORDER BY tasa_cancelacion DESC;
 **Où la voir.**
 
 ```sql
+-- Chambres, vendues, limite de surréservation, survendues, relogées et refusées par hôtel et jour
 SELECT hotel_code, fecha, habitaciones, vendidas, limite_sobreventa,
        sobrevendidas, reubicadas, habitaciones_rechazadas, pct_reubicacion
+-- Depuis le mart P2 de surréservation
 FROM hospedaplus_gold.mart_p2_sobreventa
+-- Seulement les jours avec surréservation ou relogements
 WHERE sobrevendidas > 0 OR reubicadas > 0
+-- Les jours les plus récents d'abord
 ORDER BY fecha DESC;
 ```
 
@@ -80,10 +90,14 @@ ORDER BY fecha DESC;
 **Où la voir.**
 
 ```sql
+-- Tarif actuel, facteurs de pickup et d'événement, et le prix suggéré
 SELECT hotel_code, room_type, fecha, tarifa, factor_pickup, factor_evento,
        precio_sugerido, precio_sugerido_cop
+-- Depuis le mart P3 de prix suggéré
 FROM hospedaplus_gold.mart_p3_precio_sugerido
+-- Seulement les 14 prochains jours
 WHERE fecha BETWEEN current_date AND current_date + INTERVAL '14' DAY
+-- Par hôtel et date
 ORDER BY hotel_code, fecha;
 ```
 
@@ -96,11 +110,16 @@ ORDER BY hotel_code, fecha;
 **Où la voir.**
 
 ```sql
+-- Brut, commission et net par type de canal
 SELECT channel_type, SUM(bruto_cop) AS bruto_cop, SUM(comision_cop) AS comision_cop,
        SUM(neto_cop) AS neto_cop,
+       -- Commission en % du brut
        ROUND(SUM(comision_cop) * 100.0 / SUM(bruto_cop), 2) AS pct_comision
+-- Depuis le mart P4 des commissions
 FROM hospedaplus_gold.mart_p4_comisiones
+-- Une ligne par type de canal
 GROUP BY channel_type
+-- D'abord le canal qui laisse le plus d'argent net
 ORDER BY neto_cop DESC;
 ```
 
@@ -113,9 +132,13 @@ ORDER BY neto_cop DESC;
 **Où la voir.**
 
 ```sql
+-- Note sur 10, avis des 90 derniers jours et % positifs/négatifs
 SELECT hotel_code, fecha_corte, calificacion_rn10, resenas_90d, pct_positivas, pct_negativas
+-- Depuis le mart P5 de réputation
 FROM hospedaplus_gold.mart_p5_reputacion
+-- Seulement la date de coupure la plus récente
 WHERE fecha_corte = (SELECT MAX(fecha_corte) FROM hospedaplus_gold.mart_p5_reputacion)
+-- D'abord les hôtels avec le plus d'avis négatifs
 ORDER BY pct_negativas DESC;
 ```
 
@@ -128,8 +151,11 @@ ORDER BY pct_negativas DESC;
 **Où la voir.**
 
 ```sql
+-- Réservations et revenu par source (F1-F4) et type de canal
 SELECT source, channel_type, COUNT(*) AS reservas, SUM(total_cop) AS total_cop
+-- Depuis le fait des réservations
 FROM hospedaplus_gold.fact_reservas
+-- Une ligne par source et type de canal
 GROUP BY source, channel_type;
 ```
 
@@ -151,11 +177,16 @@ Certains pains sont résolus **à la source** (dans Neon, avant que les données
 
 ```python
 # spark_jobs/gold_modelo.py
+# Mart P1 : annulations par canal, anticipation, remboursable et mois
 def mart_p1_cancelacion(fr):
+    # Mois du check-in, p. ex. 2026-11
     return (fr.withColumn("anio_mes", F.date_format("check_in", "yyyy-MM"))
+            # Un groupe par combinaison
             .groupBy("channel_code", "channel_type", "rango_anticipacion", "reembolsable", "anio_mes")
+            # Réservations et réservations annulées de chaque groupe
             .agg(F.count("*").alias("reservas"),
                  F.sum(F.col("es_cancelada").cast("int")).alias("canceladas"), ...)
+            # Taux = annulées / réservations
             .withColumn("tasa_cancelacion", F.round(F.col("canceladas") / F.col("reservas"), 4)))
 ```
 
@@ -184,10 +215,12 @@ def mart_p1_cancelacion(fr):
 
 ```python
 # spark_jobs/gold_modelo.py · mart_p3_precio_sugerido()
-.withColumn("factor_pickup", F.when(F.col("pickup_pct") > PICKUP_THRESHOLD_PCT, PICKUP_ABOVE)   # 1.10
-            .when(F.col("pickup_pct") < -PICKUP_THRESHOLD_PCT, PICKUP_BELOW).otherwise(1.0))   # 0.92
-.withColumn("precio_sugerido", F.round(F.least(F.col("tarifa_base") * PRICE_CAP,               # 1.60
-            F.greatest(F.col("tarifa_base") * PRICE_FLOOR,                                     # 0.75
+# Pickup au-dessus du seuil -> hausse de 10 % (1.10) ; en dessous -> baisse de 8 % (0.92) ; sinon 1.0
+.withColumn("factor_pickup", F.when(F.col("pickup_pct") > PICKUP_THRESHOLD_PCT, PICKUP_ABOVE)
+            .when(F.col("pickup_pct") < -PICKUP_THRESHOLD_PCT, PICKUP_BELOW).otherwise(1.0))
+# Prix = tarif x facteur de pickup x facteur d'événement, jamais sous 75 % (0.75) ni au-dessus de 160 % (1.60) du tarif de base
+.withColumn("precio_sugerido", F.round(F.least(F.col("tarifa_base") * PRICE_CAP,
+            F.greatest(F.col("tarifa_base") * PRICE_FLOOR,
                        F.col("tarifa") * F.col("factor_pickup") * F.col("factor_evento"))), 2))
 ```
 
@@ -203,7 +236,9 @@ def mart_p1_cancelacion(fr):
 
 ```python
 # spark_jobs/silver_reservas.py
+# Commission en COP = total x % de commission / 100
 .withColumn("comision_cop", F.round(F.col("total_cop") * F.col("comision_pct") / 100, 2))
+# Net = total - commission
 .withColumn("neto_cop", F.col("total_cop") - F.col("comision_cop"))
 ```
 
@@ -219,8 +254,10 @@ def mart_p1_cancelacion(fr):
 
 ```python
 # spark_jobs/silver_resenas.py
+# Même hôtel, date de séjour, note et texte = le même avis sur une autre plateforme
 key = ["hotel_code", "fecha_estadia", "puntaje", "_texto_norm"]
-w_dup = Window.partitionBy(*key).orderBy("publicada_en", "review_id")   # first one wins
+# le premier gagne
+w_dup = Window.partitionBy(*key).orderBy("publicada_en", "review_id")
 ```
 
 **Exemple.** Un client publie le même texte à 2 étoiles sur deux plateformes. Silver garde le premier, note dans `duplicados` qu'il y avait 2 copies et le marque `negativo`. Dans gold, il compte une seule fois dans le `pct_negativas` de l'hôtel.

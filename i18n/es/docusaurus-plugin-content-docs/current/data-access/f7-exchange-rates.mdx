@@ -28,6 +28,7 @@ Tasas de cambio diarias tomadas de una API pública. Son datos reales. La moneda
 El DAG de Airflow `bronze_f7_fx` llama la API una vez al día y guarda la respuesta, sin cambios, en S3:
 
 ```bash
+# Tasas del 2026-11-09 con USD como base, solo para COP, EUR, MXN y BRL
 curl "https://api.frankfurter.dev/v2/rates?date=2026-11-09&base=USD&quotes=COP,EUR,MXN,BRL"
 ```
 

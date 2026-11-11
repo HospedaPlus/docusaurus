@@ -33,11 +33,15 @@ A task is **idempotent** when running it once or ten times leaves exactly the sa
 **Key by interval (bronze):** the hour in the key is the start of the Airflow interval, not "now", so re-running the 14:00 run always writes `hora=14`.
 
 ```python
+# Fixed file name for one hour: bronze/<source>/fecha=YYYY-MM-DD/hora=HH.jsonl
 def _key(prefix: str, start) -> str:
+    # Same hour -> same name, so a re-run overwrites instead of duplicating
     return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
 
+# Only the rows changed inside [start, end) of this run
 body, n = dump("SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s",
                (data_interval_start, data_interval_end))
+# Write (or overwrite) the file of that hour
 put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
 ```
 
@@ -45,20 +49,29 @@ put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
 
 ```python
 # spark_jobs/silver_reservas.py (shortened)
+# Group by booking code, newest version first (hourly file wins a tie)
 w = Window.partitionBy("code").orderBy(F.col("_version").desc(), F.col("_src").desc())
+# Number the rows of each group 1, 2, 3...
 latest = (raw.withColumn("_rn", F.row_number().over(w))
+          # ...keep only number 1 and drop the helper columns
           .filter("_rn = 1").drop("_rn", "_version", "_src"))
 …
-check(reservas, cancel)                          # fails the task before anything is written
+# fails the task before anything is written
+check(reservas, cancel)
+# Replace the whole silver table (one folder per source)
 reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
 ```
 
 **Upsert (Neon):**
 
 ```sql
+-- Insert one rate per hotel and lead bucket
 INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+-- The values come from Python (%s), plus the current time
 VALUES (%s, %s, %s, NOW())
+-- If that hotel + bucket already exists, update it instead of failing
 ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   -- EXCLUDED is the row we tried to insert
    SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
 ```
 

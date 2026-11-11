@@ -29,12 +29,18 @@ Diese Seite nimmt jedes Problemfeld aus [Die Problemfelder](./the-pains.mdx), er
 **Wo zu sehen.**
 
 ```sql
+-- Kanal, Vorlauf-Klasse und Erstattbarkeit, mit ihren Summen
 SELECT channel_type, rango_anticipacion, reembolsable,
        SUM(reservas) AS reservas, SUM(canceladas) AS canceladas,
+       -- Stornoquote = storniert / Buchungen (* 1.0 vermeidet Ganzzahldivision)
        ROUND(SUM(canceladas) * 1.0 / SUM(reservas), 3) AS tasa_cancelacion,
+       -- Durch Stornierungen verlorener Umsatz
        SUM(ingreso_perdido_cop) AS ingreso_perdido_cop
+-- Aus dem P1-Mart für Stornierungen
 FROM hospedaplus_gold.mart_p1_cancelacion
+-- Eine Zeile pro Kombination
 GROUP BY channel_type, rango_anticipacion, reembolsable
+-- Riskanteste Kombinationen zuerst
 ORDER BY tasa_cancelacion DESC;
 ```
 
@@ -61,10 +67,14 @@ ORDER BY tasa_cancelacion DESC;
 **Wo zu sehen.**
 
 ```sql
+-- Zimmer, verkauft, Überbuchungsgrenze, überbucht, umgebucht und abgelehnt pro Hotel und Tag
 SELECT hotel_code, fecha, habitaciones, vendidas, limite_sobreventa,
        sobrevendidas, reubicadas, habitaciones_rechazadas, pct_reubicacion
+-- Aus dem P2-Mart für Überbuchung
 FROM hospedaplus_gold.mart_p2_sobreventa
+-- Nur Tage mit Überbuchung oder Umbuchungen
 WHERE sobrevendidas > 0 OR reubicadas > 0
+-- Neueste Tage zuerst
 ORDER BY fecha DESC;
 ```
 
@@ -80,10 +90,14 @@ ORDER BY fecha DESC;
 **Wo zu sehen.**
 
 ```sql
+-- Aktueller Tarif, Pickup- und Eventfaktor sowie der Preisvorschlag
 SELECT hotel_code, room_type, fecha, tarifa, factor_pickup, factor_evento,
        precio_sugerido, precio_sugerido_cop
+-- Aus dem P3-Mart für Preisvorschläge
 FROM hospedaplus_gold.mart_p3_precio_sugerido
+-- Nur die nächsten 14 Tage
 WHERE fecha BETWEEN current_date AND current_date + INTERVAL '14' DAY
+-- Nach Hotel und Datum
 ORDER BY hotel_code, fecha;
 ```
 
@@ -96,11 +110,16 @@ ORDER BY hotel_code, fecha;
 **Wo zu sehen.**
 
 ```sql
+-- Brutto, Provision und Netto pro Kanaltyp
 SELECT channel_type, SUM(bruto_cop) AS bruto_cop, SUM(comision_cop) AS comision_cop,
        SUM(neto_cop) AS neto_cop,
+       -- Provision als % vom Brutto
        ROUND(SUM(comision_cop) * 100.0 / SUM(bruto_cop), 2) AS pct_comision
+-- Aus dem P4-Mart für Provisionen
 FROM hospedaplus_gold.mart_p4_comisiones
+-- Eine Zeile pro Kanaltyp
 GROUP BY channel_type
+-- Der Kanal mit dem meisten Netto zuerst
 ORDER BY neto_cop DESC;
 ```
 
@@ -113,9 +132,13 @@ ORDER BY neto_cop DESC;
 **Wo zu sehen.**
 
 ```sql
+-- Bewertung von 10, Bewertungen der letzten 90 Tage und % positiv/negativ
 SELECT hotel_code, fecha_corte, calificacion_rn10, resenas_90d, pct_positivas, pct_negativas
+-- Aus dem P5-Mart für Reputation
 FROM hospedaplus_gold.mart_p5_reputacion
+-- Nur das neueste Stichtagsdatum
 WHERE fecha_corte = (SELECT MAX(fecha_corte) FROM hospedaplus_gold.mart_p5_reputacion)
+-- Hotels mit den meisten negativen Bewertungen zuerst
 ORDER BY pct_negativas DESC;
 ```
 
@@ -128,8 +151,11 @@ ORDER BY pct_negativas DESC;
 **Wo zu sehen.**
 
 ```sql
+-- Buchungen und Umsatz pro Quelle (F1-F4) und Kanaltyp
 SELECT source, channel_type, COUNT(*) AS reservas, SUM(total_cop) AS total_cop
+-- Aus dem Buchungsfakt
 FROM hospedaplus_gold.fact_reservas
+-- Eine Zeile pro Quelle und Kanaltyp
 GROUP BY source, channel_type;
 ```
 
@@ -151,11 +177,16 @@ Manche Pains werden **an der Quelle** gelöst (in Neon, bevor die Daten den Lake
 
 ```python
 # spark_jobs/gold_modelo.py
+# Mart P1: Stornierungen pro Kanal, Vorlauf, Erstattbarkeit und Monat
 def mart_p1_cancelacion(fr):
+    # Monat des Check-ins, z. B. 2026-11
     return (fr.withColumn("anio_mes", F.date_format("check_in", "yyyy-MM"))
+            # Eine Gruppe pro Kombination
             .groupBy("channel_code", "channel_type", "rango_anticipacion", "reembolsable", "anio_mes")
+            # Buchungen und stornierte Buchungen jeder Gruppe
             .agg(F.count("*").alias("reservas"),
                  F.sum(F.col("es_cancelada").cast("int")).alias("canceladas"), ...)
+            # Quote = storniert / Buchungen
             .withColumn("tasa_cancelacion", F.round(F.col("canceladas") / F.col("reservas"), 4)))
 ```
 
@@ -184,10 +215,12 @@ def mart_p1_cancelacion(fr):
 
 ```python
 # spark_jobs/gold_modelo.py · mart_p3_precio_sugerido()
-.withColumn("factor_pickup", F.when(F.col("pickup_pct") > PICKUP_THRESHOLD_PCT, PICKUP_ABOVE)   # 1.10
-            .when(F.col("pickup_pct") < -PICKUP_THRESHOLD_PCT, PICKUP_BELOW).otherwise(1.0))   # 0.92
-.withColumn("precio_sugerido", F.round(F.least(F.col("tarifa_base") * PRICE_CAP,               # 1.60
-            F.greatest(F.col("tarifa_base") * PRICE_FLOOR,                                     # 0.75
+# Pickup über der Schwelle -> 10 % hoch (1.10); darunter -> 8 % runter (0.92); sonst 1.0
+.withColumn("factor_pickup", F.when(F.col("pickup_pct") > PICKUP_THRESHOLD_PCT, PICKUP_ABOVE)
+            .when(F.col("pickup_pct") < -PICKUP_THRESHOLD_PCT, PICKUP_BELOW).otherwise(1.0))
+# Preis = Tarif x Pickup-Faktor x Eventfaktor, nie unter 75 % (0.75) oder über 160 % (1.60) des Basistarifs
+.withColumn("precio_sugerido", F.round(F.least(F.col("tarifa_base") * PRICE_CAP,
+            F.greatest(F.col("tarifa_base") * PRICE_FLOOR,
                        F.col("tarifa") * F.col("factor_pickup") * F.col("factor_evento"))), 2))
 ```
 
@@ -203,7 +236,9 @@ def mart_p1_cancelacion(fr):
 
 ```python
 # spark_jobs/silver_reservas.py
+# Provision in COP = Gesamt x Provision % / 100
 .withColumn("comision_cop", F.round(F.col("total_cop") * F.col("comision_pct") / 100, 2))
+# Netto = Gesamt - Provision
 .withColumn("neto_cop", F.col("total_cop") - F.col("comision_cop"))
 ```
 
@@ -219,8 +254,10 @@ def mart_p1_cancelacion(fr):
 
 ```python
 # spark_jobs/silver_resenas.py
+# Gleiches Hotel, Aufenthaltsdatum, Punktzahl und Text = dieselbe Bewertung auf einer anderen Plattform
 key = ["hotel_code", "fecha_estadia", "puntaje", "_texto_norm"]
-w_dup = Window.partitionBy(*key).orderBy("publicada_en", "review_id")   # first one wins
+# die erste gewinnt
+w_dup = Window.partitionBy(*key).orderBy("publicada_en", "review_id")
 ```
 
 **Beispiel.** Ein Gast veröffentlicht denselben 2-Sterne-Text auf zwei Plattformen. Silver behält den ersten, vermerkt in `duplicados` 2 Kopien und markiert ihn als `negativo`. In Gold zählt er nur einmal im `pct_negativas` des Hotels.

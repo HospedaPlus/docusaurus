@@ -28,7 +28,8 @@ Jours fériés du pays de chaque hôtel (F6a, données réelles d'une API publiq
 **F6a · Jours fériés → S3.** Le 1er de chaque mois (02:00 UTC), le DAG Airflow `bronze_f6_holidays` appelle l'API pour le Portugal, la Colombie, le Mexique, le Brésil et l'Espagne, pour l'année en cours et la suivante (les réservations se font des mois à l'avance), et enregistre chaque réponse telle quelle :
 
 ```bash
-curl https://nagerholidays.com/api/v4/Holidays/PT/2026   # $NAGER_BASE_URL
+# Jours fériés du Portugal en 2026 ($NAGER_BASE_URL est l'adresse de base)
+curl https://nagerholidays.com/api/v4/Holidays/PT/2026
 # -> s3://…/bronze/f6_holidays/anio=2026/pais=PT.json
 ```
 

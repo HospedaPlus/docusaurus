@@ -24,12 +24,16 @@ The connection strings use `sslmode=require` and are never written in the reposi
 ### How to connect (string example)
 
 ```bash title=".env of the workers (placeholders)"
+# Read-only role for the bronze extracts
 NEON_READ_URL=postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# Writing role for gold_neon_writeback
 NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
 ```
 
 ```bash title="Test it"
+# Count the bookings with psql
 psql "$NEON_READ_URL" -c "SELECT count(*) FROM operation.reservations;"
+# Same test from Python: prints the PostgreSQL version if it connects
 python -c "import os, psycopg2; print(psycopg2.connect(os.environ['NEON_READ_URL']).server_version)"
 ```
 

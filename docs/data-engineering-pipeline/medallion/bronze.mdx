@@ -41,31 +41,45 @@ Every bronze DAG is a small Python task on the `bronze` queue. They all share tw
 `dags/hospedaplus/neon.py` opens a connection with the read-only role `etl_reader` (`NEON_READ_URL`), runs one query and returns the rows as JSON Lines, exactly as Neon gave them:
 
 ```python
+# Runs a query and returns (JSON Lines bytes, number of rows)
 def dump(sql: str, params: tuple = ()) -> tuple[bytes, int]:
+    # Open the connection and a cursor; both are closed at the end of the block
     with psycopg2.connect(neon_url()) as conn, conn.cursor() as cur:
+        # Run the query with its parameters (never glued into the text: no SQL injection)
         cur.execute(sql, params)
+        # Column names of the result
         cols = [c.name for c in cur.description]
+        # All the rows
         rows = cur.fetchall()
+    # Turn each row into one JSON line {column: value}
     lines = [json.dumps(dict(zip(cols, r)), default=str, ensure_ascii=False) for r in rows]
+    # Join the lines, encode to bytes, and return them with the row count
     return ("\n".join(lines) + ("\n" if lines else "")).encode(), len(rows)
 ```
 
 `dags/hospedaplus/lake.py` writes one object to the lakehouse bucket. The worker has no access keys: boto3 takes the temporary credentials of the EC2 IAM role (see [AWS services](../aws-services.mdx)).
 
 ```python
+# Creates the S3 client
 def s3_client():
+    # No keys: boto3 finds the IAM role; endpoint only for MinIO tests
     return boto3.client("s3", endpoint_url=os.getenv("S3_ENDPOINT_URL") or None)
 
 
+# Writes one file to S3 and returns its address
 def put(key: str, body: bytes, content_type: str = "application/json") -> str:
+    # Upload the bytes to bucket/key (overwrites if it exists)
     s3_client().put_object(Bucket=BUCKET, Key=key, Body=body, ContentType=content_type)
+    # Return the full s3:// address
     return f"s3://{BUCKET}/{key}"
 ```
 
 The same file declares one **Asset** per dataset. A task that lists an asset in `outlets` marks it as updated when it succeeds, and that is what starts silver.
 
 ```python
+# Asset = s3://<bucket>/bronze/f3_reservations; silver DAGs wait for it
 BRONZE_F3_RESERVATIONS = asset("bronze", "f3_reservations")
+# Asset of the daily exchange rates
 BRONZE_F7_FX = asset("bronze", "f7_fx")
 ```
 
@@ -74,25 +88,34 @@ BRONZE_F7_FX = asset("bronze", "f7_fx")
 Each run copies only the rows that changed inside its Airflow data interval `[start, end)`. F3 is read by `updated_at`, which a trigger in Neon sets on every change, so a late OTA event or a status change (no-show, relocated) is never missed. The key is named after the interval, so re-running the hour overwrites the same file.
 
 ```python
+# F2: events received by the Kafka consumer inside [start, end)
 F2_SQL = """
 SELECT * FROM streaming.reservation_event_ledger
  WHERE received_at >= %s AND received_at < %s
 """
+# F3: bookings created or changed inside [start, end)
 F3_SQL = """
 SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s
 """
 
+# Fixed file name for one hour: bronze/<source>/fecha=YYYY-MM-DD/hora=HH.jsonl
 def _key(prefix: str, start) -> str:
+    # Same hour -> same name, so a re-run overwrites instead of duplicating
     return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
 
 
+# Every hour from 1 Nov 2026 (UTC), no old runs on start, tags for the UI, 3 retries
 @dag(schedule="@hourly", start_date=pendulum.datetime(2026, 11, 1, tz="UTC"), catchup=False,
      tags=["bronze", "F2", "F3"], default_args={"retries": 3, "retry_exponential_backoff": True})
 def bronze_neon_f2_f3():
+    # Runs on a bronze worker and marks the F2 Asset as updated
     @task(queue="bronze", outlets=[BRONZE_F2_LEDGER])
     def f2_ledger(data_interval_start=None, data_interval_end=None) -> int:
+        # Read the events of this hour from Neon
         body, n = _dump(F2_SQL, data_interval_start, data_interval_end)
+        # Write them to S3 as JSON Lines
         put(_key("f2_ledger", data_interval_start), body, "application/x-ndjson")
+        # Return the row count (visible in the Airflow UI)
         return n
     …
 ```
@@ -104,17 +127,27 @@ The nightly full copy of the same tables (`bronze_neon_full_load.py`, one `REPEA
 The API is asked for everything updated since the start of the hour and every page is walked. The API only filters "from", so the task drops anything after the end of the interval: consecutive hours never overlap.
 
 ```python
+# Empty list, start on page 1
 items, page = [], 1
+# Repeat until the last page
 while True:
+    # Ask for the reviews changed since the start of this hour
     r = requests.get(f"{base}/api/v1/reviews", headers=headers, timeout=60, params={
         "updated_from": data_interval_start.isoformat(), "page": page, "page_size": PAGE_SIZE})
+    # Stop with an error if the API answered 4xx or 5xx (Airflow retries)
     r.raise_for_status()
+    # Read the JSON answer
     body = r.json()
+    # Add this page's reviews
     items += body["items"]
+    # Stop on the last page
     if page >= body.get("total_pages", 1):
         break
+    # Otherwise next page
     page += 1
+# The API only filters "from": keep [start, end) so two hours never overlap
 items = [i for i in items if i.get("updated_at") and pendulum.parse(i["updated_at"]) < data_interval_end]
+# One JSON Lines file per hour
 put(f"bronze/f5_reviews/fecha={data_interval_start:%Y-%m-%d}/hora={data_interval_start:%H}.jsonl", …)
 ```
 
@@ -123,12 +156,17 @@ put(f"bronze/f5_reviews/fecha={data_interval_start:%Y-%m-%d}/hora={data_interval
 One call to Frankfurter v2 for the day of the interval. The answer is saved byte for byte.
 
 ```python
+# Runs on a bronze worker and marks the F7 Asset as updated
 @task(queue="bronze", outlets=[BRONZE_F7_FX])
 def extract(data_interval_start=None) -> str:
+    # The day of this run, as YYYY-MM-DD
     day = data_interval_start.date().isoformat()
+    # Ask Frankfurter for that day's rates with USD as base
     r = requests.get("https://api.frankfurter.dev/v2/rates",
                      params={"date": day, "base": "USD", "quotes": "COP,EUR,MXN,BRL"}, timeout=30)
+    # Fail if the API answered with an error
     r.raise_for_status()
+    # Save the raw answer, one file per day
     return put(f"bronze/f7_fx/fecha={day}.json", r.content)
 ```
 
@@ -137,12 +175,18 @@ def extract(data_interval_start=None) -> str:
 One file per country and year, for this year and the next one, because bookings are made months ahead.
 
 ```python
+# Countries of the hotels
 COUNTRIES = ["PT", "CO", "MX", "BR", "ES"]
 
+# This year and the next one
 for y in (year, year + 1):
+    # Every country
     for country in COUNTRIES:
+        # Ask Nager for that country's holidays of that year
         r = requests.get(f"{NAGER_BASE_URL}/api/v4/Holidays/{country}/{y}", timeout=30)
+        # Fail if the API answered with an error
         r.raise_for_status()
+        # Save the raw answer: one file per year and country
         written.append(put(f"bronze/f6_holidays/anio={y}/pais={country}.json", r.content))
 ```
 
@@ -151,12 +195,19 @@ for y in (year, year + 1):
 The files are not downloaded by Airflow: the F4 generator uploads them to S3 itself. The DAG only checks that the week is complete and fails (and retries every 20 minutes, up to 6 times) while it is not, so silver never starts on half a week.
 
 ```python
+# ISO week of this run, e.g. 2026-W46
 week = data_interval_end.strftime("%G-W%V")
+# Folder where f4-weekly uploads that week's files
 prefix = f"bronze/f4_agencias/semana={week}/"
+# List the files in that folder
 resp = s3_client().list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+# Keep only the file names
 names = [o["Key"].rsplit("/", 1)[-1] for o in resp.get("Contents", [])]
+# Agency files start with AG (AG01, AG02...)
 agency_files = [n for n in names if n.startswith("AG")]
+# Not all files yet, or no summary file: the week is not complete
 if len(agency_files) < EXPECTED_AGENCIES or "_generation_summary.json" not in names:
+    # Fail so the sensor tries again later
     raise RuntimeError(f"{prefix}: {len(agency_files)}/{EXPECTED_AGENCIES} agency files yet; …")
 ```
 

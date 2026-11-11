@@ -48,6 +48,7 @@ Lancez-les une fois, dans cet ordre, et attendez que chacun soit vert :
 En ligne de commande sur la machine cœur :
 
 ```bash
+# Lance maintenant le DAG bronze_neon_full_load, avec un run id unique (date et heure)
 docker compose -f docker-compose.nucleo.yaml exec airflow-apiserver \
   airflow dags trigger bronze_neon_full_load --run-id manual__$(date +%Y%m%d%H%M)
 ```
