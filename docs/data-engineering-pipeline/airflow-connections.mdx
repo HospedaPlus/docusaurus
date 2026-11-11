@@ -26,6 +26,7 @@ A DAG is only useful if its tasks can reach the systems around them: Neon, S3, t
 Airflow itself needs a database to store DAG runs and a broker to send tasks to the Celery workers. They are set with `AIRFLOW__<SECTION>__<KEY>` environment variables, which Airflow reads instead of `airflow.cfg`:
 
 ```yaml title="docker-compose.workers.yaml (the workers reach the core by its private IP)"
+# Tasks go to Celery workers on another machine
 AIRFLOW__CORE__EXECUTOR: CeleryExecutor
 # metadata DB (Postgres on the core EC2)
 AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD}@${NUCLEO_HOST}:5432/airflow
@@ -44,18 +45,24 @@ AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://${NUCLEO_HOST}:8080/execution/'
 An *Airflow Connection* is a named set of credentials that Airflow hooks look up by its `conn_id`. Instead of creating it by hand in *Admin → Connections* (it would be lost if the metadata DB is recreated), it is declared as an environment variable `AIRFLOW_CONN_<CONN_ID>` with a URI:
 
 ```yaml title="docker-compose.nucleo.yaml / docker-compose.workers.yaml"
+# Defines the connection aws_default: no keys, only the region (credentials come from the IAM role)
 AIRFLOW_CONN_AWS_DEFAULT: 'aws://?region_name=${AWS_DEFAULT_REGION:-us-east-2}'
+# Turn on remote task logs
 AIRFLOW__LOGGING__REMOTE_LOGGING: 'true'
+# Folder in S3 where the logs are uploaded
 AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: s3://${S3_BUCKET}/airflow-logs
+# Connection used to upload them: the one defined above
 AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: aws_default
 ```
 
 The URI has **no access key**: when the Amazon provider finds no key, boto3 uses the **IAM role of the EC2** (`hospedaplus-pipeline-role`) and gets temporary credentials. It is used for logs: a task runs on the workers EC2, its log is uploaded to S3, and the UI on the core reads it from there.
 
 ```bash title="Check it from any Airflow container"
+# Show the connection aws_default as Airflow sees it
 docker compose -f docker-compose.nucleo.yaml exec airflow-scheduler airflow connections get aws_default
+# Ask AWS who we are: shows the IAM role in use
 docker compose -f docker-compose.nucleo.yaml exec airflow-scheduler \
-  python -c "import boto3; print(boto3.client('sts').get_caller_identity()['Arn'])"   # shows the IAM role in use
+  python -c "import boto3; print(boto3.client('sts').get_caller_identity()['Arn'])"
 ```
 
 ## 3. Neon: environment variable + psycopg2
@@ -63,33 +70,50 @@ docker compose -f docker-compose.nucleo.yaml exec airflow-scheduler \
 The DAGs do not use an Airflow hook for Neon. The connection string lives in the `.env` of the workers and the shared module `dags/hospedaplus/lake.py` reads it; if it is empty the task fails on purpose with a clear message.
 
 ```python title="dags/hospedaplus/lake.py"
+# Returns the Neon connection string
 def neon_url() -> str:
+    # Read it from the environment (.env of the workers)
     url = os.getenv("NEON_READ_URL", "")
+    # If it is missing...
     if not url:
+        # ...fail with a clear message instead of a cryptic connection error
         raise RuntimeError("NEON_READ_URL is empty: set it in .env (role etl_reader)")
+    # Otherwise return it
     return url
 ```
 
 ```python title="dags/hospedaplus/neon.py: every read returns JSON Lines"
+# Runs a query and returns (JSON Lines bytes, number of rows)
 def dump(sql: str, params: tuple = ()) -> tuple[bytes, int]:
+    # Open the connection and a cursor; both are closed at the end of the block
     with psycopg2.connect(neon_url()) as conn, conn.cursor() as cur:
+        # Run the query with its parameters (never glued into the text: no SQL injection)
         cur.execute(sql, params)
+        # Column names of the result
         cols = [c.name for c in cur.description]
+        # All the rows
         rows = cur.fetchall()
+    # Turn each row into one JSON line {column: value}
     lines = [json.dumps(dict(zip(cols, r)), default=str, ensure_ascii=False) for r in rows]
+    # Join the lines, encode to bytes, and return them with the row count
     return ("\n".join(lines) + ("\n" if lines else "")).encode(), len(rows)
 ```
 
 Only one task writes to Neon, with a different role and variable:
 
 ```python title="dags/gold_neon_writeback.py"
-url = os.getenv("NEON_WRITE_URL", "")          # role app_writer
-with psycopg2.connect(url) as conn, conn.cursor() as cur:   # one transaction: all rows or none
+# Writing URL: role app_writer
+url = os.getenv("NEON_WRITE_URL", "")
+# One transaction: all rows or none
+with psycopg2.connect(url) as conn, conn.cursor() as cur:
+    # Run the UPSERT once per row
     cur.executemany(UPSERT, rows)
 ```
 
 ```bash title=".env of the workers EC2 (placeholders: never commit the real values)"
+# Read-only role for the bronze extracts
 NEON_READ_URL=postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# Writing role for gold_neon_writeback
 NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
 ```
 
@@ -98,34 +122,49 @@ NEON_WRITE_URL=postgresql://app_writer:<password>@ep-<endpoint-id>.us-east-2.aws
 **S3 with boto3.** There is no key in the code or in `.env`: `boto3.client("s3")` finds the IAM role of the EC2 by itself. `S3_ENDPOINT_URL` is empty on AWS and only set for local tests with MinIO.
 
 ```python title="dags/hospedaplus/lake.py"
+# Bucket name from .env (default if missing)
 BUCKET = os.getenv("S3_BUCKET", "hospedaplus-lakehouse")
 
+# Creates the S3 client
 def s3_client():
+    # No keys: boto3 finds the IAM role; endpoint only for MinIO tests
     return boto3.client("s3", endpoint_url=os.getenv("S3_ENDPOINT_URL") or None)
 
+# Writes one file to S3 and returns its address
 def put(key: str, body: bytes, content_type: str = "application/json") -> str:
+    # Upload the bytes to bucket/key (overwrites if it exists)
     s3_client().put_object(Bucket=BUCKET, Key=key, Body=body, ContentType=content_type)
+    # Return the full s3:// address
     return f"s3://{BUCKET}/{key}"
 ```
 
 **S3 with Spark.** Spark uses the `s3a://` protocol (jars `hadoop-aws` + `aws-java-sdk-bundle` in the image) and the same IAM role through `DefaultAWSCredentialsProviderChain`:
 
 ```python title="spark_jobs/session.py"
+# Spark session with a name, running on all the CPU cores of the worker
 SparkSession.builder.appName(app).master("local[*]")
+    # Add the hadoop-aws and AWS SDK jars
     .config("spark.jars", jars)
+    # Use the S3A file system for s3a:// addresses
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+    # Credentials: the default AWS chain (finds the IAM role of the EC2)
     .config("spark.hadoop.fs.s3a.aws.credentials.provider",
             "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
 
+# Builds the address of a table in the lake
 def path(layer: str, name: str) -> str:
-    return f"s3a://{os.getenv('S3_BUCKET')}/{layer}/{name}"     # s3a://bucket/silver/reservas
+    # e.g. s3a://bucket/silver/reservas
+    return f"s3a://{os.getenv('S3_BUCKET')}/{layer}/{name}"
 ```
 
 **HTTP APIs with requests.** The base URL comes from `.env`, the optional API key goes in a header:
 
 ```python title="dags/bronze_f5_reviews.py"
+# API address from .env, without a trailing slash
 base = os.getenv("F5_API_URL", "").rstrip("/")
+# Send the API key in a header only if it is configured
 headers = {"x-api-key": os.environ["F5_API_KEY"]} if os.getenv("F5_API_KEY") else {}
+# Ask for the reviews changed since the start of this run, one page at a time
 r = requests.get(f"{base}/api/v1/reviews", headers=headers, timeout=60,
                  params={"updated_from": data_interval_start.isoformat(), "page": page, "page_size": 100})
 ```
@@ -144,17 +183,24 @@ r = requests.get(f"{base}/api/v1/reviews", headers=headers, timeout=60,
 The Amazon and Postgres providers are already installed (`apache-airflow-providers-amazon==9.16.0`, `apache-airflow-providers-postgres==6.4.0`), so the project can switch to hooks without changing the image. Declare the connection as a URI:
 
 ```bash title=".env (example, placeholders)"
+# AIRFLOW_CONN_<ID> creates the connection neon_reader from a URI
 AIRFLOW_CONN_NEON_READER='postgresql://etl_reader:<password>@ep-<endpoint-id>.us-east-2.aws.neon.tech:5432/hospedaplus?sslmode=require'
 ```
 
 ```python title="A task that uses the hooks"
+# Airflow hook for PostgreSQL
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+# Airflow hook for S3
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
+# Task that runs on a bronze worker
 @task(queue="bronze")
 def copy_hotels():
+    # Read all hotels using the connection neon_reader
     rows = PostgresHook(postgres_conn_id="neon_reader").get_records("SELECT * FROM operation.hotels")
+    # One JSON line per row
     body = "\n".join(json.dumps(r, default=str) for r in rows)
+    # Upload the text to S3 using the connection aws_default
     S3Hook(aws_conn_id="aws_default").load_string(body, key="bronze/neon_dims/hotels/test.jsonl",
                                                   bucket_name="hospedaplus-lakehouse-buenavista", replace=True)
 ```
@@ -166,13 +212,16 @@ Both approaches open the same connections; the project uses environment variable
 DAGs are also "connected" between them, without fixed times, through **Assets** (Airflow 3). A task declares what it writes with `outlets=`, and a DAG declares what it waits for with `schedule=`:
 
 ```python title="dags/hospedaplus/lake.py + dags/silver_reservas_daily.py"
+# An Asset is a name for a folder of the lake
 BRONZE_F3_RESERVATIONS = Asset("s3://hospedaplus-lakehouse/bronze/f3_reservations")
 
-@task(queue="bronze", outlets=[BRONZE_F3_RESERVATIONS])      # bronze: "I updated this"
+# bronze: "I updated this" (outlets marks the Asset as changed when the task ends OK)
+@task(queue="bronze", outlets=[BRONZE_F3_RESERVATIONS])
 def f3_reservations(...): ...
 
+# silver: runs when its inputs change (& = all of them, | = any of them)
 @dag(schedule=((SILVER_FX_DAILY & BRONZE_F3_FULL & BRONZE_NEON_DIMS) | BRONZE_F3_RESERVATIONS))
-def silver_reservas_daily(): ...                              # silver: runs when its inputs change
+def silver_reservas_daily(): ...
 ```
 
 `&` waits for all the assets, `|` runs when any of them changes. See [DAGs](./dags.mdx) and [How to connect to Neon and S3](./how-to-connect.mdx).

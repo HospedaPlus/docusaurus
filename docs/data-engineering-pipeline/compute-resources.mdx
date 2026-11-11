@@ -23,11 +23,17 @@ title: Compute and resources
 
 ```yaml
 # docker-compose.workers.yaml
+# Worker of the bronze queue
 worker-bronze:
+  # Light Python extracts: 4 tasks at a time
   command: celery worker --queues bronze --concurrency 4
+# Worker of the silver queue
 worker-silver:
+  # Spark jobs use a lot of memory: 2 at a time
   command: celery worker --queues silver --concurrency 2
+# Worker of the gold queue
 worker-gold:
+  # Spark jobs of the gold layer: 2 at a time
   command: celery worker --queues gold --concurrency 2
 ```
 
@@ -45,9 +51,13 @@ Spark runs in **local mode** inside each worker container: the driver is also th
 
 ```python
 # spark_jobs/session.py
+# Spark inside the worker, on all its CPU cores (configurable)
 .master(os.getenv("SPARK_MASTER", "local[*]"))
+# Memory of the Spark process: 4 GB by default
 .config("spark.driver.memory", os.getenv("SPARK_DRIVER_MEMORY", "4g"))
+# 8 partitions after a join/groupBy (Spark's 200 is too many for this data)
 .config("spark.sql.shuffle.partitions", os.getenv("SPARK_SHUFFLE_PARTITIONS", "8"))
+# Spark adjusts partitions and joins while the query runs
 .config("spark.sql.adaptive.enabled", "true")
 ```
 

@@ -33,16 +33,26 @@ Silver macht aus den Rohkopien in Bronze **eine saubere, verlässliche Tabelle p
 Code (`spark_jobs/silver_fx.py`):
 
 ```python
+# Ein Kurs pro Tag und Währung, aus den Rohantworten von Frankfurter
 rates = (raw.select(F.to_date("date").alias("fecha"), F.col("quote").alias("moneda"),
                     F.col("rate").cast("double").alias("rate"))
-         .dropna().dropDuplicates(["fecha", "moneda"]))           # + USD = 1.0 every day
-days = bounds.select(F.explode(F.sequence("a", "b")).alias("fecha"))   # every calendar day
-grid = days.crossJoin(rates.select("moneda").distinct())               # day x currency
+         # + USD = 1.0 an jedem Tag
+         .dropna().dropDuplicates(["fecha", "moneda"]))
+# jeder Kalendertag
+days = bounds.select(F.explode(F.sequence("a", "b")).alias("fecha"))
+# Tag x Währung
+grid = days.crossJoin(rates.select("moneda").distinct())
+# Pro Währung alle früheren Tage bis zu diesem betrachten
 w = Window.partitionBy("moneda").orderBy("fecha").rowsBetween(Window.unboundedPreceding, 0)
+# Legt die bekannten Kurse auf das Raster
 filled = (grid.join(rates, ["fecha", "moneda"], "left")
-          .withColumn("rate", F.last("rate", ignorenulls=True).over(w))  # forward fill
+          # vorwärts auffüllen
+          .withColumn("rate", F.last("rate", ignorenulls=True).over(w))
+          # Tage vor dem ersten bekannten Kurs fallen weg
           .dropna(subset=["rate"]))
+# Wie viele COP ein USD an jedem Tag wert ist
 cop = filled.filter("moneda = 'COP'").select("fecha", F.col("rate").alias("usd_cop"))
+# COP pro Einheit jeder Währung = (COP pro USD) / (Währung pro USD)
 out = filled.join(cop, "fecha").select(
     "fecha", "moneda", (F.col("usd_cop") / F.col("rate")).alias("cop_por_unidad"))
 ```
@@ -76,32 +86,49 @@ Wie jeder Datenqualitätsfehler der Quellen behandelt wird:
 Code (`spark_jobs/silver_reservas.py`):
 
 ```python
-# 1. newest full snapshot + hourly files from the day before it on
+# 1. neuester vollständiger Snapshot + Stundendateien ab dem Tag davor
 def plan_days(full_days, hourly_days):
+    # Der Tag des neuesten vollständigen Snapshots
     newest = full_days[-1]
+    # Einen Tag früher, um Änderungen während des Snapshots abzudecken
     since = (dt.date.fromisoformat(newest) - dt.timedelta(days=1)).isoformat()
+    # Snapshot-Tag + Stundentage ab diesem Datum
     return [newest], [d for d in hourly_days if d >= since]
 
-# 2. one row per booking code: the newest version (hourly file wins a tie: _src = 1)
+# 2. eine Zeile pro Buchungscode: die neueste Version (die Stundendatei gewinnt bei Gleichstand: _src = 1)
+# Version = updated_at (oder das neueste Datum der Zeile bei alten Daten)
 version = F.coalesce(F.to_timestamp("updated_at"), legacy_greatest_of_dates)
+# Gruppiert nach Code, neueste zuerst
 w = Window.partitionBy("code").orderBy(F.col("_version").desc(), F.col("_src").desc())
+# Nummeriert die Zeilen jedes Codes und behält Nummer 1
 r = raw.withColumn("_version", version).withColumn("_rn", F.row_number().over(w)).filter("_rn = 1")
 
-# 4. derived fields
+# 4. abgeleitete Felder
+# Nächte = Check-out minus Check-in
 df = (df.withColumn("noches", F.datediff("check_out", "check_in"))
+        # Tage im Voraus gebucht
         .withColumn("lead_time_dias", F.datediff("check_in", "fecha_reserva"))
+        # Duplikat-Kennzeichen
         .withColumn("es_duplicado", F.col("status") == "duplicate")
+        # Storniert oder No-Show zählt als storniert
         .withColumn("es_cancelada", F.col("status").isin("cancelled", "no_show")))
 
-# 5-6. COP with the rate of the booking day, then commission and net
+# 5-6. COP zum Kurs des Buchungstages, dann Provision und Netto
+# Fügt den Wechselkurs des Buchungstages hinzu (Broadcast: die Kurstabelle ist klein)
 df = (df.join(F.broadcast(fx), ["currency", "fecha_reserva"], "left")
+        # True, wenn es an dem Tag keinen Kurs gab und ein Schätzwert genutzt wird
         .withColumn("fx_estimada", F.col("_tasa").isNull())
+        # Der Tageskurs oder der nächste bekannte
         .withColumn("tasa_cop", F.coalesce("_tasa", "_tasa_min")))
+# Gesamt in COP
 df = (df.withColumn("total_cop", F.round(F.col("total") * F.col("tasa_cop"), 2))
+        # Provision in COP
         .withColumn("comision_cop", F.round(F.col("total_cop") * F.col("comision_pct") / 100, 2))
+        # Netto = Gesamt - Provision
         .withColumn("neto_cop", F.col("total_cop") - F.col("comision_cop")))
 
-# 7. hours between cancellation and check-in (15:00)
+# 7. Stunden zwischen Stornierung und Check-in (15:00)
+# (Check-in-Datum um 15:00 - Zeitpunkt der Stornierung) in Sekunden, / 3600 = Stunden
 horas = (F.unix_timestamp(F.to_timestamp(F.concat_ws(" ", F.col("check_in").cast("string"), F.lit("15:00:00"))))
          - F.unix_timestamp("cancelada_en")) / 3600
 ```
@@ -118,17 +145,22 @@ horas = (F.unix_timestamp(F.to_timestamp(F.concat_ws(" ", F.col("check_in").cast
 Code (`spark_jobs/silver_ocupacion.py`):
 
 ```python
-# rejected bookings: one row per night they wanted
+# abgelehnte Buchungen: eine Zeile pro gewünschter Nacht
 nights = F.explode(F.sequence(F.to_date("check_in"), F.date_sub(F.to_date("check_out"), 1)))
+# Abgelehnte Zimmer pro Hotel, Zimmertyp und Nacht
 j = (rej.select("hotel_id", "room_type_id", nights.alias("fecha"), F.col("rooms_count").cast("int").alias("n"))
      .groupBy("hotel_id", "room_type_id", "fecha").agg(F.sum("n").alias("habitaciones_rechazadas")))
 
+# Fügt sie dem täglichen Bestand hinzu; Tage ohne Daten bekommen 0
 out = (base.join(j, KEY, "left").fillna(0, ["reubicadas", "habitaciones_rechazadas"])
+       # Verfügbar = Zimmer + Überbuchungsgrenze - verkauft
        .withColumn("disponibles", F.col("habitaciones") + F.col("limite_sobreventa") - F.col("vendidas"))
+       # Belegung %
        .withColumn("ocupacion_pct", F.round(F.col("vendidas") * 100.0 / F.col("habitaciones"), 2))
+       # Über die reale Kapazität hinaus verkaufte Zimmer (nie negativ)
        .withColumn("sobrevendidas", F.greatest(F.lit(0), F.col("vendidas") - F.col("habitaciones"))))
 
-# check: never sold above rooms + overbooking limit
+# Prüfung: nie über Zimmer + Überbuchungsgrenze verkaufen
 bad = out.filter("vendidas > habitaciones + limite_sobreventa OR vendidas < 0").count()
 ```
 
@@ -145,14 +177,21 @@ bad = out.filter("vendidas > habitaciones + limite_sobreventa OR vendidas < 0").
 Code (`spark_jobs/silver_calendario.py`):
 
 ```python
-cal = (hotels.crossJoin(days)                         # hotel x every day
-       .join(holidays, ["pais", "fecha"], "left")       # holiday of the hotel's country
+# Hotel x jeder Tag
+cal = (hotels.crossJoin(days)
+       # Feiertag des Hotellandes
+       .join(holidays, ["pais", "fecha"], "left")
+       # true, wenn der Tag einen Feiertagsnamen hat
        .withColumn("es_festivo", F.col("nombre_festivo").isNotNull()))
 
+# Lokale Events: eine Zeile pro Tag jedes Events
 ev = (events.select("hotel_code", "name", "category",
                     F.explode(F.sequence(F.to_date("start_date"), F.to_date("end_date"))).alias("fecha"))
-      .withColumn("_rank", rank[F.col("category")])     # low=1, medium=2, high=3
+      # low=1, medium=2, high=3
+      .withColumn("_rank", rank[F.col("category")])
+      # Eine Zeile pro Hotel und Tag
       .groupBy("hotel_code", "fecha")
+      # Verbindet die Eventnamen und behält die höchste Kategorie
       .agg(F.concat_ws(" / ", F.collect_set("name")).alias("evento"), F.max("_rank").alias("_rank")))
 ```
 
@@ -168,20 +207,33 @@ ev = (events.select("hotel_code", "name", "category",
 Code (`spark_jobs/silver_resenas.py`):
 
 ```python
-def _norm_text(c):   # "Great stay." == "great stay"
+# "Great stay." == "great stay"
+def _norm_text(c):
+    # Kleinbuchstaben, keine Leerzeichen an den Enden, keine Punkte oder Ausrufezeichen am Schluss
     return F.regexp_replace(F.lower(F.trim(c)), r"[\s.!]+$", "")
 
+# Jede Bewertungs-id, neueste Bearbeitung zuerst
 w_id = Window.partitionBy("id").orderBy(F.to_timestamp("updated_at").desc())
-latest = raw.withColumn("_rn", F.row_number().over(w_id)).filter("_rn = 1")   # newest edit
+# neueste Bearbeitung
+latest = raw.withColumn("_rn", F.row_number().over(w_id)).filter("_rn = 1")
 
+# Gleiches Hotel, Aufenthaltsdatum, Punktzahl und Text = dieselbe Bewertung auf einer anderen Plattform
 key = ["hotel_code", "fecha_estadia", "puntaje", "_texto_norm"]
+# In jeder Gruppe kommt die zuerst veröffentlichte zuerst
 w_dup = Window.partitionBy(*key).orderBy("publicada_en", "review_id")
+# Fügt den normalisierten Text hinzu
 r = (r.withColumn("_texto_norm", _norm_text(F.col("texto")))
+      # Position in ihrer Gruppe
       .withColumn("_rn", F.row_number().over(w_dup))
+      # Plattformen, auf denen dieselbe Bewertung erscheint
       .withColumn("copias_en", F.collect_set("plataforma").over(Window.partitionBy(*key))))
-original = (r.filter("_rn = 1")                                   # first one published
+# die zuerst veröffentlichte
+original = (r.filter("_rn = 1")
+             # Nur die anderen Plattformen (die eigene entfernen)
              .withColumn("copias_en", F.expr("array_remove(copias_en, plataforma)"))
+             # Wie viele Kopien sie hatte
              .withColumn("duplicados", F.size("copias_en")))
+# Punktzahl 4-5 positiv, 3 neutral, 1-2 negativ
 sentimiento = (F.when(F.col("puntaje") >= 4, "positivo")
                 .when(F.col("puntaje") == 3, "neutro").otherwise("negativo"))
 ```
@@ -198,16 +250,21 @@ sentimiento = (F.when(F.col("puntaje") >= 4, "positivo")
 Code (`spark_jobs/silver_f1.py`):
 
 ```python
+# Kaggle-Marktsegment -> unser Kanaltyp
 CHANNEL_TYPE = {"Online TA": "ota", "Offline TA/TO": "agency", "Groups": "agency",
                 "Corporate": "corporate", "Direct": "direct", "Complementary": "direct",
                 "Aviation": "corporate"}
 
+# Ankunftsdatum aus Jahr + Monatsname + Tag, z. B. 2016-July-1
 arrival = F.to_date(F.concat_ws("-", "arrival_date_year", "arrival_date_month",
                                 "arrival_date_day_of_month"), "yyyy-MMMM-d")
 
+# Trennt gültige von ungültigen Zeilen
 def split_valid(df):
+    # Eine Zeile ist gültig mit Gästen, Nächten, Preis >= 0 und Ankunftsdatum
     ok = "huespedes > 0 AND noches > 0 AND adr_eur >= 0 AND fecha_llegada IS NOT NULL"
-    return df.filter(ok), df.filter(f"NOT ({ok})").count()   # kept rows, dropped count
+    # behaltene Zeilen, Anzahl verworfener
+    return df.filter(ok), df.filter(f"NOT ({ok})").count()
 ```
 
 ### Wie jeder Job Silver schützt
@@ -215,15 +272,20 @@ def split_valid(df):
 Alle Silver-Jobs folgen denselben drei Schritten: **transformieren → prüfen → überschreiben**. Die Prüfungen liegen in einem Modul:
 
 ```python title="spark_jobs/quality.py"
+# Fehler, der ausgelöst wird, wenn die Daten eine Regel verletzen
 class QualityError(Exception): ...
 
+# Regel: zwei Zeilen dürfen nicht dieselben Schlüssel haben
 def unique(df, name, keys):
+    # Zählt die Schlüsselkombinationen, die mehr als einmal vorkommen
     dup = df.groupBy(*keys).count().filter("count > 1").count()
+    # Gibt es welche...
     if dup:
+        # ...mit klarer Meldung stoppen
         raise QualityError(f"{name}: {dup} duplicated keys {keys}")
 
-# every job:  transform -> check(out) -> out.write.mode("overwrite").parquet(...)
-# if check() raises, the Airflow task fails and yesterday's Parquet stays untouched
+# jeder Job:  transform -> check(out) -> out.write.mode("overwrite").parquet(...)
+# wirft check() einen Fehler, schlägt der Airflow-Task fehl und das Parquet von gestern bleibt unverändert
 ```
 
 ## Wie lange es dauert

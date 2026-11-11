@@ -45,7 +45,9 @@ Dans `.env` les clés AWS restent **vides**. boto3 (bronze) et le connecteur s3a
 
 ```python
 # spark_jobs/session.py
+# Utilise le système de fichiers S3A pour les adresses s3a://
 .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+# Identifiants : la chaîne AWS par défaut (trouve le rôle IAM de l'EC2)
 .config("spark.hadoop.fs.s3a.aws.credentials.provider",
         "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
 ```
@@ -77,8 +79,11 @@ Un bucket, un préfixe par couche. L'organisation est décrite dans [la vue d'en
 
 ```yaml
 # docker-compose.workers.yaml
+# Active les logs distants des tâches (true sauf si .env dit autre chose)
 AIRFLOW__LOGGING__REMOTE_LOGGING: ${REMOTE_LOGGING:-true}
+# Dossier S3 où les logs sont envoyés
 AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: s3://${S3_BUCKET}/airflow-logs
+# Connexion utilisée pour les envoyer
 AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: aws_default
 ```
 
@@ -87,9 +92,13 @@ AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: aws_default
 Les données ne quittent jamais S3. Le catalogue Glue dit seulement « la table `hospedaplus_gold.fact_reservas` = ces colonnes, Parquet, à `s3://…/gold/fact_reservas/` », et Athena s'en sert pour exécuter du SQL directement sur les fichiers. Le crawler Glue est bloqué sur ce compte, donc les tables sont créées en DDL ; Lake Formation décide qui peut les lire. Pas à pas dans [Configuration d'Athena](./athena.mdx).
 
 ```sql
+-- Hôtel, mois et somme des commissions
 SELECT hotel_code, anio_mes, SUM(comision_cop) AS comision_cop
+-- Depuis le mart gold des commissions
 FROM hospedaplus_gold.mart_p4_comisiones
+-- Une ligne par hôtel et par mois
 GROUP BY hotel_code, anio_mes
+-- Les mois les plus récents d'abord
 ORDER BY anio_mes DESC;
 ```
 

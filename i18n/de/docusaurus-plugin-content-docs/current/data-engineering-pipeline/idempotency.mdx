@@ -33,32 +33,45 @@ Eine Task ist **idempotent**, wenn sie ein- oder zehnmal ausgeführt genau dasse
 **Schlüssel nach Intervall (Bronze):** Die Stunde im Schlüssel ist der Beginn des Airflow-Intervalls, nicht „jetzt“; der erneute Lauf von 14:00 schreibt also immer `hora=14`.
 
 ```python
+# Fester Dateiname für eine Stunde: bronze/<quelle>/fecha=YYYY-MM-DD/hora=HH.jsonl
 def _key(prefix: str, start) -> str:
+    # Gleiche Stunde -> gleicher Name, ein erneuter Lauf überschreibt statt zu duplizieren
     return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
 
+# Nur die in [Start, Ende) dieses Laufs geänderten Zeilen
 body, n = dump("SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s",
                (data_interval_start, data_interval_end))
+# Schreibt (oder überschreibt) die Datei dieser Stunde
 put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
 ```
 
 **Deduplizieren, dann überschreiben (Silver):** Snapshot und Stundendateien überlappen absichtlich; ein Fenster behält eine Zeile pro Buchungscode, und die Tabelle wird ersetzt, nicht ergänzt.
 
 ```python
-# spark_jobs/silver_reservas.py (shortened)
+# spark_jobs/silver_reservas.py (gekürzt)
+# Gruppiert nach Buchungscode, neueste Version zuerst (die Stundendatei gewinnt bei Gleichstand)
 w = Window.partitionBy("code").orderBy(F.col("_version").desc(), F.col("_src").desc())
+# Nummeriert die Zeilen jeder Gruppe 1, 2, 3...
 latest = (raw.withColumn("_rn", F.row_number().over(w))
+          # ...behält nur Nummer 1 und entfernt die Hilfsspalten
           .filter("_rn = 1").drop("_rn", "_version", "_src"))
 …
-check(reservas, cancel)                          # fails the task before anything is written
+# lässt den Task scheitern, bevor etwas geschrieben wird
+check(reservas, cancel)
+# Ersetzt die ganze Silver-Tabelle (ein Ordner pro Quelle)
 reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
 ```
 
 **Upsert (Neon):**
 
 ```sql
+-- Fügt eine Rate pro Hotel und Vorlauf-Klasse ein
 INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+-- Die Werte kommen aus Python (%s), plus die aktuelle Zeit
 VALUES (%s, %s, %s, NOW())
+-- Existiert dieses Hotel + Klasse schon, wird aktualisiert statt fehlzuschlagen
 ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   -- EXCLUDED ist die Zeile, die wir einfügen wollten
    SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
 ```
 

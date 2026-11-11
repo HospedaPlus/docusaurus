@@ -26,22 +26,30 @@ The pipeline uses **both**: incremental loads where data changes all the time an
 Airflow gives every hourly run its own data interval `[data_interval_start, data_interval_end)`. The query takes exactly those rows, and the file is named after the interval. **What it does:** copies only what changed in that hour. **Why:** small, fast queries on Neon; no row is copied twice; a failed hour is re-run alone (Clear) and overwrites the same file. `updated_at` is set by a trigger on every change, so a cancellation days later is picked up in its own hour.
 
 ```python title="dags/bronze_neon_f2_f3.py"
+# F2: events received by the Kafka consumer inside [start, end)
 F2_SQL = """
 SELECT * FROM streaming.reservation_event_ledger
  WHERE received_at >= %s AND received_at < %s
 """
+# F3: bookings created or changed inside [start, end)
 F3_SQL = """
 SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s
 """
 
-def _key(prefix, start):          # one file per hour: re-running the hour overwrites it
+# one file per hour: re-running the hour overwrites it
+def _key(prefix, start):
+    # bronze/<source>/fecha=YYYY-MM-DD/hora=HH.jsonl
     return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
 
+# Every hour, no old runs on start, up to 3 retries with growing waits
 @dag(schedule="@hourly", catchup=False, default_args={"retries": 3, "retry_exponential_backoff": True})
 def bronze_neon_f2_f3():
+    # Runs on a bronze worker and marks the Asset as updated
     @task(queue="bronze", outlets=[BRONZE_F3_RESERVATIONS])
     def f3_reservations(data_interval_start=None, data_interval_end=None):
+        # Read the rows of this hour from Neon
         body, n = dump(F3_SQL, (data_interval_start, data_interval_end))
+        # Write them to S3 as JSON Lines
         put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
 ```
 
@@ -50,14 +58,21 @@ def bronze_neon_f2_f3():
 **What it does:** asks the reviews API only for reviews created or edited since the start of the hour, page by page. **Why:** downloading the full review history every hour would grow forever; the `updated_from` filter keeps each call small, and edited reviews come back so silver can keep the newest version.
 
 ```python title="dags/bronze_f5_reviews.py"
+# Empty list, start on page 1
 items, page = [], 1
+# Repeat until the last page
 while True:
+    # Ask for the reviews changed since the start of this hour
     r = requests.get(f"{base}/api/v1/reviews", params={
         "updated_from": data_interval_start.isoformat(), "page": page, "page_size": 100})
+    # Read the JSON answer
     body = r.json()
+    # Add this page's reviews
     items += body["items"]
+    # Stop on the last page
     if page >= body.get("total_pages", 1):
         break
+    # Otherwise next page
     page += 1
 # the API only filters "from": keep [start, end) so two hours never overlap
 items = [i for i in items if pendulum.parse(i["updated_at"]) < data_interval_end]
@@ -68,25 +83,42 @@ items = [i for i in items if pendulum.parse(i["updated_at"]) < data_interval_end
 **What it does:** copies whole tables in one read-only `REPEATABLE READ` transaction, in pages of 50,000 rows by `id`, and writes `_SUCCESS` only at the end. **Why:** the hourly copy cannot bring the history created before the pipeline, and inventory must match bookings at one instant. Keyset paging (`id > last`) keeps memory flat, and `_SUCCESS` tells silver the snapshot is complete.
 
 ```python title="dags/bronze_neon_full_load.py"
+# Open one connection to Neon
 with psycopg2.connect(neon_url()) as conn:
-    conn.set_session(isolation_level="REPEATABLE READ", readonly=True)   # one instant for all tables
+    # one instant for all tables (snapshot), and read only
+    conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
+    # One cursor for every table
     with conn.cursor() as cur:
+        # Copy each table to its bronze folder
         for table, prefix in TABLES.items():
+            # Remember the row count and the number of parts
             counts[table], parts[prefix] = _copy(cur, table, prefix, day)
 
-def _copy(cur, table, prefix, day):            # keyset pagination, 50,000 rows per part
+# keyset pagination, 50,000 rows per part
+def _copy(cur, table, prefix, day):
+    # Last id read and part number
     last, part = 0, 0
+    # Repeat until the table is finished
     while True:
+        # Next 50,000 rows after the last id (fast thanks to the id index)
         cur.execute(f"SELECT * FROM operation.{table} WHERE id > %s ORDER BY id LIMIT %s", (last, PAGE))
+        # Turn them into JSON Lines
         body, n = _jsonl(cur)
+        # No rows: done
         if n == 0:
             break
+        # Write the part: part-00000.jsonl, part-00001.jsonl...
         put(f"bronze/{prefix}/fecha={day}/part-{part:05d}.jsonl", body)
+        # Read the id of the last row written
         last = json.loads(body.rstrip(b"\n").rsplit(b"\n", 1)[-1])["id"]
+        # Next part number
         part += 1
     ...
-for prefix, n in parts.items():                # only when everything was copied
-    _clean(prefix, day, n)                     # delete parts left by an older run of the same day
+# only when everything was copied
+for prefix, n in parts.items():
+    # delete parts left by an older run of the same day
+    _clean(prefix, day, n)
+    # _SUCCESS marks the day as complete (with the row counts inside)
     put(f"bronze/{prefix}/fecha={day}/_SUCCESS", json.dumps(counts).encode())
 ```
 
@@ -96,12 +128,17 @@ for prefix, n in parts.items():                # only when everything was copied
 
 ```python title="spark_jobs/silver_reservas.py"
 # silver_reservas: newest snapshot + hourly increments, deduplicated, then full overwrite
+# Choose which days to read: the newest complete snapshot and the hours after it
 full_d, hour_d = plan_days(partitions("bronze", "f3_reservations_full", complete=True),
                            partitions("bronze", "f3_reservations"))
+# Read both and stack them (_src 0 = snapshot, 1 = hourly)
 raw = _union(_with_src(_read_days(s, "f3_reservations_full", full_d, RES_COLS), 0),
              _with_src(_read_days(s, "f3_reservations", hour_d, RES_COLS), 1))
+# Clean, deduplicate, convert to COP and add the derived fields
 reservas = transform(raw, hotels, channels, room_types, fx)
+# Quality checks: if one fails, nothing is written
 check(reservas, cancel)
+# Replace the whole silver table
 reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
 ```
 
@@ -110,13 +147,16 @@ reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "r
 **What it does:** inserts or updates one row per hotel and lead bucket in a single transaction. **Why:** Neon is the live operational database; an upsert changes only those rows and never leaves the table half-written.
 
 ```python title="dags/gold_neon_writeback.py"
+# Insert a row, or update it if (hotel, lead bucket) already exists
 UPSERT = """
 INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
 VALUES (%s, %s, %s, NOW())
 ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
    SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
 """
-with psycopg2.connect(url) as conn, conn.cursor() as cur:   # one transaction: all rows or none
+# One transaction: all rows or none
+with psycopg2.connect(url) as conn, conn.cursor() as cur:
+    # Run the UPSERT once per row
     cur.executemany(UPSERT, rows)
 ```
 

@@ -50,11 +50,16 @@ DRIVER={Amazon Athena ODBC (x64)};AwsRegion=us-east-2;Catalog=AwsDataCatalog;Sch
 
 ```powerquery
 let
+    // Abre a conexão ODBC com o Athena
     Origen = Odbc.DataSource("<connection string>", [HierarchicalNavigation = true]),
+    // Entra no catálogo de dados do Glue
     AwsDataCatalog_Database = Origen{[Name = "AwsDataCatalog", Kind = "Database"]}[Data],
+    // Entra no banco gold
     hospedaplus_gold_Schema = AwsDataCatalog_Database{[Name = "hospedaplus_gold", Kind = "Schema"]}[Data],
+    // Escolhe a tabela fact_reservas
     tabla = hospedaplus_gold_Schema{[Name = "fact_reservas", Kind = "Table"]}[Data]
 in
+    // Carrega essa tabela no Power BI
     tabla
 ```
 

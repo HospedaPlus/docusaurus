@@ -74,15 +74,24 @@ Tudo está em `spark_jobs/gold_modelo.py`. O job tem três passos: **ler** o sil
 ### 1. Ler: silver e os catálogos mais recentes
 
 ```python
+# Constrói e grava todo o modelo gold
 def run() -> dict[str, int]:
+    # Inicia a sessão Spark
     s = spark("gold_modelo")
+    # Lê as tabelas silver que sempre existem
     silver = {name: s.read.parquet(path("silver", name))
               for name in ("reservas", "cancelaciones", "ocupacion_diaria", "calendario_hotel", "tasa_cambio_diaria")}
+    # As avaliações podem ainda não existir: None se faltarem
     silver["resenas"] = _optional(lambda: s.read.parquet(path("silver", "resenas")))
+    # O histórico F1, também opcional
     silver["historico_f1"] = _optional(lambda: s.read.parquet(path("silver", "historico_f1")))
+    # Versão mais recente de cada dimensão (hotéis, canais, tipos de quarto)
     dims = {name: sr._latest_dim(s, name) for name in ("hotels", "channels", "room_types")}
+    # Tarifas, opcional
     dims["rates"] = _optional(lambda: sr._latest_dim(s, "rates"))
+    # Constrói cada dimensão, fato e mart para hoje
     tables = build(silver, dims, dt.datetime.now(dt.timezone.utc).date(), s)
+    # Verificações de qualidade antes de gravar
     check(tables)
     …
 ```
@@ -94,28 +103,42 @@ def run() -> dict[str, int]:
 `dim_fecha` é gerada, não lida: uma linha por dia de um ano atrás até o último check-out.
 
 ```python
+# Dimensão data: uma linha por dia entre o primeiro e o último
 def dim_fecha(first: dt.date, last: dt.date, spark: SparkSession) -> DataFrame:
+    # Gera todas as datas do intervalo
     d = spark.range(1).select(F.explode(F.sequence(F.lit(first), F.lit(last))).alias("fecha"))
-    dow = F.dayofweek("fecha")  # 1 = Sunday
+    # Dia da semana: 1 = domingo
+    dow = F.dayofweek("fecha")
+    # Chave numérica 20261110
     return (d.withColumn("fecha_key", F.date_format("fecha", "yyyyMMdd").cast("int"))
+            # Ano e trimestre
             .withColumn("anio", F.year("fecha")).withColumn("trimestre", F.quarter("fecha"))
+            # Número e nome do mês
             .withColumn("mes", F.month("fecha")).withColumn("nombre_mes", F.date_format("fecha", "MMMM"))
+            # Número da semana ISO
             .withColumn("semana_iso", F.weekofyear("fecha"))
+            # Nome do dia
             .withColumn("dia_semana", F.date_format("fecha", "EEEE"))
+            # Sábado ou domingo
             .withColumn("es_fin_de_semana", dow.isin(1, 7))
+            # Ano-mês, ex. 2026-11
             .withColumn("anio_mes", F.date_format("fecha", "yyyy-MM")))
 ```
 
 As outras dimensões renomeiam as colunas dos catálogos do Neon. `dim_hotel` guarda cidade, país e categoria na mesma tabela (é isso que a torna estrela e não floco de neve) e adiciona o número de quartos:
 
 ```python
+# Dimensão hotel
 def dim_hotel(hotels: DataFrame, ocupacion: DataFrame) -> DataFrame:
+    # Quartos por hotel: o maior total diário de quartos visto
     rooms = (ocupacion.groupBy("hotel_code", "fecha").agg(F.sum("habitaciones").alias("h"))
              .groupBy("hotel_code").agg(F.max("h").alias("habitaciones")))
+    # Renomeia as colunas do hotel com os nomes do modelo
     return (hotels.select(F.col("code").alias("hotel_code"), F.col("name").alias("nombre"),
                           F.col("category").alias("categoria"), F.col("city").alias("ciudad"),
                           F.col("country").alias("pais"), F.col("currency").alias("moneda"),
                           F.col("timezone").alias("zona_horaria"))
+            # Adiciona o número de quartos
             .join(rooms, "hotel_code", "left"))
 ```
 
@@ -124,33 +147,48 @@ def dim_hotel(hotels: DataFrame, ocupacion: DataFrame) -> DataFrame:
 `fact_reservas` são as reservas do silver sem os duplicados da F4, mais a faixa de antecedência usada pelo P1:
 
 ```python
+# Fato de reservas: uma linha por reserva
 def fact_reservas(reservas: DataFrame) -> DataFrame:
+    # Deixa de fora os duplicados detectados em silver
     return (reservas.filter("NOT es_duplicado")
+            # Mantém só as colunas do modelo
             .select("code", "source", "hotel_code", "channel_code", "channel_type", "room_type", "status",
                     "fecha_reserva", "check_in", "check_out", "noches", "habitaciones", "huespedes",
                     "lead_time_dias", "reembolsable", "es_cancelada", "currency", "fx_estimada",
                     "total_cop", "comision_pct", "comision_cop", "neto_cop", "penalidad_cop")
+            # Adiciona a faixa de antecedência (0-7 dias, 8-30...)
             .withColumn("rango_anticipacion", lead_bucket(F.col("lead_time_dias"))))
 ```
 
 A receita por noite precisa de uma linha por reserva e noite de estadia. `_nights` "explode" cada reserva em suas noites, e `fact_ocupacion` adiciona essa receita e os indicadores de feriado/evento à ocupação do silver:
 
 ```python
+# Divide cada reserva em uma linha por noite
 def _nights(fact_res: DataFrame) -> DataFrame:
+    # Cada data do check-in até o dia antes do check-out
     night = F.explode(F.sequence("check_in", F.date_sub("check_out", 1)))
+    # Só reservas com pelo menos uma noite
     return fact_res.filter("noches > 0").select(
         "hotel_code", "room_type", "habitaciones", "fecha_reserva", "es_cancelada",
+        # Dia do cancelamento (se houver)
         F.to_date(F.col("_cancelada_en")).alias("fecha_cancelacion"),
+        # Receita de uma noite, e a data da noite
         (F.col("total_cop") / F.col("noches")).alias("ingreso_noche_cop"), night.alias("fecha"))
 
 
+# Fato de ocupação diária: quartos, vendidos, receita e calendário por dia
 def fact_ocupacion(ocupacion: DataFrame, n: DataFrame, calendario: DataFrame) -> DataFrame:
+    # Receita por hotel, tipo de quarto e dia, sem reservas canceladas
     ingreso = (n.filter("NOT es_cancelada").groupBy("hotel_code", "room_type", "fecha")
                .agg(F.round(F.sum(F.col("ingreso_noche_cop") * 1.0), 2).alias("ingreso_cop")))
+    # Feriados e eventos de cada hotel e dia
     cal = calendario.select("hotel_code", "fecha", "es_festivo", "nombre_festivo", "hay_evento", "evento",
                             "categoria_evento")
+    # Ocupação + receita
     return (ocupacion.join(ingreso, ["hotel_code", "room_type", "fecha"], "left")
+            # + calendário
             .join(cal, ["hotel_code", "fecha"], "left")
+            # Dias sem receita ou eventos ficam com 0 / false em vez de vazios
             .fillna({"ingreso_cop": 0.0, "es_festivo": False, "hay_evento": False}))
 ```
 
@@ -159,29 +197,43 @@ def fact_ocupacion(ocupacion: DataFrame, n: DataFrame, calendario: DataFrame) ->
 Um mart é um fato já agrupado no nível que uma página do painel precisa. Por exemplo o P3 (ocupação, ADR, RevPAR por hotel e noite):
 
 ```python
+# Mart P3: indicadores de receita por hotel e dia
 def mart_p3_revenue(fo: DataFrame, otb: DataFrame) -> DataFrame:
     …
+    # Soma os tipos de quarto de cada hotel e dia
     return (fo.groupBy("hotel_code", "fecha")
             .agg(F.sum("habitaciones").alias("habitaciones"), F.sum("vendidas").alias("vendidas"),
                  F.round(F.sum("ingreso_cop"), 2).alias("ingreso_cop"), …)
+            # Adiciona os dados de pickup (p)
             .join(p, ["hotel_code", "fecha"], "left")
+            # % de ocupação = vendidos / quartos
             .withColumn("ocupacion_pct", F.round(F.when(F.col("habitaciones") > 0,
                                                         F.col("vendidas") * 100.0 / F.col("habitaciones")), 2))
+            # ADR = receita / quartos vendidos
             .withColumn("adr_cop", F.round(F.when(F.col("vendidas") > 0, F.col("ingreso_cop") / F.col("vendidas")), 2))
+            # RevPAR = receita / quartos disponíveis
             .withColumn("revpar_cop", F.round(F.when(F.col("habitaciones") > 0,
                                                      F.col("ingreso_cop") / F.col("habitaciones")), 2))
+            # % de pickup comparado com os dias anteriores
             .withColumn("pickup_pct", _pickup_pct()))
 ```
 
 `build()` junta tudo. Os fatos usados por vários marts ficam em cache para o Spark calculá-los uma vez só:
 
 ```python
+# Constrói todas as tabelas gold e devolve {nome: DataFrame}
 def build(silver, dims, today, spark) -> dict[str, DataFrame]:
+    # Nomes curtos para as tabelas silver mais usadas
     res, ocup, cal = silver["reservas"], silver["ocupacion_diaria"], silver["calendario_hotel"]
+    # Fato de reservas (cache: reutilizado por vários marts)
     fr = fact_reservas(res).cache()
+    # Uma linha por noite
     n = nights(res).cache()
+    # Quartos já vendidos para datas futuras (on the books)
     otb = on_the_books(n).cache()
+    # Fato de ocupação diária
     fo = fact_ocupacion(ocup, n, cal).cache()
+    # Nome de cada tabela gold -> seu DataFrame
     t = {
         "dim_fecha": dim_fecha(…), "dim_hotel": dim_hotel(dims["hotels"], ocup),
         "dim_canal": dim_canal(dims["channels"]), "dim_tipo_habitacion": dim_tipo_habitacion(dims["room_types"]),
@@ -192,6 +244,7 @@ def build(silver, dims, today, spark) -> dict[str, DataFrame]:
         "neon_cancellation_rate_by_lead": neon_cancellation_rates(fr, today),
     }
     …
+    # Devolve todas as tabelas
     return t
 ```
 
@@ -200,20 +253,29 @@ def build(silver, dims, today, spark) -> dict[str, DataFrame]:
 `check()` roda antes de gravar qualquer coisa. Por exemplo, recusa reservas cujo hotel ou canal não está nas dimensões:
 
 ```python
+# O fato de reservas
 fr = t["fact_reservas"]
+# Linhas cujo hotel ou canal não existe na sua dimensão (left_anti = sem correspondência)
 orphan = fr.join(t["dim_hotel"], "hotel_code", "left_anti").count() + \
     fr.join(t["dim_canal"], "channel_code", "left_anti").count()
+# Se houver alguma...
 if orphan:
+    # ...para: nada é gravado e a tarefa do Airflow falha
     raise quality.QualityError(f"gold.fact_reservas: {orphan} rows without their hotel or channel")
 ```
 
 Só quando todas as verificações passam cada tabela é sobrescrita no S3 como Parquet. A tabela pequena para o Neon é gravada como um único arquivo JSON:
 
 ```python
+# Percorre todas as tabelas gold
 for name, df in tables.items():
+    # A tabela que volta para o Neon...
     if name == "neon_cancellation_rate_by_lead":
+        # ...é gravada como um único arquivo JSON
         df.coalesce(1).write.mode("overwrite").json(path("gold", name))
+    # O resto...
     else:
+        # ...como Parquet, substituindo a versão anterior
         df.write.mode("overwrite").parquet(path("gold", name))
 ```
 

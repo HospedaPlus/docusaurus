@@ -41,31 +41,45 @@ Chaque DAG bronze est une petite tâche Python sur la file `bronze`. Ils partage
 `dags/hospedaplus/neon.py` ouvre une connexion avec le rôle en lecture seule `etl_reader` (`NEON_READ_URL`), exécute une requête et renvoie les lignes en JSON Lines, exactement comme Neon les a données :
 
 ```python
+# Exécute une requête et renvoie (octets JSON Lines, nombre de lignes)
 def dump(sql: str, params: tuple = ()) -> tuple[bytes, int]:
+    # Ouvre la connexion et un curseur ; tous deux sont fermés à la fin du bloc
     with psycopg2.connect(neon_url()) as conn, conn.cursor() as cur:
+        # Exécute la requête avec ses paramètres (jamais collés au texte : pas d'injection SQL)
         cur.execute(sql, params)
+        # Noms des colonnes du résultat
         cols = [c.name for c in cur.description]
+        # Toutes les lignes
         rows = cur.fetchall()
+    # Transforme chaque ligne en une ligne JSON {colonne: valeur}
     lines = [json.dumps(dict(zip(cols, r)), default=str, ensure_ascii=False) for r in rows]
+    # Joint les lignes, les encode en octets et les renvoie avec le nombre de lignes
     return ("\n".join(lines) + ("\n" if lines else "")).encode(), len(rows)
 ```
 
 `dags/hospedaplus/lake.py` écrit un objet dans le bucket du lakehouse. Le worker n'a pas de clés d'accès : boto3 prend les identifiants temporaires du rôle IAM de l'EC2 (voir [Services AWS](../aws-services.mdx)).
 
 ```python
+# Crée le client S3
 def s3_client():
+    # Pas de clés : boto3 trouve le rôle IAM ; endpoint seulement pour les tests MinIO
     return boto3.client("s3", endpoint_url=os.getenv("S3_ENDPOINT_URL") or None)
 
 
+# Écrit un fichier dans S3 et renvoie son adresse
 def put(key: str, body: bytes, content_type: str = "application/json") -> str:
+    # Envoie les octets vers bucket/key (écrase s'il existe)
     s3_client().put_object(Bucket=BUCKET, Key=key, Body=body, ContentType=content_type)
+    # Renvoie l'adresse s3:// complète
     return f"s3://{BUCKET}/{key}"
 ```
 
 Le même fichier déclare un **Asset** par jeu de données. Une tâche qui met un asset dans `outlets` le marque comme mis à jour quand elle réussit, et c'est ce qui lance silver.
 
 ```python
+# Asset = s3://<bucket>/bronze/f3_reservations ; les DAGs silver l'attendent
 BRONZE_F3_RESERVATIONS = asset("bronze", "f3_reservations")
+# Asset des taux de change quotidiens
 BRONZE_F7_FX = asset("bronze", "f7_fx")
 ```
 
@@ -74,25 +88,34 @@ BRONZE_F7_FX = asset("bronze", "f7_fx")
 Chaque exécution ne copie que les lignes modifiées dans son intervalle de données Airflow `[début, fin)`. F3 est lu par `updated_at`, qu'un trigger Neon met à jour à chaque changement : un événement OTA en retard ou un changement de statut (no-show, relogé) n'est jamais perdu. La clé porte le nom de l'intervalle, donc relancer l'heure écrase le même fichier.
 
 ```python
+# F2 : événements reçus par le consommateur Kafka dans [début, fin)
 F2_SQL = """
 SELECT * FROM streaming.reservation_event_ledger
  WHERE received_at >= %s AND received_at < %s
 """
+# F3 : réservations créées ou modifiées dans [début, fin)
 F3_SQL = """
 SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s
 """
 
+# Nom de fichier fixe pour une heure : bronze/<source>/fecha=YYYY-MM-DD/hora=HH.jsonl
 def _key(prefix: str, start) -> str:
+    # Même heure -> même nom, donc une relance écrase au lieu de dupliquer
     return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
 
 
+# Toutes les heures depuis le 1er nov 2026 (UTC), pas d'anciennes exécutions au démarrage, tags pour l'UI, 3 nouvelles tentatives
 @dag(schedule="@hourly", start_date=pendulum.datetime(2026, 11, 1, tz="UTC"), catchup=False,
      tags=["bronze", "F2", "F3"], default_args={"retries": 3, "retry_exponential_backoff": True})
 def bronze_neon_f2_f3():
+    # Tourne sur un worker bronze et marque l'Asset F2 comme mis à jour
     @task(queue="bronze", outlets=[BRONZE_F2_LEDGER])
     def f2_ledger(data_interval_start=None, data_interval_end=None) -> int:
+        # Lit dans Neon les événements de cette heure
         body, n = _dump(F2_SQL, data_interval_start, data_interval_end)
+        # Les écrit dans S3 en JSON Lines
         put(_key("f2_ledger", data_interval_start), body, "application/x-ndjson")
+        # Renvoie le nombre de lignes (visible dans l'UI d'Airflow)
         return n
     …
 ```
@@ -104,17 +127,27 @@ La copie complète nocturne des mêmes tables (`bronze_neon_full_load.py`, une t
 On demande à l'API tout ce qui a été mis à jour depuis le début de l'heure et on parcourt toutes les pages. L'API ne filtre que « depuis », donc la tâche écarte ce qui dépasse la fin de l'intervalle : deux heures consécutives ne se chevauchent jamais.
 
 ```python
+# Liste vide, commence à la page 1
 items, page = [], 1
+# Répète jusqu'à la dernière page
 while True:
+    # Demande les avis modifiés depuis le début de cette heure
     r = requests.get(f"{base}/api/v1/reviews", headers=headers, timeout=60, params={
         "updated_from": data_interval_start.isoformat(), "page": page, "page_size": PAGE_SIZE})
+    # S'arrête avec une erreur si l'API a répondu 4xx ou 5xx (Airflow réessaie)
     r.raise_for_status()
+    # Lit la réponse JSON
     body = r.json()
+    # Ajoute les avis de cette page
     items += body["items"]
+    # S'arrête à la dernière page
     if page >= body.get("total_pages", 1):
         break
+    # Sinon page suivante
     page += 1
+# L'API ne filtre que "depuis" : on garde [début, fin) pour que deux heures ne se chevauchent jamais
 items = [i for i in items if i.get("updated_at") and pendulum.parse(i["updated_at"]) < data_interval_end]
+# Un fichier JSON Lines par heure
 put(f"bronze/f5_reviews/fecha={data_interval_start:%Y-%m-%d}/hora={data_interval_start:%H}.jsonl", …)
 ```
 
@@ -123,12 +156,17 @@ put(f"bronze/f5_reviews/fecha={data_interval_start:%Y-%m-%d}/hora={data_interval
 Un appel à Frankfurter v2 pour le jour de l'intervalle. La réponse est gardée octet par octet.
 
 ```python
+# Tourne sur un worker bronze et marque l'Asset F7 comme mis à jour
 @task(queue="bronze", outlets=[BRONZE_F7_FX])
 def extract(data_interval_start=None) -> str:
+    # Le jour de cette exécution, au format YYYY-MM-DD
     day = data_interval_start.date().isoformat()
+    # Demande à Frankfurter les taux de ce jour avec l'USD comme base
     r = requests.get("https://api.frankfurter.dev/v2/rates",
                      params={"date": day, "base": "USD", "quotes": "COP,EUR,MXN,BRL"}, timeout=30)
+    # Échoue si l'API a répondu par une erreur
     r.raise_for_status()
+    # Enregistre la réponse brute, un fichier par jour
     return put(f"bronze/f7_fx/fecha={day}.json", r.content)
 ```
 
@@ -137,12 +175,18 @@ def extract(data_interval_start=None) -> str:
 Un fichier par pays et par année, pour cette année et la suivante, car les réservations se font des mois à l'avance.
 
 ```python
+# Pays des hôtels
 COUNTRIES = ["PT", "CO", "MX", "BR", "ES"]
 
+# Cette année et la suivante
 for y in (year, year + 1):
+    # Chaque pays
     for country in COUNTRIES:
+        # Demande à Nager les jours fériés de ce pays pour cette année
         r = requests.get(f"{NAGER_BASE_URL}/api/v4/Holidays/{country}/{y}", timeout=30)
+        # Échoue si l'API a répondu par une erreur
         r.raise_for_status()
+        # Enregistre la réponse brute : un fichier par année et par pays
         written.append(put(f"bronze/f6_holidays/anio={y}/pais={country}.json", r.content))
 ```
 
@@ -151,12 +195,19 @@ for y in (year, year + 1):
 Airflow ne télécharge pas ces fichiers : le générateur F4 les envoie lui-même dans S3. Le DAG vérifie seulement que la semaine est complète et échoue (en réessayant toutes les 20 minutes, jusqu'à 6 fois) tant qu'elle ne l'est pas, donc silver ne démarre jamais sur une demi-semaine.
 
 ```python
+# Semaine ISO de cette exécution, p. ex. 2026-W46
 week = data_interval_end.strftime("%G-W%V")
+# Dossier où f4-weekly envoie les fichiers de cette semaine
 prefix = f"bronze/f4_agencias/semana={week}/"
+# Liste les fichiers de ce dossier
 resp = s3_client().list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+# Garde seulement les noms de fichiers
 names = [o["Key"].rsplit("/", 1)[-1] for o in resp.get("Contents", [])]
+# Les fichiers d'agences commencent par AG (AG01, AG02...)
 agency_files = [n for n in names if n.startswith("AG")]
+# Pas encore tous les fichiers, ou pas de résumé : la semaine n'est pas complète
 if len(agency_files) < EXPECTED_AGENCIES or "_generation_summary.json" not in names:
+    # Échoue pour que le capteur réessaie plus tard
     raise RuntimeError(f"{prefix}: {len(agency_files)}/{EXPECTED_AGENCIES} agency files yet; …")
 ```
 

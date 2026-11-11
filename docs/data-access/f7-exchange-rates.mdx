@@ -28,6 +28,7 @@ Daily exchange rates taken from a public API. They are real data. The report cur
 The Airflow DAG `bronze_f7_fx` calls the API once a day and saves the answer, unchanged, in S3:
 
 ```bash
+# Rates of 2026-11-09 with USD as base, only for COP, EUR, MXN and BRL
 curl "https://api.frankfurter.dev/v2/rates?date=2026-11-09&base=USD&quotes=COP,EUR,MXN,BRL"
 ```
 

@@ -28,6 +28,7 @@ Tägliche Wechselkurse aus einer öffentlichen API. Es sind echte Daten. Die Ber
 Der Airflow-DAG `bronze_f7_fx` ruft die API einmal am Tag auf und speichert die Antwort unverändert in S3:
 
 ```bash
+# Kurse vom 2026-11-09 mit USD als Basis, nur für COP, EUR, MXN und BRL
 curl "https://api.frankfurter.dev/v2/rates?date=2026-11-09&base=USD&quotes=COP,EUR,MXN,BRL"
 ```
 

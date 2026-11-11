@@ -28,7 +28,8 @@ Feiertage des Landes jedes Hotels (F6a, echte Daten aus einer öffentlichen API)
 **F6a · Feiertage → S3.** Am 1. jedes Monats (02:00 UTC) ruft der Airflow-DAG `bronze_f6_holidays` die API für Portugal, Kolumbien, Mexiko, Brasilien und Spanien auf, für das aktuelle und das nächste Jahr (Buchungen erfolgen Monate im Voraus), und speichert jede Antwort unverändert:
 
 ```bash
-curl https://nagerholidays.com/api/v4/Holidays/PT/2026   # $NAGER_BASE_URL
+# Feiertage Portugals 2026 ($NAGER_BASE_URL ist die Basisadresse)
+curl https://nagerholidays.com/api/v4/Holidays/PT/2026
 # -> s3://…/bronze/f6_holidays/anio=2026/pais=PT.json
 ```
 

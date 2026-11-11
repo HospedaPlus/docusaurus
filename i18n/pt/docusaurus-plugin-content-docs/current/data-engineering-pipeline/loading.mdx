@@ -26,22 +26,30 @@ O pipeline usa **as duas**: carga incremental onde os dados mudam o tempo todo e
 O Airflow dá a cada execução horária seu próprio intervalo de dados `[data_interval_start, data_interval_end)`. A consulta pega exatamente essas linhas e o arquivo leva o nome do intervalo. **O que faz:** copia só o que mudou naquela hora. **Por quê:** consultas pequenas e rápidas no Neon; nenhuma linha é copiada duas vezes; uma hora que falhou é repetida sozinha (Clear) e sobrescreve o mesmo arquivo. O `updated_at` é preenchido por um trigger a cada mudança, então um cancelamento dias depois é capturado na sua própria hora.
 
 ```python title="dags/bronze_neon_f2_f3.py"
+# F2: eventos recebidos pelo consumidor Kafka dentro de [início, fim)
 F2_SQL = """
 SELECT * FROM streaming.reservation_event_ledger
  WHERE received_at >= %s AND received_at < %s
 """
+# F3: reservas criadas ou alteradas dentro de [início, fim)
 F3_SQL = """
 SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s
 """
 
-def _key(prefix, start):          # one file per hour: re-running the hour overwrites it
+# um arquivo por hora: rodar a hora de novo o sobrescreve
+def _key(prefix, start):
+    # bronze/<fonte>/fecha=YYYY-MM-DD/hora=HH.jsonl
     return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
 
+# A cada hora, sem execuções antigas ao iniciar, até 3 novas tentativas com esperas crescentes
 @dag(schedule="@hourly", catchup=False, default_args={"retries": 3, "retry_exponential_backoff": True})
 def bronze_neon_f2_f3():
+    # Roda num worker bronze e marca o Asset como atualizado
     @task(queue="bronze", outlets=[BRONZE_F3_RESERVATIONS])
     def f3_reservations(data_interval_start=None, data_interval_end=None):
+        # Lê do Neon as linhas desta hora
         body, n = dump(F3_SQL, (data_interval_start, data_interval_end))
+        # Grava no S3 como JSON Lines
         put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
 ```
 
@@ -50,16 +58,23 @@ def bronze_neon_f2_f3():
 **O que faz:** pede à API só as avaliações criadas ou editadas desde o início da hora, página por página. **Por quê:** baixar todo o histórico de avaliações a cada hora cresceria sem fim; o filtro `updated_from` mantém cada chamada pequena, e as avaliações editadas voltam para que o silver fique com a versão mais recente.
 
 ```python title="dags/bronze_f5_reviews.py"
+# Lista vazia, começa na página 1
 items, page = [], 1
+# Repete até a última página
 while True:
+    # Pede as avaliações alteradas desde o início desta hora
     r = requests.get(f"{base}/api/v1/reviews", params={
         "updated_from": data_interval_start.isoformat(), "page": page, "page_size": 100})
+    # Lê a resposta JSON
     body = r.json()
+    # Adiciona as avaliações desta página
     items += body["items"]
+    # Para na última página
     if page >= body.get("total_pages", 1):
         break
+    # Senão, próxima página
     page += 1
-# the API only filters "from": keep [start, end) so two hours never overlap
+# a API só filtra "a partir de": mantém [início, fim) para duas horas nunca se sobreporem
 items = [i for i in items if pendulum.parse(i["updated_at"]) < data_interval_end]
 ```
 
@@ -68,25 +83,42 @@ items = [i for i in items if pendulum.parse(i["updated_at"]) < data_interval_end
 **O que faz:** copia tabelas inteiras em uma única transação somente leitura `REPEATABLE READ`, em páginas de 50.000 linhas por `id`, e grava `_SUCCESS` só no final. **Por quê:** a cópia horária não traz o histórico criado antes do pipeline, e o inventário precisa bater com as reservas no mesmo instante. A paginação por chave (`id > último`) mantém a memória estável e o `_SUCCESS` avisa o silver que a foto está completa.
 
 ```python title="dags/bronze_neon_full_load.py"
+# Abre uma conexão com o Neon
 with psycopg2.connect(neon_url()) as conn:
-    conn.set_session(isolation_level="REPEATABLE READ", readonly=True)   # one instant for all tables
+    # um mesmo instante para todas as tabelas (snapshot), e só leitura
+    conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
+    # Um cursor para todas as tabelas
     with conn.cursor() as cur:
+        # Copia cada tabela para sua pasta de bronze
         for table, prefix in TABLES.items():
+            # Guarda o número de linhas e o número de partes
             counts[table], parts[prefix] = _copy(cur, table, prefix, day)
 
-def _copy(cur, table, prefix, day):            # keyset pagination, 50,000 rows per part
+# paginação por chave, 50.000 linhas por parte
+def _copy(cur, table, prefix, day):
+    # Último id lido e número da parte
     last, part = 0, 0
+    # Repete até terminar a tabela
     while True:
+        # As próximas 50.000 linhas depois do último id (rápido graças ao índice de id)
         cur.execute(f"SELECT * FROM operation.{table} WHERE id > %s ORDER BY id LIMIT %s", (last, PAGE))
+        # Transforma em JSON Lines
         body, n = _jsonl(cur)
+        # Sem linhas: terminamos
         if n == 0:
             break
+        # Grava a parte: part-00000.jsonl, part-00001.jsonl...
         put(f"bronze/{prefix}/fecha={day}/part-{part:05d}.jsonl", body)
+        # Lê o id da última linha gravada
         last = json.loads(body.rstrip(b"\n").rsplit(b"\n", 1)[-1])["id"]
+        # Próximo número de parte
         part += 1
     ...
-for prefix, n in parts.items():                # only when everything was copied
-    _clean(prefix, day, n)                     # delete parts left by an older run of the same day
+# só quando tudo foi copiado
+for prefix, n in parts.items():
+    # apaga partes deixadas por uma execução anterior do mesmo dia
+    _clean(prefix, day, n)
+    # _SUCCESS marca o dia como completo (com o número de linhas dentro)
     put(f"bronze/{prefix}/fecha={day}/_SUCCESS", json.dumps(counts).encode())
 ```
 
@@ -95,13 +127,18 @@ for prefix, n in parts.items():                # only when everything was copied
 **O que faz:** lê a foto completa mais recente mais os arquivos horários a partir do dia anterior a ela, mantém a versão mais nova de cada reserva e **sobrescreve** a tabela silver. **Por quê:** a foto garante que tudo esteja lá, os incrementos adicionam o que mudou desde então, e sobrescrever por inteiro torna o silver idempotente: repetir dá a mesma tabela, sem lógica de merge que possa se desviar.
 
 ```python title="spark_jobs/silver_reservas.py"
-# silver_reservas: newest snapshot + hourly increments, deduplicated, then full overwrite
+# silver_reservas: snapshot mais recente + incrementos horários, sem duplicados, depois sobrescrita completa
+# Escolhe quais dias ler: o snapshot completo mais recente e as horas depois dele
 full_d, hour_d = plan_days(partitions("bronze", "f3_reservations_full", complete=True),
                            partitions("bronze", "f3_reservations"))
+# Lê os dois e empilha (_src 0 = snapshot, 1 = horário)
 raw = _union(_with_src(_read_days(s, "f3_reservations_full", full_d, RES_COLS), 0),
              _with_src(_read_days(s, "f3_reservations", hour_d, RES_COLS), 1))
+# Limpa, remove duplicados, converte para COP e adiciona os campos derivados
 reservas = transform(raw, hotels, channels, room_types, fx)
+# Verificações de qualidade: se uma falhar, nada é gravado
 check(reservas, cancel)
+# Substitui a tabela silver inteira
 reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
 ```
 
@@ -110,13 +147,16 @@ reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "r
 **O que faz:** insere ou atualiza uma linha por hotel e faixa de antecedência em uma única transação. **Por quê:** o Neon é o banco operacional ao vivo; um upsert muda só essas linhas e nunca deixa a tabela pela metade.
 
 ```python title="dags/gold_neon_writeback.py"
+# Insere uma linha, ou atualiza se (hotel, faixa de antecedência) já existe
 UPSERT = """
 INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
 VALUES (%s, %s, %s, NOW())
 ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
    SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
 """
-with psycopg2.connect(url) as conn, conn.cursor() as cur:   # one transaction: all rows or none
+# Uma transação: todas as linhas ou nenhuma
+with psycopg2.connect(url) as conn, conn.cursor() as cur:
+    # Roda o UPSERT uma vez por linha
     cur.executemany(UPSERT, rows)
 ```
 

@@ -33,32 +33,45 @@ Une tâche est **idempotente** quand l'exécuter une ou dix fois laisse exacteme
 **Clé par intervalle (bronze) :** l'heure dans la clé est le début de l'intervalle Airflow, pas « maintenant » : relancer l'exécution de 14:00 écrit toujours `hora=14`.
 
 ```python
+# Nom de fichier fixe pour une heure : bronze/<source>/fecha=YYYY-MM-DD/hora=HH.jsonl
 def _key(prefix: str, start) -> str:
+    # Même heure -> même nom, donc une relance écrase au lieu de dupliquer
     return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
 
+# Seulement les lignes modifiées dans [début, fin) de cette exécution
 body, n = dump("SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s",
                (data_interval_start, data_interval_end))
+# Écrit (ou écrase) le fichier de cette heure
 put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
 ```
 
 **Dédoublonner puis écraser (silver) :** l'instantané et les fichiers horaires se chevauchent volontairement ; une fenêtre garde une ligne par code de réservation, et la table est remplacée, pas complétée.
 
 ```python
-# spark_jobs/silver_reservas.py (shortened)
+# spark_jobs/silver_reservas.py (raccourci)
+# Regroupe par code de réservation, version la plus récente d'abord (le fichier horaire gagne en cas d'égalité)
 w = Window.partitionBy("code").orderBy(F.col("_version").desc(), F.col("_src").desc())
+# Numérote les lignes de chaque groupe 1, 2, 3...
 latest = (raw.withColumn("_rn", F.row_number().over(w))
+          # ...garde seulement le numéro 1 et retire les colonnes auxiliaires
           .filter("_rn = 1").drop("_rn", "_version", "_src"))
 …
-check(reservas, cancel)                          # fails the task before anything is written
+# fait échouer la tâche avant toute écriture
+check(reservas, cancel)
+# Remplace toute la table silver (un dossier par source)
 reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
 ```
 
 **Upsert (Neon) :**
 
 ```sql
+-- Insère un taux par hôtel et tranche d'anticipation
 INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+-- Les valeurs viennent de Python (%s), plus l'heure actuelle
 VALUES (%s, %s, %s, NOW())
+-- Si cet hôtel + tranche existe déjà, le met à jour au lieu d'échouer
 ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   -- EXCLUDED est la ligne qu'on a essayé d'insérer
    SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
 ```
 

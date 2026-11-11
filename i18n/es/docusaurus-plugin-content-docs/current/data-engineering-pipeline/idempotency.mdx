@@ -33,32 +33,45 @@ Una tarea es **idempotente** cuando correrla una o diez veces deja exactamente e
 **Llave por intervalo (bronze):** la hora de la llave es el inicio del intervalo de Airflow, no "ahora", así que repetir la corrida de las 14:00 siempre escribe `hora=14`.
 
 ```python
+# Nombre de archivo fijo para una hora: bronze/<fuente>/fecha=YYYY-MM-DD/hora=HH.jsonl
 def _key(prefix: str, start) -> str:
+    # Misma hora -> mismo nombre, así una re-ejecución sobrescribe en vez de duplicar
     return f"bronze/{prefix}/fecha={start:%Y-%m-%d}/hora={start:%H}.jsonl"
 
+# Solo las filas cambiadas dentro de [inicio, fin) de esta ejecución
 body, n = dump("SELECT * FROM operation.reservations WHERE updated_at >= %s AND updated_at < %s",
                (data_interval_start, data_interval_end))
+# Escribe (o sobrescribe) el archivo de esa hora
 put(_key("f3_reservations", data_interval_start), body, "application/x-ndjson")
 ```
 
 **Deduplicar y luego sobrescribir (silver):** la foto y los archivos horarios se solapan a propósito; una ventana deja una fila por código de reserva y la tabla se reemplaza, no se agrega.
 
 ```python
-# spark_jobs/silver_reservas.py (shortened)
+# spark_jobs/silver_reservas.py (resumido)
+# Agrupa por código de reserva, la versión más nueva primero (el archivo horario gana un empate)
 w = Window.partitionBy("code").orderBy(F.col("_version").desc(), F.col("_src").desc())
+# Numera las filas de cada grupo 1, 2, 3...
 latest = (raw.withColumn("_rn", F.row_number().over(w))
+          # ...conserva solo la número 1 y quita las columnas auxiliares
           .filter("_rn = 1").drop("_rn", "_version", "_src"))
 …
-check(reservas, cancel)                          # fails the task before anything is written
+# hace fallar la tarea antes de escribir nada
+check(reservas, cancel)
+# Reemplaza toda la tabla silver (una carpeta por fuente)
 reservas.write.mode("overwrite").partitionBy("source").parquet(path("silver", "reservas"))
 ```
 
 **Upsert (Neon):**
 
 ```sql
+-- Inserta una tasa por hotel y rango de anticipación
 INSERT INTO operation.cancellation_rate_by_lead (hotel_code, lead_bucket, cancel_rate, updated_at)
+-- Los valores vienen de Python (%s), más la hora actual
 VALUES (%s, %s, %s, NOW())
+-- Si ese hotel + rango ya existe, lo actualiza en vez de fallar
 ON CONFLICT (hotel_code, lead_bucket) DO UPDATE
+   -- EXCLUDED es la fila que intentamos insertar
    SET cancel_rate = EXCLUDED.cancel_rate, updated_at = EXCLUDED.updated_at
 ```
 

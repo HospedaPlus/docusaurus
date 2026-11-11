@@ -74,15 +74,24 @@ Alles steht in `spark_jobs/gold_modelo.py`. Der Job hat drei Schritte: Silver un
 ### 1. Lesen: Silver und die neuesten Kataloge
 
 ```python
+# Baut und schreibt das ganze Gold-Modell
 def run() -> dict[str, int]:
+    # Startet die Spark-Session
     s = spark("gold_modelo")
+    # Liest die Silver-Tabellen, die immer existieren
     silver = {name: s.read.parquet(path("silver", name))
               for name in ("reservas", "cancelaciones", "ocupacion_diaria", "calendario_hotel", "tasa_cambio_diaria")}
+    # Bewertungen gibt es vielleicht noch nicht: None, wenn sie fehlen
     silver["resenas"] = _optional(lambda: s.read.parquet(path("silver", "resenas")))
+    # Die F1-Historie, ebenfalls optional
     silver["historico_f1"] = _optional(lambda: s.read.parquet(path("silver", "historico_f1")))
+    # Neueste Version jeder Dimension (Hotels, Kanäle, Zimmertypen)
     dims = {name: sr._latest_dim(s, name) for name in ("hotels", "channels", "room_types")}
+    # Tarife, optional
     dims["rates"] = _optional(lambda: sr._latest_dim(s, "rates"))
+    # Baut jede Dimension, jeden Fakt und jeden Mart für heute
     tables = build(silver, dims, dt.datetime.now(dt.timezone.utc).date(), s)
+    # Qualitätsprüfungen vor dem Schreiben
     check(tables)
     …
 ```
@@ -94,28 +103,42 @@ def run() -> dict[str, int]:
 `dim_fecha` wird erzeugt, nicht gelesen: eine Zeile pro Tag, von vor einem Jahr bis zum letzten Check-out.
 
 ```python
+# Datumsdimension: eine Zeile pro Tag zwischen erstem und letztem
 def dim_fecha(first: dt.date, last: dt.date, spark: SparkSession) -> DataFrame:
+    # Erzeugt alle Daten des Zeitraums
     d = spark.range(1).select(F.explode(F.sequence(F.lit(first), F.lit(last))).alias("fecha"))
-    dow = F.dayofweek("fecha")  # 1 = Sunday
+    # Wochentag: 1 = Sonntag
+    dow = F.dayofweek("fecha")
+    # Numerischer Schlüssel 20261110
     return (d.withColumn("fecha_key", F.date_format("fecha", "yyyyMMdd").cast("int"))
+            # Jahr und Quartal
             .withColumn("anio", F.year("fecha")).withColumn("trimestre", F.quarter("fecha"))
+            # Monatsnummer und -name
             .withColumn("mes", F.month("fecha")).withColumn("nombre_mes", F.date_format("fecha", "MMMM"))
+            # ISO-Wochennummer
             .withColumn("semana_iso", F.weekofyear("fecha"))
+            # Name des Tages
             .withColumn("dia_semana", F.date_format("fecha", "EEEE"))
+            # Samstag oder Sonntag
             .withColumn("es_fin_de_semana", dow.isin(1, 7))
+            # Jahr-Monat, z. B. 2026-11
             .withColumn("anio_mes", F.date_format("fecha", "yyyy-MM")))
 ```
 
 Die anderen Dimensionen benennen die Spalten der Neon-Kataloge um. `dim_hotel` hält Stadt, Land und Kategorie in derselben Tabelle (deshalb ist es ein Stern und keine Schneeflocke) und ergänzt die Zimmerzahl:
 
 ```python
+# Hoteldimension
 def dim_hotel(hotels: DataFrame, ocupacion: DataFrame) -> DataFrame:
+    # Zimmer pro Hotel: die höchste beobachtete tägliche Zimmerzahl
     rooms = (ocupacion.groupBy("hotel_code", "fecha").agg(F.sum("habitaciones").alias("h"))
              .groupBy("hotel_code").agg(F.max("h").alias("habitaciones")))
+    # Benennt die Hotelspalten nach den Namen des Modells um
     return (hotels.select(F.col("code").alias("hotel_code"), F.col("name").alias("nombre"),
                           F.col("category").alias("categoria"), F.col("city").alias("ciudad"),
                           F.col("country").alias("pais"), F.col("currency").alias("moneda"),
                           F.col("timezone").alias("zona_horaria"))
+            # Fügt die Zimmerzahl hinzu
             .join(rooms, "hotel_code", "left"))
 ```
 
@@ -124,33 +147,48 @@ def dim_hotel(hotels: DataFrame, ocupacion: DataFrame) -> DataFrame:
 `fact_reservas` sind die Silver-Buchungen ohne die F4-Duplikate, plus die Vorlaufklasse, die P1 nutzt:
 
 ```python
+# Buchungsfakt: eine Zeile pro Buchung
 def fact_reservas(reservas: DataFrame) -> DataFrame:
+    # Lässt die in Silver erkannten Duplikate weg
     return (reservas.filter("NOT es_duplicado")
+            # Behält nur die Spalten des Modells
             .select("code", "source", "hotel_code", "channel_code", "channel_type", "room_type", "status",
                     "fecha_reserva", "check_in", "check_out", "noches", "habitaciones", "huespedes",
                     "lead_time_dias", "reembolsable", "es_cancelada", "currency", "fx_estimada",
                     "total_cop", "comision_pct", "comision_cop", "neto_cop", "penalidad_cop")
+            # Fügt die Vorlauf-Klasse hinzu (0-7 Tage, 8-30...)
             .withColumn("rango_anticipacion", lead_bucket(F.col("lead_time_dias"))))
 ```
 
 Der Umsatz pro Nacht braucht eine Zeile pro Buchung und Aufenthaltsnacht. `_nights` „explodiert“ jede Buchung in ihre Nächte, und `fact_ocupacion` ergänzt diesen Umsatz und die Feiertags-/Event-Kennzeichen in der Silver-Belegung:
 
 ```python
+# Teilt jede Buchung in eine Zeile pro Nacht
 def _nights(fact_res: DataFrame) -> DataFrame:
+    # Jedes Datum vom Check-in bis zum Tag vor dem Check-out
     night = F.explode(F.sequence("check_in", F.date_sub("check_out", 1)))
+    # Nur Buchungen mit mindestens einer Nacht
     return fact_res.filter("noches > 0").select(
         "hotel_code", "room_type", "habitaciones", "fecha_reserva", "es_cancelada",
+        # Tag der Stornierung (falls vorhanden)
         F.to_date(F.col("_cancelada_en")).alias("fecha_cancelacion"),
+        # Umsatz einer Nacht und das Datum der Nacht
         (F.col("total_cop") / F.col("noches")).alias("ingreso_noche_cop"), night.alias("fecha"))
 
 
+# Fakt tägliche Belegung: Zimmer, verkaufte, Umsatz und Kalender pro Tag
 def fact_ocupacion(ocupacion: DataFrame, n: DataFrame, calendario: DataFrame) -> DataFrame:
+    # Umsatz pro Hotel, Zimmertyp und Tag, ohne stornierte Buchungen
     ingreso = (n.filter("NOT es_cancelada").groupBy("hotel_code", "room_type", "fecha")
                .agg(F.round(F.sum(F.col("ingreso_noche_cop") * 1.0), 2).alias("ingreso_cop")))
+    # Feiertage und Events jedes Hotels und Tages
     cal = calendario.select("hotel_code", "fecha", "es_festivo", "nombre_festivo", "hay_evento", "evento",
                             "categoria_evento")
+    # Belegung + Umsatz
     return (ocupacion.join(ingreso, ["hotel_code", "room_type", "fecha"], "left")
+            # + Kalender
             .join(cal, ["hotel_code", "fecha"], "left")
+            # Tage ohne Umsatz oder Events bekommen 0 / false statt leer
             .fillna({"ingreso_cop": 0.0, "es_festivo": False, "hay_evento": False}))
 ```
 
@@ -159,29 +197,43 @@ def fact_ocupacion(ocupacion: DataFrame, n: DataFrame, calendario: DataFrame) ->
 Ein Mart ist ein Fakt, der schon auf der Ebene gruppiert ist, die eine Dashboard-Seite braucht. Zum Beispiel P3 (Auslastung, ADR, RevPAR pro Hotel und Nacht):
 
 ```python
+# Mart P3: Revenue-Kennzahlen pro Hotel und Tag
 def mart_p3_revenue(fo: DataFrame, otb: DataFrame) -> DataFrame:
     …
+    # Summiert die Zimmertypen jedes Hotels und Tages
     return (fo.groupBy("hotel_code", "fecha")
             .agg(F.sum("habitaciones").alias("habitaciones"), F.sum("vendidas").alias("vendidas"),
                  F.round(F.sum("ingreso_cop"), 2).alias("ingreso_cop"), …)
+            # Fügt die Pickup-Daten (p) hinzu
             .join(p, ["hotel_code", "fecha"], "left")
+            # Belegung % = verkauft / Zimmer
             .withColumn("ocupacion_pct", F.round(F.when(F.col("habitaciones") > 0,
                                                         F.col("vendidas") * 100.0 / F.col("habitaciones")), 2))
+            # ADR = Umsatz / verkaufte Zimmer
             .withColumn("adr_cop", F.round(F.when(F.col("vendidas") > 0, F.col("ingreso_cop") / F.col("vendidas")), 2))
+            # RevPAR = Umsatz / verfügbare Zimmer
             .withColumn("revpar_cop", F.round(F.when(F.col("habitaciones") > 0,
                                                      F.col("ingreso_cop") / F.col("habitaciones")), 2))
+            # Pickup % im Vergleich zu den Vortagen
             .withColumn("pickup_pct", _pickup_pct()))
 ```
 
 `build()` setzt alles zusammen. Fakten, die mehrere Marts nutzen, werden gecacht, damit Spark sie nur einmal berechnet:
 
 ```python
+# Baut alle Gold-Tabellen und gibt {Name: DataFrame} zurück
 def build(silver, dims, today, spark) -> dict[str, DataFrame]:
+    # Kurznamen für die meistgenutzten Silver-Tabellen
     res, ocup, cal = silver["reservas"], silver["ocupacion_diaria"], silver["calendario_hotel"]
+    # Buchungsfakt (Cache: von mehreren Marts wiederverwendet)
     fr = fact_reservas(res).cache()
+    # Eine Zeile pro Nacht
     n = nights(res).cache()
+    # Für künftige Daten bereits verkaufte Zimmer (on the books)
     otb = on_the_books(n).cache()
+    # Fakt tägliche Belegung
     fo = fact_ocupacion(ocup, n, cal).cache()
+    # Name jeder Gold-Tabelle -> ihr DataFrame
     t = {
         "dim_fecha": dim_fecha(…), "dim_hotel": dim_hotel(dims["hotels"], ocup),
         "dim_canal": dim_canal(dims["channels"]), "dim_tipo_habitacion": dim_tipo_habitacion(dims["room_types"]),
@@ -192,6 +244,7 @@ def build(silver, dims, today, spark) -> dict[str, DataFrame]:
         "neon_cancellation_rate_by_lead": neon_cancellation_rates(fr, today),
     }
     …
+    # Gibt alle Tabellen zurück
     return t
 ```
 
@@ -200,20 +253,29 @@ def build(silver, dims, today, spark) -> dict[str, DataFrame]:
 `check()` läuft, bevor irgendetwas geschrieben wird. Zum Beispiel lehnt es Buchungen ab, deren Hotel oder Kanal nicht in den Dimensionen steht:
 
 ```python
+# Der Buchungsfakt
 fr = t["fact_reservas"]
+# Zeilen, deren Hotel oder Kanal in seiner Dimension fehlt (left_anti = kein Treffer)
 orphan = fr.join(t["dim_hotel"], "hotel_code", "left_anti").count() + \
     fr.join(t["dim_canal"], "channel_code", "left_anti").count()
+# Gibt es welche...
 if orphan:
+    # ...stoppen: nichts wird geschrieben und der Airflow-Task schlägt fehl
     raise quality.QualityError(f"gold.fact_reservas: {orphan} rows without their hotel or channel")
 ```
 
 Erst wenn alle Prüfungen bestanden sind, wird jede Tabelle in S3 als Parquet überschrieben. Die kleine Tabelle für Neon wird als eine einzige JSON-Datei geschrieben:
 
 ```python
+# Geht alle Gold-Tabellen durch
 for name, df in tables.items():
+    # Die Tabelle, die zurück nach Neon geht...
     if name == "neon_cancellation_rate_by_lead":
+        # ...wird als eine einzige JSON-Datei geschrieben
         df.coalesce(1).write.mode("overwrite").json(path("gold", name))
+    # Der Rest...
     else:
+        # ...als Parquet, die vorherige Version wird ersetzt
         df.write.mode("overwrite").parquet(path("gold", name))
 ```
 
