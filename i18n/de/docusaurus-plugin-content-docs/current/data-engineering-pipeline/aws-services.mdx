@@ -54,6 +54,8 @@ In `.env` bleiben die AWS-Schlüssel **leer**. boto3 (Bronze) und der s3a-Connec
 
 **Warum:** Ein Schlüssel in einer Datei kann durchsickern (er landet in Git oder in einem Log); die Anmeldedaten der Rolle rotieren von selbst und funktionieren nur von diesen Maschinen aus.
 
+**So wird sie angelegt:** IAM → *Richtlinien* → *Richtlinie erstellen* → JSON (die obige, mit deinem Bucket-Namen) → Name `hospedaplus-lakehouse-s3`. Dann IAM → *Rollen* → *Rolle erstellen* → *AWS-Service* → *EC2*, die Richtlinie anhängen und `hospedaplus-pipeline-role` nennen. Beim Starten jeder EC2 die Rolle unter *Erweiterte Details → IAM-Instance-Profil* wählen (oder später: *Aktionen → Sicherheit → IAM-Rolle ändern*). Auf der Maschine prüfen mit `aws s3 ls s3://<bucket>/`.
+
 ## 2. EC2: wo alles läuft
 
 | Maschine | Typ | Läuft |
@@ -72,6 +74,8 @@ In `.env` bleiben die AWS-Schlüssel **leer**. boto3 (Bronze) und der s3a-Connec
 | Worker | nur 22 |
 
 Die Worker erreichen Postgres (Metadaten), RabbitMQ (Celery-Broker) und den API-Server über die **private** IP des Kerns, dieser Verkehr verlässt also nie die VPC.
+
+**Warum die Regeln auf eine Gruppe und nicht auf eine IP zeigen:** „alles in der Worker-Gruppe" funktioniert weiter, wenn die Worker-Maschine ersetzt wird und eine andere IP bekommt. Kern und Worker müssen im **selben Subnetz** liegen. Die Quellen-Maschine braucht nur Port 22: sie spricht nur *nach außen* (zu Neon und S3).
 
 ## 4–5. S3: das Lakehouse
 

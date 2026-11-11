@@ -54,6 +54,8 @@ Dans `.env` les clés AWS restent **vides**. boto3 (bronze) et le connecteur s3a
 
 **Pourquoi :** une clé dans un fichier peut fuiter (elle finirait dans git ou dans un log) ; les identifiants du rôle tournent tout seuls et ne fonctionnent que depuis ces machines.
 
+**Comment le créer :** IAM → *Stratégies* → *Créer une stratégie* → JSON (celui ci-dessus, avec le nom de votre bucket) → nommez-la `hospedaplus-lakehouse-s3`. Puis IAM → *Rôles* → *Créer un rôle* → *Service AWS* → *EC2*, attachez cette stratégie et nommez-le `hospedaplus-pipeline-role`. Au lancement de chaque EC2, choisissez le rôle dans *Détails avancés → Profil d'instance IAM* (ou plus tard : *Actions → Sécurité → Modifier le rôle IAM*). Vérifiez depuis la machine avec `aws s3 ls s3://<bucket>/`.
+
 ## 2. EC2 : où tout tourne
 
 | Machine | Type | Exécute |
@@ -72,6 +74,8 @@ Dans `.env` les clés AWS restent **vides**. boto3 (bronze) et le connecteur s3a
 | workers | 22 seulement |
 
 Les workers joignent Postgres (métadonnées), RabbitMQ (broker Celery) et l'API server par l'IP **privée** du cœur : ce trafic ne sort jamais du VPC.
+
+**Pourquoi les règles pointent vers un groupe et non une IP :** « tout ce qui est dans le groupe des workers » continue de fonctionner si la machine des workers est remplacée et reçoit une autre IP. Le cœur et les workers doivent être dans le **même sous-réseau**. La machine des sources n'a besoin que du port 22 : elle ne parle que *vers l'extérieur* (Neon et S3).
 
 ## 4–5. S3 : le lakehouse
 

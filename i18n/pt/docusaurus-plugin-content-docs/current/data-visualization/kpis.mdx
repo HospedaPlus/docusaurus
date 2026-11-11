@@ -26,6 +26,23 @@ Todas as medidas estão na tabela `_Medidas` do modelo, agrupadas em pastas: Ocu
 | **Guest Rating** (RN-10) | Nota média (1–5) na última data de corte | `mart_p5_reputacion` |
 | **% Positive** | Avaliações positivas ÷ total de avaliações | `fact_resenas` |
 
+## O que significa cada KPI
+
+Os hotéis se medem com alguns números padrão. Em palavras simples:
+
+- **Ocupação %**: de cada 100 quartos que o hotel podia vender numa noite, quantos vendeu. 80 vendidos de 100 = 80 %.
+- **ADR (Average Daily Rate, diária média)**: o preço médio pago por quarto vendido por noite. Se 10 quartos renderam COP 2.000.000, o ADR é COP 200.000. Diz *quão caro* você vende.
+- **RevPAR (Revenue Per Available Room, receita por quarto disponível)**: a receita de quartos dividida por *todos* os quartos, vendidos ou vazios. Une preço e ocupação num só número (RevPAR = ADR × Ocupação). Um hotel pode subir o ADR e ainda perder RevPAR se deixar quartos demais vazios; por isso o RevPAR é o principal KPI de receita.
+- **Taxa de cancelamento**: de cada 100 reservas, quantas foram canceladas ou foram no-show.
+- **Receita perdida**: o dinheiro que as reservas canceladas teriam trazido, menos a multa paga pelo hóspede.
+- **Quartos rejeitados / Taxa de rejeição**: quartos que os hóspedes queriam mas não conseguiram reservar porque o hotel estava cheio. Mede a demanda que o hotel deixou passar.
+- **Quartos realocados**: hóspedes enviados a outro hotel por overbooking (vendeu-se mais quartos do que existiam).
+- **Receita bruta**: o que os hóspedes pagaram. **Comissão**: o que o canal de venda (OTA, agência) ficou. **Receita líquida**: o que sobra para o hotel (bruta − comissão).
+- **Comissão efetiva %**: a parte da receita bruta que foi para os canais em comissões.
+- **Preço sugerido / Tarifa atual**: o preço que o pipeline recomenda para uma noite futura frente ao preço publicado hoje. **Sugerido vs atual %** diz quão distantes estão.
+- **Pickup %**: quão rápido os quartos estão sendo reservados comparado com o ano passado. Positivo significa que a demanda está à frente do ano passado no mesmo momento.
+- **Nota dos hóspedes**: nota média que os hóspedes dão nas avaliações (1 a 5). **% positivas**: parte das avaliações com nota 4 ou 5.
+
 ## Por que "só datas passadas"
 
 `dim_fecha` vai um ano para o futuro, e as noites futuras ainda têm poucas reservas. Misturá-las com as noites passadas baixa a ocupação artificialmente (13,4 % em vez de 21,7 % na foto abaixo). Por isso o Resumo executivo e os cartões de P1, P2, P4 e P5 filtram `dim_fecha[periodo] = "Ocurrido"` (ocorrido). O P3 usa noites futuras, porque trata dos próximos preços.

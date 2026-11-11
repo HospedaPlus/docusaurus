@@ -54,6 +54,8 @@ In `.env` the AWS keys are left **empty**. boto3 (bronze) and Spark's s3a connec
 
 **Why:** a key in a file can leak (it would end up in git or in a log); role credentials rotate by themselves and only work from those machines.
 
+**How to create it:** IAM → *Policies* → *Create policy* → JSON (the one above, with your bucket name) → name it `hospedaplus-lakehouse-s3`. Then IAM → *Roles* → *Create role* → *AWS service* → *EC2*, attach that policy and name it `hospedaplus-pipeline-role`. When you launch each EC2, choose the role under *Advanced details → IAM instance profile* (or later: *Actions → Security → Modify IAM role*). Check it from the machine with `aws s3 ls s3://<bucket>/`.
+
 ## 2. EC2: where everything runs
 
 | Machine | Type | Runs |
@@ -72,6 +74,8 @@ In `.env` the AWS keys are left **empty**. boto3 (bronze) and Spark's s3a connec
 | workers | 22 only |
 
 The workers reach Postgres (metadata), RabbitMQ (Celery broker) and the API server on the core's **private** IP, so that traffic never leaves the VPC.
+
+**Why the rules point to a group and not to an IP:** "anything in the workers group" keeps working if the workers machine is replaced and gets another IP. The core and the workers must be in the **same subnet**. The sources machine only needs port 22: it only talks *outwards* (to Neon and S3).
 
 ## 4–5. S3: the lakehouse
 

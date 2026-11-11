@@ -12,12 +12,12 @@ As três UIs operacionais do pipeline são **auto-hospedadas** na EC2 núcleo e 
 
 | Ferramenta | O que monitora | Link | Usuário | Senha |
 | --- | --- | --- | --- | --- |
-| **Airflow** | DAGs, execuções, logs de tarefas, Assets, horários | [airflow-buenavista.coderhivex.com](https://airflow-buenavista.coderhivex.com) | *a preencher* | *a preencher* |
-| **Flower (Celery)** | Workers Celery `bronze`, `silver`, `gold`: online, tarefas ativas e com falha | [flower-buenavista.coderhivex.com](https://flower-buenavista.coderhivex.com) | *a preencher* | *a preencher* |
-| **RabbitMQ** | Broker do Celery: filas, mensagens pendentes, conexões | [rabbitmq-buenavista.coderhivex.com](https://rabbitmq-buenavista.coderhivex.com) | *a preencher* | *a preencher* |
+| **Airflow** | DAGs, execuções, logs de tarefas, Assets, horários | [airflow-buenavista.coderhivex.com](https://airflow-buenavista.coderhivex.com) | `airflow` | `airflow` |
+| **Flower (Celery)** | Workers Celery `bronze`, `silver`, `gold`: online, tarefas ativas e com falha | [flower-buenavista.coderhivex.com](https://flower-buenavista.coderhivex.com) | `vane` | `airflow` |
+| **RabbitMQ** | Broker do Celery: filas, mensagens pendentes, conexões | [rabbitmq-buenavista.coderhivex.com](https://rabbitmq-buenavista.coderhivex.com) | `hospedaplus` | `airflow` |
 
 <Note>
-As credenciais nunca são publicadas neste site: peça à equipe, ou preencha esta tabela só em uma cópia privada. Troque as senhas padrão antes de compartilhar os links.
+Estas são as credenciais de demonstração da equipe, publicadas de propósito para que qualquer pessoa possa explorar as UIs.
 </Note>
 
 ## O que verificar em cada UI

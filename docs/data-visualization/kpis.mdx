@@ -26,6 +26,23 @@ All measures live in the `_Medidas` table of the model, grouped in folders: Occu
 | **Guest Rating** (RN-10) | Average rating (1–5) at the latest cutoff date | `mart_p5_reputacion` |
 | **% Positive** | Positive reviews ÷ all reviews | `fact_resenas` |
 
+## What each KPI means
+
+Hotels measure themselves with a few standard numbers. In plain words:
+
+- **Occupancy %**: out of every 100 rooms the hotel could sell on a night, how many it actually sold. 80 rooms sold of 100 = 80 %.
+- **ADR (Average Daily Rate)**: the average price paid per room sold per night. If 10 rooms brought COP 2,000,000, the ADR is COP 200,000. It tells you *how expensive* you sell.
+- **RevPAR (Revenue Per Available Room)**: room revenue divided by *all* rooms, sold or empty. It joins price and occupancy in one number (RevPAR = ADR × Occupancy). A hotel can raise ADR and still lose RevPAR if it empties too many rooms; that is why RevPAR is the main revenue KPI.
+- **Cancellation Rate**: out of every 100 bookings, how many were cancelled or were no-shows.
+- **Lost Revenue**: money that cancelled bookings would have brought, minus any penalty the guest paid.
+- **Rejected Rooms / Rejection Rate**: rooms guests wanted but could not book because the hotel was full. It measures demand the hotel turned away.
+- **Relocated Rooms**: guests moved to another hotel because of overbooking (sold more rooms than existed).
+- **Gross Revenue**: what guests paid. **Commission**: what the sales channel (OTA, agency) kept. **Net Revenue**: what is left for the hotel (gross − commission).
+- **Effective Commission %**: share of gross revenue that went to channels in commissions.
+- **Suggested Price / Current Rate**: the price the pipeline recommends for an upcoming night versus the price published today. **Suggested vs Current %** says how far apart they are.
+- **Pickup %**: how fast rooms are being booked compared with last year. Positive means demand is ahead of last year at the same point in time.
+- **Guest Rating**: average score that guests give in reviews (1 to 5). **% Positive**: share of reviews with a score of 4 or 5.
+
 ## Why "past dates only"
 
 `dim_fecha` reaches one year into the future, and future nights still have few bookings. Mixing them with past nights lowers occupancy artificially (13.4 % instead of 21.7 % in the snapshot below). That is why the Executive summary and the P1, P2, P4 and P5 cards filter `dim_fecha[periodo] = "Ocurrido"` (occurred). P3 does use future nights, because it is about upcoming prices.
