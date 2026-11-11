@@ -39,6 +39,46 @@ python -c "import os, psycopg2; print(psycopg2.connect(os.environ['NEON_READ_URL
 
 Chaque partie de la chaîne, l'hôte avec pool, S3 et les erreurs fréquentes sont expliqués dans [Se connecter : Neon et S3](./how-to-connect.mdx).
 
+### Créer la base, les schémas et les rôles (une fois)
+
+Un nouveau projet Neon n'en a besoin qu'une fois. Dans le **SQL Editor** de Neon, connecté en tant que propriétaire (`hospedaplus_owner`), sur la branche `production` de la base `hospedaplus` :
+
+```sql
+-- Schémas : operation = moteur de réservation F3, streaming = ledger F2
+CREATE SCHEMA IF NOT EXISTS operation;
+CREATE SCHEMA IF NOT EXISTS streaming;
+-- Deux utilisateurs avec le minimum de droits nécessaires (changez les mots de passe)
+CREATE ROLE app_writer LOGIN PASSWORD '<writer-password>';
+CREATE ROLE etl_reader LOGIN PASSWORD '<reader-password>';
+-- Personne d'autre ne crée d'objets dans public
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+-- Les deux peuvent se connecter et voir les deux schémas
+GRANT CONNECT ON DATABASE hospedaplus TO app_writer, etl_reader;
+GRANT USAGE ON SCHEMA operation, streaming TO app_writer, etl_reader;
+-- etl_reader ne peut jamais écrire, même par erreur
+ALTER ROLE etl_reader SET default_transaction_read_only = on;
+-- Les tables créées plus tard par le seed reçoivent les mêmes droits automatiquement
+ALTER DEFAULT PRIVILEGES FOR ROLE hospedaplus_owner IN SCHEMA operation, streaming
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_writer;
+ALTER DEFAULT PRIVILEGES FOR ROLE hospedaplus_owner IN SCHEMA operation, streaming
+    GRANT USAGE, SELECT ON SEQUENCES TO app_writer;
+ALTER DEFAULT PRIVILEGES FOR ROLE hospedaplus_owner IN SCHEMA operation, streaming
+    GRANT SELECT ON TABLES TO etl_reader;
+```
+
+Ensuite, les tables et les premières données sont créées par les dépôts des sources, avec la chaîne du propriétaire dans leur `.env` :
+
+```bash
+# F3 (db_simulated) : tables de operation, les 28 hôtels et les réservations initiales
+docker compose --profile neon run --rm --build neon-seed
+# F6b (db_simulated) : événements locaux dans operation.local_events
+docker compose --profile neon run --rm --build neon-check events
+# F2 (buenavista-streaming) : tables du ledger de streaming
+docker compose run --rm neon-migrate
+```
+
+**Pourquoi trois utilisateurs :** chaque programme reçoit seulement ce dont il a besoin. Si la chaîne d'Airflow fuit, personne ne peut modifier une réservation avec elle.
+
 ## Les trois façons dont le pipeline lit Neon
 
 ### 1. Copie incrémentale horaire : `bronze_neon_f2_f3`

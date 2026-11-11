@@ -54,6 +54,8 @@ En `.env` las llaves de AWS se dejan **vacías**. boto3 (bronze) y el conector s
 
 **Por qué:** una llave en un archivo puede filtrarse (terminaría en git o en un log); las credenciales del rol rotan solas y solo funcionan desde esas máquinas.
 
+**Cómo crearlo:** IAM → *Políticas* → *Crear política* → JSON (el de arriba, con el nombre de tu bucket) → nómbrala `hospedaplus-lakehouse-s3`. Luego IAM → *Roles* → *Crear rol* → *Servicio de AWS* → *EC2*, adjunta esa política y nómbralo `hospedaplus-pipeline-role`. Al lanzar cada EC2, elige el rol en *Detalles avanzados → Perfil de instancia de IAM* (o después: *Acciones → Seguridad → Modificar rol de IAM*). Compruébalo desde la máquina con `aws s3 ls s3://<bucket>/`.
+
 ## 2. EC2: dónde corre todo
 
 | Máquina | Tipo | Corre |
@@ -72,6 +74,8 @@ En `.env` las llaves de AWS se dejan **vacías**. boto3 (bronze) y el conector s
 | workers | solo 22 |
 
 Los workers llegan a Postgres (metadatos), RabbitMQ (broker de Celery) y el API server por la IP **privada** del núcleo, así ese tráfico nunca sale de la VPC.
+
+**Por qué las reglas apuntan a un grupo y no a una IP:** "cualquier cosa en el grupo de workers" sigue funcionando si la máquina de workers se reemplaza y recibe otra IP. El núcleo y los workers deben estar en la **misma subred**. La máquina de fuentes solo necesita el puerto 22: solo habla *hacia afuera* (a Neon y S3).
 
 ## 4–5. S3: el lakehouse
 

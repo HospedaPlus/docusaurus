@@ -54,6 +54,8 @@ No `.env` as chaves da AWS ficam **vazias**. O boto3 (bronze) e o conector s3a d
 
 **Por quê:** uma chave em um arquivo pode vazar (acabaria no git ou em um log); as credenciais do papel giram sozinhas e só funcionam a partir dessas máquinas.
 
+**Como criar:** IAM → *Políticas* → *Criar política* → JSON (o de cima, com o nome do seu bucket) → nomeie `hospedaplus-lakehouse-s3`. Depois IAM → *Roles* → *Criar role* → *Serviço da AWS* → *EC2*, anexe essa política e nomeie `hospedaplus-pipeline-role`. Ao lançar cada EC2, escolha a role em *Detalhes avançados → Perfil de instância do IAM* (ou depois: *Ações → Segurança → Modificar função do IAM*). Teste na máquina com `aws s3 ls s3://<bucket>/`.
+
 ## 2. EC2: onde tudo roda
 
 | Máquina | Tipo | Roda |
@@ -72,6 +74,8 @@ No `.env` as chaves da AWS ficam **vazias**. O boto3 (bronze) e o conector s3a d
 | workers | só 22 |
 
 Os workers chegam ao Postgres (metadados), ao RabbitMQ (broker do Celery) e ao API server pelo IP **privado** do núcleo, então esse tráfego nunca sai da VPC.
+
+**Por que as regras apontam para um grupo e não para um IP:** "qualquer coisa no grupo dos workers" continua funcionando se a máquina de workers for substituída e ganhar outro IP. O núcleo e os workers devem estar na **mesma sub-rede**. A máquina das fontes só precisa da porta 22: ela só fala *para fora* (com o Neon e o S3).
 
 ## 4–5. S3: o lakehouse
 

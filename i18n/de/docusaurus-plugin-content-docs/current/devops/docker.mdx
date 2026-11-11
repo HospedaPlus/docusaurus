@@ -199,6 +199,23 @@ docker compose -f docker-compose.workers.yaml up -d
 docker compose up -d
 ```
 
+### Die `.env` und der erste Start
+
+Beide Maschinen nutzen dasselbe Repository und fast dieselbe `.env` (`cp .env.example .env`; jede Variable ist dort kommentiert). Drei Dinge sind einmal zu tun:
+
+```bash
+# Airflow läuft in den Containern als Benutzer 1000: ihm die Ordner geben, in die es schreibt
+sudo chown -R 1000:0 logs config dags plugins spark_jobs
+# Fernet-Schlüssel: verschlüsselt die Passwörter, die Airflow in seiner Datenbank speichert
+python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+# JWT-Secret: damit signieren die Worker ihre Nachrichten an den Kern
+python3 -c "import secrets;print(secrets.token_hex(32))"
+```
+
+Die erzeugten Werte in `AIRFLOW_FERNET_KEY` und `AIRFLOW_JWT_SECRET` eintragen, **auf beiden Maschinen identisch** (sonst starten Tasks nie und die Logs zeigen `Invalid token`). Auf den Workern zusätzlich `NUCLEO_HOST` und `NEON_WRITE_URL` setzen. Die AWS-Schlüssel leer lassen: die IAM-Rolle liefert die Zugangsdaten.
+
+**Zuerst den Kern** starten und warten, bis `docker compose -f docker-compose.nucleo.yaml ps` alle Container als *healthy* zeigt (3–5 Minuten); dann die Worker starten. Ihre Logs müssen `celery@worker-bronze ready` (und silver, gold) zeigen, und Flower zeigt drei Worker online. Der erste Lauf der DAGs steht unter [DAGs ausführen](../data-engineering-pipeline/running-dags.mdx).
+
 ## 2. buenavista-streaming (F2: Kafka → Neon)
 
 ```dockerfile title="Dockerfile"

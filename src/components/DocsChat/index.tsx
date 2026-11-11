@@ -425,6 +425,17 @@ function Markdown({ text }: { text: string }): ReactNode {
 }
 
 /** Small chat at the bottom right: retrieval in the browser over the docs, answer written by Gemini. */
+const Ico = ({ d }: { d: string }) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+// Expand: two diagonal arrows pointing out; minimize: a line; close: an X
+const ICON_EXPAND = "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7";
+const ICON_MIN = "M5 12h14";
+const ICON_CLOSE = "M6 6l12 12M18 6L6 18";
+
 export default function DocsChat(): ReactNode {
   const { siteConfig, i18n } = useDocusaurusContext();
   const [key, setKey] = useState("");
@@ -568,7 +579,7 @@ export default function DocsChat(): ReactNode {
                 aria-label={min ? t.expand : t.minimize}
                 title={min ? t.expand : t.minimize}
               >
-                {min ? "⌃" : "–"}
+                <Ico d={min ? ICON_EXPAND : ICON_MIN} />
               </button>
               <button
                 type="button"
@@ -576,7 +587,7 @@ export default function DocsChat(): ReactNode {
                 aria-label={t.close}
                 title={t.close}
               >
-                ×
+                <Ico d={ICON_CLOSE} />
               </button>
             </span>
           </header>

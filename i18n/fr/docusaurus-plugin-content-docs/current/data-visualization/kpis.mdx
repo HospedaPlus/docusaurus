@@ -26,6 +26,23 @@ Toutes les mesures se trouvent dans la table `_Medidas` du modèle, regroupées 
 | **Guest Rating** (RN-10) | Note moyenne (1–5) à la dernière date de coupure | `mart_p5_reputacion` |
 | **% Positive** | Avis positifs ÷ total des avis | `fact_resenas` |
 
+## Ce que signifie chaque KPI
+
+Les hôtels se mesurent avec quelques chiffres standard. En termes simples :
+
+- **Taux d'occupation %** : sur 100 chambres que l'hôtel pouvait vendre une nuit, combien il en a vendu. 80 vendues sur 100 = 80 %.
+- **ADR (Average Daily Rate, prix moyen par chambre)** : le prix moyen payé par chambre vendue et par nuit. Si 10 chambres ont rapporté 2 000 000 COP, l'ADR est de 200 000 COP. Il dit *à quel prix* vous vendez.
+- **RevPAR (Revenue Per Available Room, revenu par chambre disponible)** : le revenu des chambres divisé par *toutes* les chambres, vendues ou vides. Il réunit prix et occupation en un seul chiffre (RevPAR = ADR × Occupation). Un hôtel peut augmenter son ADR et perdre du RevPAR s'il laisse trop de chambres vides ; c'est pourquoi le RevPAR est le KPI principal du revenue management.
+- **Taux d'annulation** : sur 100 réservations, combien ont été annulées ou sont des no-shows.
+- **Revenu perdu** : l'argent qu'auraient rapporté les réservations annulées, moins la pénalité payée par le client.
+- **Chambres refusées / Taux de refus** : chambres que les clients voulaient mais n'ont pas pu réserver car l'hôtel était complet. Mesure la demande que l'hôtel a laissé passer.
+- **Chambres relogées** : clients envoyés dans un autre hôtel à cause de la surréservation (plus de chambres vendues qu'il n'en existait).
+- **Revenu brut** : ce que les clients ont payé. **Commission** : ce que le canal de vente (OTA, agence) a gardé. **Revenu net** : ce qui reste à l'hôtel (brut − commission).
+- **Commission effective %** : part du revenu brut partie aux canaux en commissions.
+- **Prix suggéré / Tarif actuel** : le prix que le pipeline recommande pour une nuit à venir face au prix publié aujourd'hui. **Suggéré vs actuel %** indique l'écart.
+- **Pickup %** : la vitesse à laquelle les chambres se réservent par rapport à l'an dernier. Positif signifie que la demande est en avance sur l'an dernier au même moment.
+- **Note des clients** : note moyenne donnée dans les avis (1 à 5). **% positifs** : part des avis avec une note de 4 ou 5.
+
 ## Pourquoi « dates passées uniquement »
 
 `dim_fecha` va un an dans le futur, et les nuits futures ont encore peu de réservations. Les mélanger avec les nuits passées fait baisser artificiellement l'occupation (13,4 % au lieu de 21,7 % dans l'instantané ci-dessous). C'est pourquoi le Résumé exécutif et les cartes P1, P2, P4 et P5 filtrent `dim_fecha[periodo] = "Ocurrido"` (passé). P3 utilise les nuits futures, car il porte sur les prix à venir.
