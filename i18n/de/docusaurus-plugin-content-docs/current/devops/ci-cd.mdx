@@ -42,118 +42,203 @@ Alle HospedaPlus-Repositorys nutzen **GitHub Actions**. Die Idee ist überall di
 Eine Datei, `.github/workflows/ci-cd.yml`, mit vier per `needs:` verketteten Jobs: **lint → test → image → deploy**.
 
 ```yaml title=".github/workflows/ci-cd.yml (Auslöser)"
+# Wann läuft dieser Workflow?
 on:
+  # Bei jedem Pull Request, der auf main zielt
   pull_request:
-    branches: [main]      # every PR: lint + tests + image build (not published)
+    # Nur PRs nach main (Lint + Tests + Image-Build, nichts wird veröffentlicht)
+    branches: [main]
+  # Bei jedem Push (ein gemergter PR ist ein Push)
   push:
-    branches: [main]      # merge: the same, then publish and deploy
-    tags: ["v*"]          # tag v1.2.3: the image also gets the version as tag
-  workflow_dispatch:      # "Run workflow" button
+    # Push auf main: dieselben Prüfungen, dann Image veröffentlichen und deployen
+    branches: [main]
+    # Ein Tag wie v1.2.3 versieht das Image zusätzlich mit der Version
+    tags: ["v*"]
+  # Fügt im Tab Actions einen Button "Run workflow" zum manuellen Start hinzu
+  workflow_dispatch:
 
+# Verhindert zwei gleichzeitige Läufe desselben Branches
 concurrency:
+  # Läufe desselben Branches teilen sich diesen Gruppennamen
   group: ci-cd-${{ github.ref }}
-  cancel-in-progress: true   # a new push cancels the old run of the same branch
+  # Ein neuer Push bricht den älteren, noch laufenden Lauf ab
+  cancel-in-progress: true
 ```
 
 **Lint** prüft den Python-Stil mit ruff und ob die drei Compose-Dateien gültig sind (ein YAML-Tippfehler scheitert hier, nicht auf dem Server):
 
 ```yaml
+  # Job 1: prüft den Code-Stil und die Compose-Dateien
   lint:
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Offizielle Action, die ruff (Python-Linter) installiert und ausführt
       - uses: astral-sh/ruff-action@v3
+        # Einstellungen der Action
         with:
+          # Feste ruff-Version, damit das Ergebnis auf jeder Maschine gleich ist
           version: "0.14.3"
+          # Prüft die DAGs, die Spark-Jobs und die Tests
           args: check dags spark_jobs tests
+      # Name des Schritts im GitHub-Log
       - name: Compose files are valid
+        # Shell-Befehle dieses Schritts (das | erlaubt mehrere Zeilen)
         run: |
+          # Compose braucht eine .env-Datei: Beispiel kopieren (Fake-Werte)
           cp .env.example .env
+          # config -q validiert die Datei und gibt nichts aus, wenn sie in Ordnung ist
           docker compose -f docker-compose.yaml config -q
+          # Dieselbe Prüfung für die Datei der Kern-Maschine
           docker compose -f docker-compose.nucleo.yaml config -q
+          # Dieselbe Prüfung für die Datei der Worker-Maschine
           docker compose -f docker-compose.workers.yaml config -q
 ```
 
 **Test** installiert Airflow genau wie das Docker-Image und führt pytest aus: Jeder DAG muss sich fehlerfrei importieren lassen (DagBag), die Spark-Jobs laufen mit kleinen Beispieldaten, und die Qualitätsprüfungen aus `spark_jobs/quality.py` werden getestet. Java 17 wird installiert, weil Spark es braucht.
 
 ```yaml
+  # Job 2: installiert Airflow und führt alle Tests aus
   test:
+    # Umgebungsvariablen für alle Schritte dieses Jobs
     env:
+      # Airflow legt Konfiguration und SQLite-DB in diesem temporären Ordner ab
       AIRFLOW_HOME: ${{ github.workspace }}/.airflow-ci
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Installiert Python
       - uses: actions/setup-python@v5
+        # Dieselbe Python-Version wie das Docker-Image
         with: {python-version: "3.12"}
+      # Installiert Java
       - uses: actions/setup-java@v4
+        # Java 17 (Temurin-Distribution), von Spark benötigt
         with: {distribution: temurin, java-version: "17"}
+      # Installiert uv, einen schnellen Ersatz für pip
       - uses: astral-sh/setup-uv@v6
+        # Erstellt und aktiviert eine virtuelle Umgebung für die nächsten Schritte
         with: {activate-environment: true}
+      # Name des Schritts im GitHub-Log
       - name: Install Airflow + requirements (same pins as the image)
+        # Unser Skript (unten) installiert Airflow + requirements.txt + pytest
         run: scripts/ci-install.sh pytest==8.4.2
+      # Name des Schritts im GitHub-Log
       - name: DAG validation, Spark jobs and data quality tests
+        # Führt alle Tests in tests/ aus (-v zeigt jeden Test mit Namen)
         run: python -m pytest -v -p no:logging
 ```
 
 `scripts/ci-install.sh` löst ein echtes Problem: Airflow wird mit seiner offiziellen *Constraints*-Datei installiert, aber unsere eigenen Pins in `requirements.txt` müssen gewinnen. Ohne das hob uv SQLAlchemy auf 2.x und Airflow ging kaputt.
 
 ```bash title="scripts/ci-install.sh"
+# Dieselbe Airflow-Version wie im Dockerfile
 AIRFLOW_VERSION=3.1.5
+# Liest die Python-Version des Runners, z. B. "3.12"
 PY=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+# Lädt die offizielle Constraints-Datei (getestete Versionen für dieses Airflow)
 curl -fsSL "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PY}.txt" \
   -o /tmp/constraints.txt
-# Drop from the constraints every package we pin ourselves
+# Entfernt aus den Constraints jedes Paket, das wir selbst festlegen
+# Baut eine Liste "pkg1|pkg2|..." mit den Paketnamen aus requirements.txt
 names=$(grep -vE '^\s*(#|$)' requirements.txt | sed -E 's/[=<>!~ ].*//' | paste -sd'|')
+# Kopiert die Constraints ohne diese Pakete (und 3, die Konflikte machen)
 grep -viE "^(${names}|botocore|s3transfer|py4j)==" /tmp/constraints.txt > /tmp/constraints-ci.txt
+# Installiert Airflow + unsere Requirements, begrenzt durch die bereinigten Constraints
 uv pip install "apache-airflow==${AIRFLOW_VERSION}" -r requirements.txt -c /tmp/constraints-ci.txt "$@"
 ```
 
 **Image** baut das Dockerfile und veröffentlicht es außerhalb von PRs in GHCR mit drei Tag-Arten: dem kurzen Commit-SHA (`3f2a1bc`), dem Branch (`main`) und der Version (`1.2.3`, wenn ein Tag `v1.2.3` gepusht wird). Der Build-Cache liegt in GitHub Actions (`type=gha`), daher dauert ein Build, bei dem sich nur DAGs geändert haben, Sekunden.
 
 ```yaml
+  # Job 3: baut das Docker-Image (und veröffentlicht es außerhalb von PRs)
   image:
+    # Startet nur, wenn lint und test erfolgreich waren
     needs: [lint, test]
+    # Code lesen und Pakete (GHCR-Images) mit dem automatischen Token schreiben
     permissions: {contents: read, packages: write}
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Über die id können spätere Schritte die Ausgaben dieses Schritts lesen
       - id: meta
+        # Action, die Name und Tags des Images berechnet
         uses: docker/metadata-action@v5
+        # Einstellungen der Action
         with:
+          # Image-Name: ghcr.io/hospedaplus/hospedaplus-pipeline
           images: ghcr.io/${{ github.repository }}
+          # Die Tags, die das Image bekommt (eins pro Zeile)
           tags: |
+            # Kurzer Commit-SHA, z. B. 3f2a1bc
             type=sha,prefix=,format=short
+            # Branch-Name, z. B. main
             type=ref,event=branch
+            # Version eines Tags v1.2.3, z. B. 1.2.3
             type=semver,pattern={{version}}
+      # Action, die das Dockerfile baut (und das Image pusht)
       - uses: docker/build-push-action@v6
+        # Einstellungen der Action
         with:
-          push: ${{ github.event_name != 'pull_request' }}   # PRs only build
+          # Nur außerhalb von PRs pushen: PRs bauen nur, um zu zeigen, dass es funktioniert
+          push: ${{ github.event_name != 'pull_request' }}
+          # Nutzt die vom meta-Schritt berechneten Tags
           tags: ${{ steps.meta.outputs.tags }}
+          # Nutzt Layer aus dem Cache früherer Läufe in GitHub Actions
           cache-from: type=gha
+          # Speichert alle Layer in diesem Cache für den nächsten Lauf
           cache-to: type=gha,mode=max
 ```
 
 **Deploy** verbindet sich per SSH mit beiden EC2. Zuerst der **Kern** (Airflow + RabbitMQ), dann die **Worker**, damit die Worker immer den neuen Scheduler vorfinden. Jede Maschine zieht `main` und erstellt nur die geänderten Container neu.
 
 ```yaml
+  # Job 4: aktualisiert die beiden EC2-Maschinen per SSH
   deploy:
+    # Startet erst, nachdem der Job image erfolgreich war
     needs: image
+    # Nie aus einem PR deployen, nur von main, Tags oder dem manuellen Button
     if: github.event_name != 'pull_request'
+    # Nutzt die Secrets der GitHub-Umgebung "production"
     environment: production
+    # Liest die Secrets in Variablen (leer, wenn das Secret fehlt)
     env:
+      # Privater SSH-Schlüssel (Inhalt der .pem) der EC2-Maschinen
       SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      # Adresse der Kern-Maschine (Airflow + RabbitMQ)
       NUCLEO_HOST: ${{ secrets.NUCLEO_HOST }}
+      # Adresse der Worker-Maschine
       WORKERS_HOST: ${{ secrets.WORKERS_HOST }}
+      # SSH-Benutzer; ubuntu, wenn das Secret nicht gesetzt ist
       SSH_USER: ${{ secrets.DEPLOY_SSH_USER || 'ubuntu' }}
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Name des Schritts im GitHub-Log
       - name: Deploy is off until the secrets exist
+        # Über die id können spätere Schritte die Ausgabe dieses Schritts lesen
         id: gate
+        # Shell-Befehle dieses Schritts
         run: |
+          # Wenn eines der drei Secrets leer ist...
           if [ -z "$SSH_KEY" ] || [ -z "$NUCLEO_HOST" ] || [ -z "$WORKERS_HOST" ]; then
+            # ...einen Hinweis in der Lauf-Zusammenfassung zeigen (kein Fehler)
             echo "::notice::Deploy skipped: add DEPLOY_SSH_KEY, NUCLEO_HOST and WORKERS_HOST to turn it on."
+            # ...und enabled=false als Ausgabe dieses Schritts speichern
             echo "enabled=false" >> "$GITHUB_OUTPUT"
+          # Sonst
           else
+            # enabled=true speichern
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+          # Ende des if
           fi
+      # Läuft nur, wenn der Schritt gate enabled=true gemeldet hat
       - if: steps.gate.outputs.enabled == 'true'
+        # Name des Schritts im GitHub-Log
         name: Núcleo (Airflow + RabbitMQ), then workers
+        # Shell-Befehle dieses Schritts
         run: |
+          # Kleine Funktion: run(host, befehl) führt einen Befehl per SSH auf diesem Host aus
           run() { ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=accept-new "$SSH_USER@$1" "$2"; }
+          # Zuerst der Kern: neuen Code holen und nur geänderte Container neu erstellen
           run "$NUCLEO_HOST"  'cd ~/hospedaplus-pipeline && git pull --ff-only && docker compose -f docker-compose.nucleo.yaml up -d --build'
+          # Dann die Worker: genauso, plus Neustart, damit sie sich mit dem neuen Scheduler verbinden
           run "$WORKERS_HOST" 'cd ~/hospedaplus-pipeline && git pull --ff-only && docker compose -f docker-compose.workers.yaml up -d --build && docker compose -f docker-compose.workers.yaml restart'
 ```
 
@@ -164,25 +249,42 @@ Die drei Quellsimulatoren teilen dasselbe `cd.yml` (lint → image → Deploymen
 ### buenavista-streaming (F2 Kafka)
 
 ```yaml title=".github/workflows/ci.yml"
+# Wann läuft dieser Workflow?
 on:
+  # Bei jedem Pull Request
   pull_request:
+  # Und bei jedem Push auf main oder develop
   push:
+    # Die Branches, die ihn auslösen
     branches: [main, develop]
+# Die Jobs dieses Workflows
 jobs:
+  # Ein einziger Job namens test
   test:
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Installiert Python
       - uses: actions/setup-python@v5
+        # Python 3.12, und pip-Downloads zwischen Läufen cachen
         with: {python-version: "3.12", cache: pip}
+      # Installiert das Projekt mit seinen Entwicklungs-Extras (ruff, pytest)
       - run: python -m pip install -e ".[dev]"
-      - run: ruff check .             # lint
-      - run: ruff format --check .    # formatting
-      - run: pytest                   # events, Kafka producer/consumer, Neon sinks
+      # Lint: findet Fehler und schlechte Praktiken
+      - run: ruff check .
+      # Formatierung: schlägt fehl, wenn eine Datei nicht formatiert ist
+      - run: ruff format --check .
+      # Tests: Events, Kafka-Producer/Consumer, Schreiben in Neon
+      - run: pytest
 ```
 
 ```yaml title=".github/workflows/cd.yml (Deploy-Schritt)"
+      # Läuft nur, wenn der Schritt gate die Secrets gefunden hat
       - if: steps.gate.outputs.enabled == 'true'
+        # Name des Schritts im GitHub-Log
         name: Update the EC2 sources
+        # Shell-Befehle dieses Schritts
         run: |
+          # Verbindet sich mit dem SSH-Schlüssel zur Quellen-EC2 und führt den Befehl in Anführungszeichen aus
           ssh -i ~/.ssh/deploy "$SSH_USER@$HOST" \
             'cd ~/buenavista-streaming && git pull --ff-only && docker compose up -d --build'
 ```
@@ -194,34 +296,58 @@ jobs:
 Die CI startet ein wegwerfbares **PostgreSQL 16** neben dem Job, damit die Tests gegen eine echte Datenbank laufen: `reservar()`, 50 gleichzeitige Käufer für das letzte Zimmer, Strafen usw.
 
 ```yaml title=".github/workflows/ci.yml"
+# Die Jobs dieses Workflows
 jobs:
+  # Ein einziger Job namens test
   test:
+    # Zusätzliche Container, die GitHub neben dem Job startet
     services:
+      # Ein Container namens postgres
       postgres:
+        # Offizielles PostgreSQL-16-Image (alpine = klein)
         image: postgres:16-alpine
+        # Benutzer, Passwort und Datenbank dieser Wegwerf-DB (nur Testwerte)
         env: {POSTGRES_USER: hospedaplus, POSTGRES_PASSWORD: hospedaplus, POSTGRES_DB: hospedaplus_test}
+        # Veröffentlicht Port 5432, damit die Tests sie unter localhost:5432 erreichen
         ports: ["5432:5432"]
+        # Wartet, bis Postgres antwortet, bevor die Schritte laufen
         options: --health-cmd "pg_isready -U hospedaplus" --health-interval 5s --health-retries 10
+    # Umgebungsvariablen für alle Schritte
     env:
+      # Die Tests lesen diese URL, um sich mit der DB oben zu verbinden
       TEST_DATABASE_URL: postgresql://hospedaplus:hospedaplus@localhost:5432/hospedaplus_test
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Lädt den Code des Repositorys herunter
       - uses: actions/checkout@v4
+      # Installiert Python
       - uses: actions/setup-python@v5
+        # Python-Version
         with: {python-version: "3.12"}
+      # Installiert das Projekt mit seinen Test-Extras
       - run: pip install -e ".[test]"
+      # Führt die Tests aus (-v zeigt jeden Test mit Namen)
       - run: pytest -v
 ```
 
 Das Deployment ist klüger als ein einfacher Neustart: Es vergleicht den Commit vor und nach `git pull` und fasst Neon nur an, wenn sich SQL oder die lokalen Events geändert haben.
 
 ```bash title="cd.yml: was auf der EC2 Quellen läuft"
+# Ins Repo wechseln, aktuellen Commit in OLD merken, dann neuen Code holen
 cd ~/db_simulated && OLD=$(git rev-parse HEAD) && git pull --ff-only
-if ! git diff --quiet "$OLD" HEAD -- sql/; then          # schema/functions changed
-  docker compose --profile neon run --rm neon-check init  # applies it (init never deletes data)
+# Wenn sich eine Datei in sql/ zwischen OLD und dem neuen Commit geändert hat (Schema/Funktionen)
+if ! git diff --quiet "$OLD" HEAD -- sql/; then
+  # das SQL in Neon anwenden (init löscht nie Daten)
+  docker compose --profile neon run --rm neon-check init
+# Ende des if
 fi
+# Den Buchungssimulator mit dem neuen Code neu bauen und starten
 docker compose --profile neon up -d --build neon-simulator
+# Wenn sich die Datei der lokalen Events (F6b) geändert hat
 if ! git diff --quiet "$OLD" HEAD -- data/local_events.csv; then
-  docker compose --profile neon run --rm neon-check events   # reloads F6b local events
+  # die lokalen Events neu in Neon laden
+  docker compose --profile neon run --rm neon-check events
+# Ende des if
 fi
 ```
 
@@ -230,6 +356,7 @@ fi
 Nur `cd.yml`: ruff Lint, Image-Build und Deployment des einzigen Service `f4-weekly`.
 
 ```bash title="cd.yml: was auf der EC2 Quellen läuft"
+# Ins Repo wechseln, neuen Code holen, nur f4-weekly neu bauen und starten
 cd ~/hospedaplus-csv && git pull --ff-only && docker compose up -d --build f4-weekly
 ```
 
@@ -254,55 +381,99 @@ cd ~/hospedaplus-csv && git pull --ff-only && docker compose up -d --build f4-we
 | **CI passed** | Schlägt fehl, wenn einer der Jobs oben nicht erfolgreich war |
 
 ```yaml title="ci.yml: der Seed muss idempotent und reproduzierbar sein"
+      # Name des Schritts im GitHub-Log
       - name: Seed is idempotent and reproducible
+        # Shell-Befehle dieses Schritts
         run: |
+          # Funktion: wie viele Bewertungen in der Tabelle sind
           count()  { psql "$DATABASE_URL" -tAc "SELECT count(*) FROM reviews"; }
+          # Funktion: ein md5-Fingerabdruck des gesamten Bewertungsinhalts
           digest() { psql "$DATABASE_URL" -tAc "SELECT md5(string_agg(platform || external_id || rating || text, ',' ORDER BY platform, external_id)) FROM reviews"; }
+          # Erster Lauf des Seeds
           uv run python -m src.seed --mode dev
+          # Zeilenzahl und Fingerabdruck nach dem ersten Lauf speichern
           first_count=$(count); first_digest=$(digest)
+          # Zweiter Lauf des Seeds
           uv run python -m src.seed --mode dev
+          # Hat sich die Zahl geändert, ist der Seed nicht idempotent: der Job schlägt fehl
           [ "$(count)" = "$first_count" ] || { echo "::error::Second seed run inserted rows"; exit 1; }
 ```
 
 `cd.yml` startet **erst, nachdem die CI auf `main` grün war** (`workflow_run`), und deployt genau den getesteten Commit. Die Anmeldung bei AWS erfolgt per **OIDC**: GitHub erhält ein temporäres Token für eine IAM-Rolle, daher ist nirgendwo ein AWS Access Key gespeichert.
 
 ```yaml title=".github/workflows/cd.yml"
+# Wann läuft dieser Workflow?
 on:
+  # Wenn ein anderer Workflow endet
   workflow_run:
+    # Dieser Workflow ist der namens CI
     workflows: [CI]
+    # Nur wenn er abgeschlossen ist
     types: [completed]
+    # Und nur für den Branch main
     branches: [main]
+# Rechte des automatischen GitHub-Tokens
 permissions:
-  id-token: write                 # GitHub OIDC -> AWS IAM role
+  # Erlaubt, bei GitHub ein OIDC-Token anzufordern, das gegen eine AWS-IAM-Rolle getauscht wird
+  id-token: write
+# Die Jobs dieses Workflows
 jobs:
+  # Ein einziger Job namens deploy
   deploy:
+    # Nur wenn die AWS-Rolle konfiguriert ist und die CI grün war
     if: vars.AWS_ROLE_ARN != '' && github.event.workflow_run.conclusion == 'success'
+    # Variablen für alle Schritte
     env:
+      # Der Image-Tag ist genau der Commit, den die CI getestet hat
       IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Anmeldung bei AWS ohne Schlüssel: die IAM-Rolle über OIDC übernehmen
       - uses: aws-actions/configure-aws-credentials@v6
+        # Einstellungen der Action
         with:
+          # Die zu übernehmende IAM-Rolle (Repository-Variable)
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          # Die AWS-Region (Repository-Variable)
           aws-region: ${{ vars.AWS_REGION }}
+      # Über die id können spätere Schritte die Registry-Adresse lesen
       - id: ecr
+        # Meldet Docker bei Amazon ECR an (Image-Registry von AWS)
         uses: aws-actions/amazon-ecr-login@v2
+      # Baut das Dockerfile und pusht das Image
       - uses: docker/build-push-action@v7
+        # Einstellungen der Action
         with:
+          # Hier wird immer gepusht (läuft nur auf main)
           push: true
+          # Voller Name: <registry>/<repository>:<commit>
           tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+      # Füllt die ${...}-Platzhalter der ECS-Task-Definition-Vorlage
       - run: envsubst < deploy/ecs/task-definition.json > task-definition.rendered.json
+      # Über die id kann der nächste Schritt die neue Task Definition lesen
       - id: render
+        # Action, die das neue Image in die Task Definition einsetzt
         uses: aws-actions/amazon-ecs-render-task-definition@v1
+        # Einstellungen der Action
         with:
+          # Die von envsubst erzeugte Datei
           task-definition: task-definition.rendered.json
+          # Der Container im Task, der das neue Image bekommt
           container-name: api
+          # Das gerade gepushte Image
           image: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+      # Registriert die Task Definition und aktualisiert den ECS-Service
       - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        # Einstellungen der Action
         with:
+          # Die vom Schritt render erzeugte Task Definition
           task-definition: ${{ steps.render.outputs.task-definition }}
+          # Name des ECS-Clusters
           cluster: ${{ env.ECS_CLUSTER }}
+          # Name des ECS-Services
           service: ${{ env.ECS_SERVICE }}
-          wait-for-service-stability: true    # fails if the new task does not become healthy
+          # Wartet, bis der neue Task gesund ist; schlägt fehl, wenn er es nie wird
+          wait-for-service-stability: true
 ```
 
 Auch die Datenbank-URL steht nicht im Repository: Die Task Definition verweist auf ein **Secrets-Manager**-ARN (`DATABASE_URL_SECRET_ARN`), und ECS injiziert sie beim Start des Containers.
@@ -310,23 +481,41 @@ Auch die Datenbank-URL steht nicht im Repository: Die Task Definition verweist a
 ## 4. docusaurus (diese Seite)
 
 ```yaml title=".github/workflows/deploy.yml"
+# Wann läuft dieser Workflow?
 on:
+  # Bei Pushes auf main (Seite veröffentlichen)
   push: {branches: [main]}
+  # Bei PRs nach main (nur prüfen, dass es baut)
   pull_request: {branches: [main]}
+# Die Jobs dieses Workflows
 jobs:
+  # Job 1: baut die Seite
   build:
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Installiert die exakten Versionen aus package-lock.json
       - run: npm ci
-      - run: npm run typecheck     # TypeScript of the React components
-      - run: npm run build         # prebuild generates the docs-chat index, then 5 languages
+      # Prüft das TypeScript der React-Komponenten
+      - run: npm run typecheck
+      # prebuild erzeugt den Index des Doku-Chats, dann werden die 5 Sprachen gebaut
+      - run: npm run build
+      # Nur außerhalb von PRs
       - if: github.event_name != 'pull_request'
+        # Packt den Ordner build für GitHub Pages
         uses: actions/upload-pages-artifact@v3
+        # Der zu packende Ordner
         with: {path: build}
+  # Job 2: veröffentlicht die Seite
   deploy:
+    # Startet erst, nachdem build erfolgreich war
     needs: build
+    # Nur für den Branch main
     if: github.ref == 'refs/heads/main'
+    # Erlaubt das Schreiben auf GitHub Pages (mit einem OIDC-Token)
     permissions: {pages: write, id-token: write}
+    # Die Liste der Schritte dieses Jobs
     steps:
+      # Veröffentlicht das Paket aus Job 1 auf GitHub Pages
       - uses: actions/deploy-pages@v4
 ```
 

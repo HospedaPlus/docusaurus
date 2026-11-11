@@ -42,118 +42,203 @@ Every HospedaPlus repository uses **GitHub Actions**. The idea is the same every
 One file, `.github/workflows/ci-cd.yml`, with four jobs chained with `needs:`: **lint → test → image → deploy**.
 
 ```yaml title=".github/workflows/ci-cd.yml (triggers)"
+# When does this workflow run?
 on:
+  # On every Pull Request that targets main
   pull_request:
-    branches: [main]      # every PR: lint + tests + image build (not published)
+    # Only PRs into main (lint + tests + image build, nothing is published)
+    branches: [main]
+  # On every push (a merged PR is a push)
   push:
-    branches: [main]      # merge: the same, then publish and deploy
-    tags: ["v*"]          # tag v1.2.3: the image also gets the version as tag
-  workflow_dispatch:      # "Run workflow" button
+    # Pushes to main: same checks, then publish the image and deploy
+    branches: [main]
+    # Pushing a tag like v1.2.3 also tags the image with the version
+    tags: ["v*"]
+  # Adds a "Run workflow" button in the Actions tab to start it by hand
+  workflow_dispatch:
 
+# Avoid two runs of the same branch at the same time
 concurrency:
+  # Runs of the same branch share this group name
   group: ci-cd-${{ github.ref }}
-  cancel-in-progress: true   # a new push cancels the old run of the same branch
+  # A newer push cancels the older run that is still going
+  cancel-in-progress: true
 ```
 
 **Lint** checks Python style with ruff and that the three Compose files are valid (a typo in YAML fails here, not on the server):
 
 ```yaml
+  # Job 1: check the code style and the Compose files
   lint:
+    # The list of steps of this job
     steps:
+      # Official action that installs and runs ruff (Python linter)
       - uses: astral-sh/ruff-action@v3
+        # Settings for the action
         with:
+          # Fixed ruff version so the result is the same on every machine
           version: "0.14.3"
+          # Check the DAGs, the Spark jobs and the tests
           args: check dags spark_jobs tests
+      # Step name shown in the GitHub log
       - name: Compose files are valid
+        # Shell commands of this step (the | allows several lines)
         run: |
+          # Compose needs a .env file: copy the example (fake values)
           cp .env.example .env
+          # config -q validates the file and prints nothing if it is OK
           docker compose -f docker-compose.yaml config -q
+          # Same check for the core machine file
           docker compose -f docker-compose.nucleo.yaml config -q
+          # Same check for the workers machine file
           docker compose -f docker-compose.workers.yaml config -q
 ```
 
 **Test** installs Airflow exactly like the Docker image does and runs pytest: every DAG must import without errors (DagBag), the Spark jobs run on small sample data, and the data-quality checks of `spark_jobs/quality.py` are tested. Java 17 is installed because Spark needs it.
 
 ```yaml
+  # Job 2: install Airflow and run all the tests
   test:
+    # Environment variables for every step of this job
     env:
+      # Airflow keeps its config and SQLite DB in this temporary folder
       AIRFLOW_HOME: ${{ github.workspace }}/.airflow-ci
+    # The list of steps of this job
     steps:
+      # Install Python
       - uses: actions/setup-python@v5
+        # Same Python version as the Docker image
         with: {python-version: "3.12"}
+      # Install Java
       - uses: actions/setup-java@v4
+        # Java 17 (Temurin build), required by Spark
         with: {distribution: temurin, java-version: "17"}
+      # Install uv, a fast replacement for pip
       - uses: astral-sh/setup-uv@v6
+        # Create and activate a virtual environment for the next steps
         with: {activate-environment: true}
+      # Step name shown in the GitHub log
       - name: Install Airflow + requirements (same pins as the image)
+        # Our script (below) installs Airflow + requirements.txt + pytest
         run: scripts/ci-install.sh pytest==8.4.2
+      # Step name shown in the GitHub log
       - name: DAG validation, Spark jobs and data quality tests
+        # Run every test in tests/ (-v lists each test by name)
         run: python -m pytest -v -p no:logging
 ```
 
 `scripts/ci-install.sh` solves a real problem: Airflow is installed with its official *constraints* file, but our own pins in `requirements.txt` must win. Without it, uv upgraded SQLAlchemy to 2.x and broke Airflow.
 
 ```bash title="scripts/ci-install.sh"
+# Same Airflow version as the Dockerfile
 AIRFLOW_VERSION=3.1.5
+# Read the Python version of the runner, e.g. "3.12"
 PY=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+# Download the official constraints file (tested versions for this Airflow)
 curl -fsSL "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PY}.txt" \
   -o /tmp/constraints.txt
 # Drop from the constraints every package we pin ourselves
+# Build a list "pkg1|pkg2|..." with the package names of requirements.txt
 names=$(grep -vE '^\s*(#|$)' requirements.txt | sed -E 's/[=<>!~ ].*//' | paste -sd'|')
+# Copy the constraints without those packages (and 3 that conflict)
 grep -viE "^(${names}|botocore|s3transfer|py4j)==" /tmp/constraints.txt > /tmp/constraints-ci.txt
+# Install Airflow + our requirements, limited by the cleaned constraints
 uv pip install "apache-airflow==${AIRFLOW_VERSION}" -r requirements.txt -c /tmp/constraints-ci.txt "$@"
 ```
 
 **Image** builds the Dockerfile and, outside PRs, publishes it to GHCR with three kinds of tags: the short commit SHA (`3f2a1bc`), the branch (`main`) and the version (`1.2.3` when a `v1.2.3` tag is pushed). The build cache lives in GitHub Actions (`type=gha`), so a build where only DAGs changed takes seconds.
 
 ```yaml
+  # Job 3: build the Docker image (and publish it outside PRs)
   image:
+    # Starts only if lint and test passed
     needs: [lint, test]
+    # Read the code and write packages (GHCR images) with the automatic token
     permissions: {contents: read, packages: write}
+    # The list of steps of this job
     steps:
+      # The id lets later steps read this step's outputs
       - id: meta
+        # Action that computes the image name and tags
         uses: docker/metadata-action@v5
+        # Settings for the action
         with:
+          # Image name: ghcr.io/hospedaplus/hospedaplus-pipeline
           images: ghcr.io/${{ github.repository }}
+          # The tags the image will get (one per line)
           tags: |
+            # Short commit SHA, e.g. 3f2a1bc
             type=sha,prefix=,format=short
+            # Branch name, e.g. main
             type=ref,event=branch
+            # Version of a v1.2.3 tag, e.g. 1.2.3
             type=semver,pattern={{version}}
+      # Action that builds the Dockerfile (and pushes the image)
       - uses: docker/build-push-action@v6
+        # Settings for the action
         with:
-          push: ${{ github.event_name != 'pull_request' }}   # PRs only build
+          # Push only when it is not a PR: PRs only build to prove it works
+          push: ${{ github.event_name != 'pull_request' }}
+          # Use the tags computed by the meta step
           tags: ${{ steps.meta.outputs.tags }}
+          # Reuse layers cached by previous runs in GitHub Actions
           cache-from: type=gha
+          # Save all layers to that cache for the next run
           cache-to: type=gha,mode=max
 ```
 
 **Deploy** connects by SSH to the two EC2 machines. First the **core** (Airflow + RabbitMQ), then the **workers**, so the workers always find the new scheduler. Each machine pulls `main` and recreates only the containers that changed.
 
 ```yaml
+  # Job 4: update the two EC2 machines over SSH
   deploy:
+    # Starts only after the image job succeeded
     needs: image
+    # Never deploy from a PR, only from main, tags or the manual button
     if: github.event_name != 'pull_request'
+    # Uses the secrets of the GitHub environment "production"
     environment: production
+    # Read the secrets into variables (empty if the secret does not exist)
     env:
+      # Private SSH key (.pem content) of the EC2 machines
       SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      # Address of the core machine (Airflow + RabbitMQ)
       NUCLEO_HOST: ${{ secrets.NUCLEO_HOST }}
+      # Address of the workers machine
       WORKERS_HOST: ${{ secrets.WORKERS_HOST }}
+      # SSH user; ubuntu if the secret is not set
       SSH_USER: ${{ secrets.DEPLOY_SSH_USER || 'ubuntu' }}
+    # The list of steps of this job
     steps:
+      # Step name shown in the GitHub log
       - name: Deploy is off until the secrets exist
+        # The id lets later steps read this step's output
         id: gate
+        # Shell commands of this step
         run: |
+          # If any of the three secrets is empty...
           if [ -z "$SSH_KEY" ] || [ -z "$NUCLEO_HOST" ] || [ -z "$WORKERS_HOST" ]; then
+            # ...show a notice in the run summary (not an error)
             echo "::notice::Deploy skipped: add DEPLOY_SSH_KEY, NUCLEO_HOST and WORKERS_HOST to turn it on."
+            # ...and save enabled=false as this step's output
             echo "enabled=false" >> "$GITHUB_OUTPUT"
+          # Otherwise
           else
+            # save enabled=true
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+          # End of the if
           fi
+      # Runs only if the gate step said enabled=true
       - if: steps.gate.outputs.enabled == 'true'
+        # Step name shown in the GitHub log
         name: Núcleo (Airflow + RabbitMQ), then workers
+        # Shell commands of this step
         run: |
+          # Small helper: run(host, command) runs a command on that host over SSH
           run() { ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=accept-new "$SSH_USER@$1" "$2"; }
+          # Core first: get the new code and recreate only the containers that changed
           run "$NUCLEO_HOST"  'cd ~/hospedaplus-pipeline && git pull --ff-only && docker compose -f docker-compose.nucleo.yaml up -d --build'
+          # Then the workers: same, plus a restart so they reconnect to the new scheduler
           run "$WORKERS_HOST" 'cd ~/hospedaplus-pipeline && git pull --ff-only && docker compose -f docker-compose.workers.yaml up -d --build && docker compose -f docker-compose.workers.yaml restart'
 ```
 
@@ -164,25 +249,42 @@ The three source simulators share the same `cd.yml` (lint → image → deploy t
 ### buenavista-streaming (F2 Kafka)
 
 ```yaml title=".github/workflows/ci.yml"
+# When does this workflow run?
 on:
+  # On every Pull Request
   pull_request:
+  # And on every push to main or develop
   push:
+    # The branches that trigger it
     branches: [main, develop]
+# The jobs of this workflow
 jobs:
+  # A single job called test
   test:
+    # The list of steps of this job
     steps:
+      # Install Python
       - uses: actions/setup-python@v5
+        # Python 3.12, and cache pip downloads between runs
         with: {python-version: "3.12", cache: pip}
+      # Install the project with its development extras (ruff, pytest)
       - run: python -m pip install -e ".[dev]"
-      - run: ruff check .             # lint
-      - run: ruff format --check .    # formatting
-      - run: pytest                   # events, Kafka producer/consumer, Neon sinks
+      # Lint: find bugs and bad practices
+      - run: ruff check .
+      # Formatting: fails if a file is not formatted
+      - run: ruff format --check .
+      # Tests: events, Kafka producer/consumer, Neon sinks
+      - run: pytest
 ```
 
 ```yaml title=".github/workflows/cd.yml (deploy step)"
+      # Runs only if the gate step found the secrets
       - if: steps.gate.outputs.enabled == 'true'
+        # Step name shown in the GitHub log
         name: Update the EC2 sources
+        # Shell commands of this step
         run: |
+          # Connect to the EC2 sources with the SSH key and run the quoted command
           ssh -i ~/.ssh/deploy "$SSH_USER@$HOST" \
             'cd ~/buenavista-streaming && git pull --ff-only && docker compose up -d --build'
 ```
@@ -194,34 +296,58 @@ jobs:
 The CI starts a throw-away **PostgreSQL 16** next to the job, so the tests run against a real database: `reservar()`, 50 concurrent buyers for the last room, penalties, etc.
 
 ```yaml title=".github/workflows/ci.yml"
+# The jobs of this workflow
 jobs:
+  # A single job called test
   test:
+    # Extra containers that GitHub starts next to the job
     services:
+      # A container named postgres
       postgres:
+        # Official PostgreSQL 16 image (alpine = small)
         image: postgres:16-alpine
+        # User, password and database of this throw-away DB (test values only)
         env: {POSTGRES_USER: hospedaplus, POSTGRES_PASSWORD: hospedaplus, POSTGRES_DB: hospedaplus_test}
+        # Publish port 5432 so the tests reach it at localhost:5432
         ports: ["5432:5432"]
+        # Wait until Postgres answers before running the steps
         options: --health-cmd "pg_isready -U hospedaplus" --health-interval 5s --health-retries 10
+    # Environment variables for every step
     env:
+      # The tests read this URL to connect to the database above
       TEST_DATABASE_URL: postgresql://hospedaplus:hospedaplus@localhost:5432/hospedaplus_test
+    # The list of steps of this job
     steps:
+      # Download the repository code
       - uses: actions/checkout@v4
+      # Install Python
       - uses: actions/setup-python@v5
+        # Python version
         with: {python-version: "3.12"}
+      # Install the project with its test extras
       - run: pip install -e ".[test]"
+      # Run the tests (-v lists each test by name)
       - run: pytest -v
 ```
 
 The deploy is smarter than a plain restart: it compares the commit before and after `git pull` and only touches Neon when the SQL or the local events changed.
 
 ```bash title="cd.yml: what runs on the EC2 sources"
+# Go to the repo, remember the current commit in OLD, then get the new code
 cd ~/db_simulated && OLD=$(git rev-parse HEAD) && git pull --ff-only
-if ! git diff --quiet "$OLD" HEAD -- sql/; then          # schema/functions changed
-  docker compose --profile neon run --rm neon-check init  # applies it (init never deletes data)
+# If any file in sql/ changed between OLD and the new commit (schema/functions)
+if ! git diff --quiet "$OLD" HEAD -- sql/; then
+  # apply the SQL to Neon (init never deletes data)
+  docker compose --profile neon run --rm neon-check init
+# End of the if
 fi
+# Rebuild and restart the booking simulator with the new code
 docker compose --profile neon up -d --build neon-simulator
+# If the local events file (F6b) changed
 if ! git diff --quiet "$OLD" HEAD -- data/local_events.csv; then
-  docker compose --profile neon run --rm neon-check events   # reloads F6b local events
+  # reload the local events into Neon
+  docker compose --profile neon run --rm neon-check events
+# End of the if
 fi
 ```
 
@@ -230,6 +356,7 @@ fi
 Only `cd.yml`: ruff lint, image build and deploy of the single service `f4-weekly`.
 
 ```bash title="cd.yml: what runs on the EC2 sources"
+# Go to the repo, get the new code, rebuild and restart only f4-weekly
 cd ~/hospedaplus-csv && git pull --ff-only && docker compose up -d --build f4-weekly
 ```
 
@@ -254,55 +381,99 @@ cd ~/hospedaplus-csv && git pull --ff-only && docker compose up -d --build f4-we
 | **CI passed** | Fails if any job above did not succeed |
 
 ```yaml title="ci.yml: the seed must be idempotent and reproducible"
+      # Step name shown in the GitHub log
       - name: Seed is idempotent and reproducible
+        # Shell commands of this step
         run: |
+          # Helper: how many reviews are in the table
           count()  { psql "$DATABASE_URL" -tAc "SELECT count(*) FROM reviews"; }
+          # Helper: one md5 fingerprint of all the review contents
           digest() { psql "$DATABASE_URL" -tAc "SELECT md5(string_agg(platform || external_id || rating || text, ',' ORDER BY platform, external_id)) FROM reviews"; }
+          # First run of the seed
           uv run python -m src.seed --mode dev
+          # Save the row count and the fingerprint after the first run
           first_count=$(count); first_digest=$(digest)
+          # Second run of the seed
           uv run python -m src.seed --mode dev
+          # If the count changed, the seed is not idempotent: fail the job
           [ "$(count)" = "$first_count" ] || { echo "::error::Second seed run inserted rows"; exit 1; }
 ```
 
 `cd.yml` starts **only after CI finished green on `main`** (`workflow_run`) and deploys exactly the commit CI tested. It logs in to AWS with **OIDC**: GitHub gets a temporary token for an IAM role, so no AWS access key is stored anywhere.
 
 ```yaml title=".github/workflows/cd.yml"
+# When does this workflow run?
 on:
+  # When another workflow finishes
   workflow_run:
+    # That workflow is the one named CI
     workflows: [CI]
+    # Only when it has completed
     types: [completed]
+    # And only for the main branch
     branches: [main]
+# Permissions of the automatic GitHub token
 permissions:
-  id-token: write                 # GitHub OIDC -> AWS IAM role
+  # Allows asking GitHub for an OIDC token, exchanged for an AWS IAM role
+  id-token: write
+# The jobs of this workflow
 jobs:
+  # A single job called deploy
   deploy:
+    # Only if the AWS role is configured and CI was green
     if: vars.AWS_ROLE_ARN != '' && github.event.workflow_run.conclusion == 'success'
+    # Variables for every step
     env:
+      # The image tag is the exact commit that CI tested
       IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+    # The list of steps of this job
     steps:
+      # Log in to AWS without keys: assume the IAM role through OIDC
       - uses: aws-actions/configure-aws-credentials@v6
+        # Settings for the action
         with:
+          # The IAM role to assume (repository variable)
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          # The AWS region (repository variable)
           aws-region: ${{ vars.AWS_REGION }}
+      # The id lets later steps read the registry address
       - id: ecr
+        # Log Docker in to Amazon ECR (AWS image registry)
         uses: aws-actions/amazon-ecr-login@v2
+      # Build the Dockerfile and push the image
       - uses: docker/build-push-action@v7
+        # Settings for the action
         with:
+          # Always push here (this only runs on main)
           push: true
+          # Full name: <registry>/<repository>:<commit>
           tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+      # Fill the ${...} placeholders of the ECS task definition template
       - run: envsubst < deploy/ecs/task-definition.json > task-definition.rendered.json
+      # The id lets the next step read the new task definition
       - id: render
+        # Action that puts the new image into the task definition
         uses: aws-actions/amazon-ecs-render-task-definition@v1
+        # Settings for the action
         with:
+          # The file created by envsubst
           task-definition: task-definition.rendered.json
+          # The container inside the task that gets the new image
           container-name: api
+          # The image just pushed
           image: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+      # Register the task definition and update the ECS service
       - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        # Settings for the action
         with:
+          # The task definition created by the render step
           task-definition: ${{ steps.render.outputs.task-definition }}
+          # ECS cluster name
           cluster: ${{ env.ECS_CLUSTER }}
+          # ECS service name
           service: ${{ env.ECS_SERVICE }}
-          wait-for-service-stability: true    # fails if the new task does not become healthy
+          # Wait for the new task to be healthy; fail if it never is
+          wait-for-service-stability: true
 ```
 
 The database URL is not in the repository either: the task definition points to a **Secrets Manager** ARN (`DATABASE_URL_SECRET_ARN`), and ECS injects it when the container starts.
@@ -310,23 +481,41 @@ The database URL is not in the repository either: the task definition points to 
 ## 4. docusaurus (this site)
 
 ```yaml title=".github/workflows/deploy.yml"
+# When does this workflow run?
 on:
+  # On pushes to main (publish the site)
   push: {branches: [main]}
+  # On PRs into main (only check that it builds)
   pull_request: {branches: [main]}
+# The jobs of this workflow
 jobs:
+  # Job 1: build the site
   build:
+    # The list of steps of this job
     steps:
+      # Install the exact versions of package-lock.json
       - run: npm ci
-      - run: npm run typecheck     # TypeScript of the React components
-      - run: npm run build         # prebuild generates the docs-chat index, then 5 languages
+      # Check the TypeScript of the React components
+      - run: npm run typecheck
+      # prebuild generates the docs-chat index, then builds the 5 languages
+      - run: npm run build
+      # Only outside PRs
       - if: github.event_name != 'pull_request'
+        # Package the build folder for GitHub Pages
         uses: actions/upload-pages-artifact@v3
+        # The folder to package
         with: {path: build}
+  # Job 2: publish the site
   deploy:
+    # Starts only after build succeeded
     needs: build
+    # Only for the main branch
     if: github.ref == 'refs/heads/main'
+    # Allow writing to GitHub Pages (with an OIDC token)
     permissions: {pages: write, id-token: write}
+    # The list of steps of this job
     steps:
+      # Publish the package of job 1 on GitHub Pages
       - uses: actions/deploy-pages@v4
 ```
 

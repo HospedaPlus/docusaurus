@@ -41,25 +41,38 @@ Chaque dépôt tourne dans **Docker** : la même commande le démarre sur un por
 ### Dockerfile
 
 ```dockerfile title="Dockerfile"
-# Airflow 3 + Spark (local mode inside each Celery worker) + S3 (s3a).
+# Airflow 3 + Spark (mode local dans chaque worker Celery) + S3 (s3a).
+# Part de l'image officielle Airflow 3.1.5
 FROM apache/airflow:3.1.5
 
+# Passe en root : installer des paquets système l'exige
 USER root
+# Met à jour la liste des paquets Debian
 RUN apt-get update \
+ # Installe Java 17 (Spark tourne sur la JVM) et curl, rien d'autre
  && apt-get install -y --no-install-recommends openjdk-17-jre-headless curl \
+ # Supprime les listes de paquets pour alléger l'image
  && rm -rf /var/lib/apt/lists/* \
+ # Crée un chemin fixe vers Java, quelle que soit l'architecture du CPU
  && ln -s "$(dirname "$(dirname "$(readlink -f "$(which java)")")")" /usr/lib/jvm/default-java
-ENV JAVA_HOME=/usr/lib/jvm/default-java          # Spark runs on the JVM
+# Indique à Spark où est Java
+ENV JAVA_HOME=/usr/lib/jvm/default-java
 
-# Jars so Spark can read/write s3a:// (same Hadoop version that pyspark 3.5 ships).
+# Jars pour que Spark lise/écrive s3a:// (même version de Hadoop que celle de pyspark 3.5).
+# Crée le dossier des jars
 RUN mkdir -p /opt/spark-jars \
+ # Télécharge hadoop-aws : le système de fichiers s3a://
  && curl -fsSL -o /opt/spark-jars/hadoop-aws-3.3.4.jar \
       https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar \
+ # Télécharge le SDK AWS qu'utilise hadoop-aws pour parler à S3
  && curl -fsSL -o /opt/spark-jars/aws-java-sdk-bundle-1.12.262.jar \
       https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
 
+# Revient à l'utilisateur normal airflow, non root
 USER airflow
+# Copie seulement la liste des dépendances Python (couche en cache)
 COPY requirements.txt /requirements.txt
+# Les installe en gardant la version d'Airflow de l'image de base
 RUN pip install --no-cache-dir "apache-airflow==${AIRFLOW_VERSION}" -r /requirements.txt
 ```
 
@@ -70,141 +83,240 @@ RUN pip install --no-cache-dir "apache-airflow==${AIRFLOW_VERSION}" -r /requirem
 Tous les conteneurs Airflow partagent la même configuration grâce à une **ancre** YAML (`&airflow-common`), et chaque service ne précise que ce qui change (sa `command`).
 
 ```yaml title="docker-compose.nucleo.yaml (extrait)"
+# Paramètres partagés, réutilisés plus bas avec <<: *airflow-common
 x-airflow-common: &airflow-common
+  # Construit l'image depuis le Dockerfile de ce dossier
   build: .
+  # Nom donné à l'image construite
   image: hospedaplus-pipeline:local
+  # Charge dans le conteneur les variables de .env (URLs Neon, bucket, ...)
   env_file: [.env]
+  # Paramètres d'Airflow (l'ancre &airflow-common-env permet à init de les réutiliser)
   environment: &airflow-common-env
+    # Les tâches sont envoyées aux workers Celery via RabbitMQ
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    # Base de métadonnées d'Airflow (le conteneur postgres local)
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD:-airflow}@postgres/airflow
+    # Le broker Celery : RabbitMQ (${VAR:-défaut} prend le défaut si VAR est vide)
     AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_USER:-hospedaplus}:${RABBITMQ_PASSWORD:-hospedaplus}@rabbitmq:5672//
+    # Où Celery stocke les résultats des tâches : le même Postgres
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:${POSTGRES_PASSWORD:-airflow}@postgres/airflow
-    AIRFLOW__SCHEDULER__CREATE_CRON_DATA_INTERVALS: "True"   # [previous run, this run) for incremental extracts
+    # Chaque exécution couvre [exécution précédente, cette exécution) : requis par les extractions incrémentales
+    AIRFLOW__SCHEDULER__CREATE_CRON_DATA_INTERVALS: "True"
+    # Les logs des tâches sont envoyés sur S3, ainsi l'UI montre les logs des workers
     AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: s3://${S3_BUCKET}/airflow-logs
+  # Dossiers de l'EC2 montés dans le conteneur
   volumes:
-    - ./dags:/opt/airflow/dags            # DAGs are mounted, not baked: git pull is enough to update them
+    # Les DAGs sont montés, pas intégrés : un git pull suffit pour les mettre à jour
+    - ./dags:/opt/airflow/dags
+    # Les jobs Spark, montés de la même façon
     - ./spark_jobs:/opt/airflow/spark_jobs
+  # Tourne avec l'utilisateur de l'EC2 (AIRFLOW_UID=1000) pour que les fichiers créés lui appartiennent
   user: "${AIRFLOW_UID:-50000}:0"
+  # Ne démarre que lorsque ces services sont sains
   depends_on:
+    # Postgres répond à pg_isready
     postgres: {condition: service_healthy}
+    # RabbitMQ répond à son health check
     rabbitmq: {condition: service_healthy}
 
+# Les conteneurs de la machine cœur
 services:
+  # Broker de messages entre le scheduler et les workers
   rabbitmq:
+    # RabbitMQ avec son interface web d'administration
     image: rabbitmq:3.13-management
+    # Ports publiés sur l'EC2 (hôte:conteneur)
     ports:
-      - "127.0.0.1:15672:15672"   # management UI, only through Nginx
-      - "5672:5672"               # AMQP for the workers EC2 (security group: workers only)
+      # Interface d'administration, seulement sur localhost : accessible via Nginx
+      - "127.0.0.1:15672:15672"
+      # AMQP pour l'EC2 des workers (security group : workers uniquement)
+      - "5672:5672"
+  # Décide quelle tâche tourne et quand, et l'envoie à RabbitMQ
   airflow-scheduler:
+    # Copie tous les paramètres partagés
     <<: *airflow-common
+    # Seule la commande change
     command: scheduler
-  airflow-init:                   # migrates the metadata DB and creates the admin user, then stops
+  # Job ponctuel : migre la base de métadonnées et crée l'utilisateur admin, puis s'arrête
+  airflow-init:
+    # Copie tous les paramètres partagés
     <<: *airflow-common
+    # N'importe quelle commande rapide ; le travail est fait par les variables ci-dessous
     command: version
+    # Les variables partagées plus deux autres
     environment:
+      # Copie les variables partagées
       <<: *airflow-common-env
+      # Crée ou met à jour les tables de la base de métadonnées
       _AIRFLOW_DB_MIGRATE: 'true'
+      # Crée l'utilisateur admin de l'interface web
       _AIRFLOW_WWW_USER_CREATE: 'true'
+    # Ne le redémarre pas une fois terminé
     restart: "no"
 ```
 
 Sur la machine **workers**, le même bloc pointe vers le cœur par son IP privée (`NUCLEO_HOST`), et chaque worker écoute une file Celery :
 
 ```yaml title="docker-compose.workers.yaml (extrait)"
+    # Base de métadonnées : le Postgres du cœur, via son IP privée
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD:-airflow}@${NUCLEO_HOST}:5432/airflow
+    # Broker : le RabbitMQ du cœur
     AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_USER:-hospedaplus}:${RABBITMQ_PASSWORD:-hospedaplus}@${NUCLEO_HOST}:5672//
+    # Airflow 3 : les workers rapportent l'état des tâches à l'API server du cœur
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://${NUCLEO_HOST}:8080/execution/'
 
+# Les conteneurs de la machine des workers
 services:
+  # Worker de la file bronze
   worker-bronze:
+    # Copie les paramètres partagés des workers
     <<: *worker
-    command: celery worker --queues bronze --concurrency 4   # light Python extracts, 4 at a time
+    # N'écoute que la file bronze ; extractions Python légères, 4 à la fois
+    command: celery worker --queues bronze --concurrency 4
+  # Worker de la file silver
   worker-silver:
+    # Copie les paramètres partagés des workers
     <<: *worker
-    command: celery worker --queues silver --concurrency 2   # Spark jobs, memory-heavy
+    # Les jobs Spark consomment beaucoup de mémoire : seulement 2 à la fois
+    command: celery worker --queues silver --concurrency 2
+  # Worker de la file gold
   worker-gold:
+    # Copie les paramètres partagés des workers
     <<: *worker
+    # Jobs Spark de la couche gold, 2 à la fois
     command: celery worker --queues gold --concurrency 2
 ```
 
 Une tâche choisit son worker avec `@task(queue="silver")`. **Commandes :**
 
 ```bash
-# EC2 core
+# EC2 cœur : démarre (-d = en arrière-plan) les conteneurs du cœur
 docker compose -f docker-compose.nucleo.yaml up -d
-# EC2 workers (NUCLEO_HOST=<private IP of the core> in .env)
+# EC2 workers (NUCLEO_HOST=<IP privée du cœur> dans .env)
 docker compose -f docker-compose.workers.yaml up -d
-# Everything on one laptop
+# Tout sur un seul portable
 docker compose up -d
 ```
 
 ## 2. buenavista-streaming (F2 : Kafka → Neon)
 
 ```dockerfile title="Dockerfile"
-# One image for the F2 producer and the Kafka -> Neon consumer.
+# Une image pour le producteur F2 et le consommateur Kafka -> Neon.
+# Petite image officielle Python 3.12
 FROM python:3.12-slim
+# Pas de fichiers .pyc, et les logs s'affichent immédiatement
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Toutes les commandes suivantes s'exécutent dans /app
 WORKDIR /app
+# Copie la définition du projet (dépendances)
 COPY pyproject.toml README.md ./
+# Copie le code source
 COPY src ./src
+# Copie le catalogue d'hôtels utilisé pour générer les événements
 COPY catalog ./catalog
+# Installe le projet et crée un utilisateur non root appelé app
 RUN pip install --no-cache-dir . && useradd --create-home --uid 10001 app
+# À partir d'ici, tourne avec cet utilisateur
 USER app
-CMD ["python", "-m", "src.neon_consumer"]   # Compose changes it for the producer
+# Commande par défaut : le consommateur (Compose la change pour le producteur)
+CMD ["python", "-m", "src.neon_consumer"]
 ```
 
 **Une image, deux rôles :** le producteur et le consommateur sont le même code ; Compose choisit le rôle avec `command:`.
 
 ```yaml title="docker-compose.yml (extrait)"
+# Les conteneurs de ce projet
 services:
-  kafka:                         # Kafka 4 in KRaft mode: no ZooKeeper
+  # Kafka 4 en mode KRaft : sans ZooKeeper
+  kafka:
+    # Image officielle de Kafka
     image: apache/kafka:4.1.1
+    # Paramètres de Kafka
     environment:
+      # Ce nœud unique est à la fois broker et controller
       KAFKA_PROCESS_ROLES: broker,controller
+      # Ports d'écoute de Kafka : portable, réseau Docker et controller
       KAFKA_LISTENERS: PLAINTEXT://:9092,INTERNAL://:29092,CONTROLLER://:9093
+      # Adresses données aux clients : localhost pour le portable, kafka pour les conteneurs
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092
+    # Garde les messages dans un volume nommé : ils survivent à un redémarrage
     volumes: [kafka_data:/var/lib/kafka/data]
+    # Comment Docker sait que Kafka est prêt
     healthcheck:
+      # Demande au broker ses versions d'API ; s'il répond, il est en marche
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
 
-  kafka-init:                    # creates the topics once and stops
+  # Job ponctuel : crée les topics puis s'arrête
+  kafka-init:
+    # Même image, car elle contient les outils en ligne de commande de Kafka
     image: apache/kafka:4.1.1
+    # Attend que Kafka soit sain
     depends_on: {kafka: {condition: service_healthy}}
+    # Exécute la commande ci-dessous avec sh
     entrypoint: ["/bin/sh", "-c"]
+    # Le script shell (| garde les retours à la ligne)
     command:
       - |
+        # Nom court pour l'outil des topics
         K=/opt/kafka/bin/kafka-topics.sh
+        # Topic principal des événements F2, 6 partitions pour que 2+ consommateurs le partagent
         $$K --bootstrap-server kafka:29092 --create --if-not-exists --topic reservation.events.v1_3 --partitions 6 --replication-factor 1
+        # Topic dead-letter pour les événements qui n'ont pas pu être traités
         $$K --bootstrap-server kafka:29092 --create --if-not-exists --topic reservation.events.dlq --partitions 1 --replication-factor 1
+    # Ne le redémarre pas une fois terminé
     restart: "no"
 
-  neon-migrate:                  # applies migrations/*.sql to Neon as the owner and stops
+  # Job ponctuel : applique migrations/*.sql dans Neon en tant que propriétaire puis s'arrête
+  neon-migrate:
+    # Petite image qui contient psql
     image: postgres:16-alpine
+    # Variables du conteneur
     environment:
+      # URL propriétaire depuis .env ; ${VAR:?msg} arrête Compose avec ce message si elle est vide
       NEON_OWNER_URL: ${NEON_OWNER_URL:?Falta NEON_OWNER_URL en .env (usuario hospedaplus_owner)}
+    # Monte les fichiers SQL en lecture seule (ro)
     volumes: [./migrations:/migrations:ro]
+    # Exécute la commande ci-dessous avec sh
     entrypoint: ["/bin/sh", "-c"]
+    # Le script shell
     command:
       - |
+        # Exécute chaque fichier .sql dans l'ordre ; s'arrête à la première erreur
         for f in /migrations/*.sql; do psql "$$NEON_OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$$f"; done
+    # Ne le redémarre pas une fois terminé
     restart: "no"
 
+  # Génère les événements F2 et les envoie à Kafka
   producer:
+    # Construit depuis le Dockerfile de ce dossier
     build: .
+    # Mode producteur, continu, avec les taux normal et de pic de .env
     command: ["python", "-m", "src.kafka_producer", "--continuous",
               "--base-rate", "${F2_BASE_RATE:-0.05}", "--peak-rate", "${F2_PEAK_RATE:-15}"]
+    # Ne démarre que lorsque les topics ont été créés
     depends_on: {kafka-init: {condition: service_completed_successfully}}
 
+  # Lit les événements de Kafka et les écrit dans Neon
   neon-consumer:
+    # Même image (son CMD par défaut est le consommateur)
     build: .
+    # Variables du conteneur
     environment:
+      # Adresse de Kafka dans le réseau Docker
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # URL Neon avec le rôle app_writer ; Compose s'arrête si elle manque
       NEON_DATABASE_URL: ${NEON_DATABASE_URL:?Falta NEON_DATABASE_URL en .env (usuario app_writer)}
+    # Ne démarre que lorsque les deux jobs ponctuels ont réussi
     depends_on:
+      # Les topics existent
       kafka-init: {condition: service_completed_successfully}
+      # Les tables Neon existent
       neon-migrate: {condition: service_completed_successfully}
+    # Combien de copies lancer
     deploy:
-      replicas: ${NEON_CONSUMERS:-2}   # 2 consumers in the same group share the 6 partitions
+      # 2 consommateurs du même groupe se partagent les 6 partitions
+      replicas: ${NEON_CONSUMERS:-2}
 ```
 
 **Deux adresses Kafka :** les conteneurs utilisent `kafka:29092` (le réseau Docker), votre portable `localhost:9092`. `${VAR:?message}` fait s'arrêter Compose avec un message clair s'il manque une URL Neon, et `$$` transmet un `$` littéral au shell du conteneur. **Commande :** `docker compose up -d --build`.
@@ -212,83 +324,138 @@ services:
 ## 3. db_simulated (F3 : moteur de réservation sur PostgreSQL / Neon)
 
 ```dockerfile title="Dockerfile"
-# Seed job image: runs `python -m seed <command>` against DATABASE_URL.
+# Image du job seed : lance `python -m seed <commande>` sur DATABASE_URL.
+# Petite image officielle Python 3.12
 FROM python:3.12-slim
+# Pas de .pyc, logs immédiats, et pip ne garde pas de cache de téléchargement
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+# Toutes les commandes suivantes s'exécutent dans /app
 WORKDIR /app
-RUN pip install "psycopg[binary]>=3.2,<4" tzdata      # dependencies first: cached layer
+# D'abord les dépendances : couche en cache (pilote PostgreSQL + fuseaux horaires)
+RUN pip install "psycopg[binary]>=3.2,<4" tzdata
+# Copie le code Python du seed et du simulateur
 COPY seed/ seed/
+# Copie le SQL : schéma, index et fonctions comme reservar()
 COPY sql/ sql/
+# Copie le catalogue d'hôtels
 COPY catalog/ catalog/
+# Copie les fichiers de données (événements locaux F6b)
 COPY data/ data/
+# Crée un utilisateur non root appelé seeder
 RUN useradd --create-home --uid 10001 seeder
+# À partir d'ici, tourne avec cet utilisateur
 USER seeder
+# La partie fixe de la commande
 ENTRYPOINT ["python", "-m", "seed"]
-CMD ["all"]                                            # docker compose run seed check -> python -m seed check
+# Argument par défaut : docker compose run seed check -> python -m seed check
+CMD ["all"]
 ```
 
 `ENTRYPOINT` + `CMD` transforment l'image en outil en ligne de commande : ce que vous écrivez après le nom du service remplace `all`.
 
 ```yaml title="docker-compose.yml (extrait)"
+# Les conteneurs de ce projet
 services:
-  postgres:                                  # local database
+  # Base de données locale
+  postgres:
+    # Image officielle PostgreSQL 16
     image: postgres:16-alpine
+    # Dossiers et fichiers montés dans le conteneur
     volumes:
+      # Volume nommé : les données survivent à un redémarrage
       - pgdata:/var/lib/postgresql/data
-      # executed only the first time (empty volume), in this order
+      # exécutés seulement la première fois (volume vide), dans cet ordre
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      # 2e : les index
       - ./sql/indexes.sql:/docker-entrypoint-initdb.d/02_indexes.sql:ro
+      # 3e : les fonctions (reservar(), pénalités, ...)
       - ./sql/functions.sql:/docker-entrypoint-initdb.d/03_functions.sql:ro
 
-  neon-seed:                                 # full load into Neon as hospedaplus_owner
+  # Chargement complet dans Neon en tant que hospedaplus_owner
+  neon-seed:
+    # Construit depuis le Dockerfile de ce dossier
     build: .
-    profiles: ["neon"]                       # not started by a plain `up`
-    environment:
-      DATABASE_URL: ${NEON_OWNER_URL:-}
-    command: ["all", "--allow-remote"]       # replacing remote data must be explicit
-
-  neon-simulator:                            # continuous bookings on Neon as app_writer
-    build: .
+    # Pas démarré par un simple `up` : seulement avec --profile neon
     profiles: ["neon"]
+    # Variables du conteneur
     environment:
+      # Le seed se connecte à Neon avec l'URL propriétaire de .env
+      DATABASE_URL: ${NEON_OWNER_URL:-}
+    # Remplacer des données distantes doit être explicite (--allow-remote)
+    command: ["all", "--allow-remote"]
+
+  # Réservations continues dans Neon en tant que app_writer
+  neon-simulator:
+    # Même image
+    build: .
+    # Seulement avec --profile neon
+    profiles: ["neon"]
+    # Variables du conteneur
+    environment:
+      # URL Neon avec le rôle app_writer
       DATABASE_URL: ${NEON_APP_URL:-}
-      SIM_BOOKINGS_PER_MIN: ${SIM_BOOKINGS_PER_MIN:-6}   # 1 in production (.env)
+      # Réservations par minute ; 1 en production (.env)
+      SIM_BOOKINGS_PER_MIN: ${SIM_BOOKINGS_PER_MIN:-6}
+    # Lance python -m seed simulate
     command: ["simulate"]
+    # Le redémarre s'il s'arrête ou si l'EC2 redémarre
     restart: unless-stopped
 ```
 
 Les **profiles** gardent les services dangereux ou ponctuels hors de `docker compose up`. **Commandes :**
 
 ```bash
-docker compose up -d postgres && docker compose run --rm seed all     # local database + seed
-docker compose --profile neon run --rm neon-check                     # 24 read-only checks on Neon
-docker compose --profile neon up -d neon-simulator                    # what runs on the EC2 sources
+# Base locale + seed complet (--rm supprime le conteneur du job à la fin)
+docker compose up -d postgres && docker compose run --rm seed all
+# 24 vérifications en lecture seule sur Neon
+docker compose --profile neon run --rm neon-check
+# Ce qui tourne sur l'EC2 sources : le simulateur continu
+docker compose --profile neon up -d neon-simulator
 ```
 
 ## 4. hospedaplus-csv (F4 : fichiers hebdomadaires des agences)
 
 ```dockerfile title="Dockerfile"
+# Petite image officielle Python 3.11
 FROM python:3.11-slim
+# Toutes les commandes suivantes s'exécutent dans /app
 WORKDIR /app
+# Pas de .pyc, logs immédiats, et Python trouve le code dans /app/src
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
+# Copie la définition du projet (dépendances)
 COPY pyproject.toml README.md ./
+# Copie le code source
 COPY src/ ./src/
+# Copie les schémas utilisés pour valider les fichiers
 COPY schemas/ ./schemas/
+# Copie les données de référence (hôtels, agences)
 COPY data/ ./data/
-RUN pip install --no-cache-dir -e ".[neon,s3]"   # extras: psycopg (Neon) and boto3 (S3)
+# Installe le projet avec ses extras : psycopg (Neon) et boto3 (S3)
+RUN pip install --no-cache-dir -e ".[neon,s3]"
+# Commande par défaut : valider les fichiers (Compose la remplace par le job hebdomadaire)
 CMD ["python3", "-m", "buenavista_csv.validator"]
 ```
 
 ```yaml title="docker-compose.yml"
+# Les conteneurs de ce projet
 services:
+  # Le seul service : le job hebdomadaire des fichiers d'agences
   f4-weekly:
+    # Construit depuis le Dockerfile de ce dossier
     build: .
-    command: ["python", "-m", "buenavista_csv.weekly"]   # sleeps until Monday 06:00 UTC, generates, loads, uploads
-    env_file: .env                                       # NEON_READ_URL, NEON_DATABASE_URL, F4_S3_BUCKET
+    # Dort jusqu'au lundi 06:00 UTC, génère, charge et envoie
+    command: ["python", "-m", "buenavista_csv.weekly"]
+    # NEON_READ_URL, NEON_DATABASE_URL et F4_S3_BUCKET viennent de .env
+    env_file: .env
+    # Variables supplémentaires du conteneur
     environment:
+      # Dossier dans le conteneur où les fichiers sont écrits
       F4_OUTPUT_DIR: /app/output/f4_agency_files
+    # Dossiers de l'EC2 montés dans le conteneur
     volumes:
-      - ./output:/app/output        # the files also stay on the EC2 disk
+      # Les fichiers restent aussi sur le disque de l'EC2
+      - ./output:/app/output
+    # Le redémarre s'il s'arrête ou si l'EC2 redémarre
     restart: unless-stopped
 ```
 
@@ -299,60 +466,104 @@ Le **volume** relie un dossier de l'EC2 au conteneur : les Excel/CSV générés 
 L'image la plus optimisée : un build **multi-stage**. La première étape a `uv` et construit l'environnement virtuel ; la seconde copie seulement le résultat, donc l'image finale n'a aucun outil de build.
 
 ```dockerfile title="Dockerfile"
-# ---------- Stage 1: builder ----------
+# ---------- Étape 1 : builder ----------
+# Image Python 3.12 utilisée seulement pour construire
 FROM python:3.12-slim AS builder
+# Copie le binaire uv depuis son image officielle
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /bin/uv
+# Toutes les commandes suivantes s'exécutent dans /app
 WORKDIR /app
+# Compile les .pyc maintenant, copie les fichiers au lieu de les lier, ne télécharge jamais Python
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+# Copie d'abord seulement les fichiers de dépendances (couche en cache)
 COPY pyproject.toml uv.lock ./
+# Installe les versions exactes de uv.lock, sans le projet ni les outils de dev
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-install-project --no-dev
+# Copie la config Alembic (migrations de la base)
 COPY alembic.ini ./
+# Copie les scripts de migration
 COPY alembic ./alembic
+# Copie le code source de l'API
 COPY src ./src
+# Installe maintenant le projet lui-même dans le même environnement virtuel
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
-# ---------- Stage 2: runtime (no uv, non-root) ----------
+# ---------- Étape 2 : runtime (sans uv, non root) ----------
+# Une image Python 3.12 propre : rien de l'étape de build sauf ce que nous copions
 FROM python:3.12-slim AS runtime
+# Logs immédiats, le venv en premier dans le PATH, migrations au démarrage
 ENV PYTHONUNBUFFERED=1 PATH="/app/.venv/bin:$PATH" RUN_MIGRATIONS=true
+# Crée un groupe et un utilisateur système appelés app (non root)
 RUN groupadd --system app && useradd --system --gid app --no-create-home app
+# Toutes les commandes suivantes s'exécutent dans /app
 WORKDIR /app
+# Copie l'app prête + le venv depuis le builder, propriétaire app
 COPY --from=builder --chown=app:app /app /app
+# Copie le script de démarrage et le rend exécutable
 COPY --chown=app:app --chmod=755 entrypoint.sh ./entrypoint.sh
+# À partir d'ici, tourne en tant que app
 USER app
+# Indique que l'API écoute sur le port 8000
 EXPOSE 8000
+# Toutes les 15 s Docker appelle /health ; 3 échecs marquent le conteneur comme non sain
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+# Démarre toujours via entrypoint.sh (qui lance les migrations)
 ENTRYPOINT ["./entrypoint.sh"]
+# Commande par défaut passée à entrypoint.sh : démarrer le serveur FastAPI
 CMD ["fastapi", "run", "src/main.py", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 ```sh title="entrypoint.sh"
 #!/bin/sh
+# Arrête le script à la première commande qui échoue
 set -e
+# Si les migrations sont activées (true par défaut dans le Dockerfile)
 if [ "$RUN_MIGRATIONS" = "true" ]; then
-    alembic upgrade head          # the schema is always up to date before the API starts
+    # le schéma est toujours à jour avant le démarrage de l'API
+    alembic upgrade head
+# Fin du if
 fi
-exec "$@"                         # then runs CMD (the API) as PID 1
+# puis lance CMD (l'API) comme PID 1, pour qu'elle reçoive les signaux d'arrêt
+exec "$@"
 ```
 
 ```yaml title="docker-compose.yml (extrait)"
+# Les conteneurs de ce projet
 services:
+  # Base PostgreSQL locale
   db:
+    # Image officielle PostgreSQL 16
     image: postgres:16-alpine
-    ports: ["${POSTGRES_PORT:-5433}:5432"]     # 5433 on the host to avoid clashes
+    # 5433 sur l'hôte pour éviter un conflit avec un autre Postgres local
+    ports: ["${POSTGRES_PORT:-5433}:5432"]
+  # L'API d'avis en FastAPI
   api:
+    # Construit depuis le Dockerfile de ce dossier
     build: .
+    # Variables du conteneur
     environment:
+      # Connexion au conteneur db (db est son nom dans le réseau Docker)
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-reviews}
+    # Ne démarre que lorsque la base est saine
     depends_on: {db: {condition: service_healthy}}
-  seed:                                        # same image, runs once
+  # Même image, s'exécute une fois pour charger les avis initiaux
+  seed:
+    # Construit depuis le même Dockerfile
     build: .
+    # Lance le seed au lieu de l'API
     command: ["python", "-m", "src.seed"]
-    environment: {RUN_MIGRATIONS: "false"}     # the api already migrated
+    # L'api a déjà migré, donc on saute les migrations
+    environment: {RUN_MIGRATIONS: "false"}
+    # Ne démarre que lorsque l'API est saine
     depends_on: {api: {condition: service_healthy}}
-  simulator:                                   # every 15 min inserts the reviews "published" since the last pass
+  # Toutes les 15 min insère les avis "publiés" depuis le passage précédent
+  simulator:
+    # Construit depuis le même Dockerfile
     build: .
+    # Seed en mode live : tourne en continu
     command: ["python", "-m", "src.seed", "--live"]
+    # Le redémarre s'il s'arrête
     restart: unless-stopped
 ```
 
@@ -361,9 +572,14 @@ Sur AWS, la même image tourne comme deux services **ECS Fargate** (`api` et `si
 ## Commandes utiles pour n'importe quel dépôt
 
 ```bash
-docker compose ps                    # which containers are running and their health
-docker compose logs -f <service>     # follow the logs of one service
-docker compose up -d --build         # rebuild what changed and restart it
-docker compose exec <service> bash   # open a shell inside a container
-docker compose down                  # stop everything (volumes and data are kept)
+# Quels conteneurs tournent et leur état de santé
+docker compose ps
+# Suit les logs d'un service (Ctrl+C pour quitter)
+docker compose logs -f <service>
+# Reconstruit ce qui a changé et le redémarre
+docker compose up -d --build
+# Ouvre un terminal dans un conteneur
+docker compose exec <service> bash
+# Arrête tout (les volumes et les données sont conservés)
+docker compose down
 ```
