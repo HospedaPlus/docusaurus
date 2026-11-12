@@ -67,6 +67,41 @@ Each client uses its own role. Ask the team for the connection strings: they are
 | `app_writer` | F2 consumer, F3 simulator, F4 loader, pipeline write-back | Read and write data; no schema changes. |
 | `etl_reader` | Airflow bronze worker, team (DBeaver, psql) | Read only. |
 
+## Run it
+
+You need Docker and the Neon database with the schemas and roles of [Connection to Neon](../data-engineering-pipeline/neon-connection.mdx). Run F3 **before** F2: the F2 consumer writes into the `operation` tables that the F3 seed creates.
+
+```bash
+# Download the F3 repository and go into its folder
+git clone https://github.com/HospedaPlus/db_simulated.git && cd db_simulated
+# Create your .env from the example
+cp .env.example .env
+```
+
+Fill these two lines of `.env` (copy them from *Neon → Connect*; use only letters, digits, `-` and `_` in passwords, because `@` or `#` break the URL):
+
+```bash
+# Owner, direct host (no -pooler): creates the tables and loads the seed
+NEON_OWNER_URL=postgresql://hospedaplus_owner:<password>@<endpoint>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# app_writer, pooled host (-pooler): used by the continuous simulator
+NEON_APP_URL=postgresql://app_writer:<password>@<endpoint>-pooler.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+```
+
+```bash
+# 1. Create the tables and load catalog, inventory, guests and history (once; it replaces the data)
+docker compose --profile neon run --rm --build neon-seed
+# 2. Load the 33 local events (F6b) into operation.local_events
+docker compose --profile neon run --rm --build neon-check events
+# 3. Run the 24 integrity checks: all must pass
+docker compose --profile neon run --rm neon-check
+# 4. Start the simulator in the background (1 booking per minute with SIM_BOOKINGS_PER_MIN=1)
+docker compose --profile neon up -d --build neon-simulator
+```
+
+**Check:** `SELECT count(*) FROM operation.hotels;` returns 28, and after a few minutes `SELECT max(created_at) FROM operation.reservations;` keeps moving forward.
+
+To try it without Neon, `docker compose up -d postgres && docker compose run --rm seed all` uses a local PostgreSQL instead. How the image and the profiles are built: [Docker](../devops/docker.mdx).
+
 ## What it contains
 
 | Table | Content |

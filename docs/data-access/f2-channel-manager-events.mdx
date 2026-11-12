@@ -49,6 +49,39 @@ The pace is set with environment variables, so it meets the requirement without 
 - **First stop, Neon.** The consumer writes each event to the ledger (one row per `event_id`, so replays are harmless) and, in the same transaction, applies it to the F3 inventory: `created` → `operation.reservar()`, `updated` → `modificar()`, `cancelled` → `cancelar()`, `no_show` → `liberar()`. OTA bookings take rooms from the same inventory as every other channel, so overbooking stays at 0. The Kafka offset is committed only after Neon confirms, so no event is lost.
 - **Then, S3.** Kafka does not write to S3. Every hour the Airflow DAG `bronze_neon_f2_f3` copies the new ledger rows to `s3://…/bronze/f2_ledger/`, in JSON Lines.
 
+## Run it
+
+You need Docker, and F3 already seeded in Neon (see [F3 · Run it](./f3-own-booking-engine.mdx#run-it)), because each event is applied to the F3 inventory.
+
+```bash
+# Download the F2 repository and go into its folder
+git clone https://github.com/HospedaPlus/buenavista-streaming.git && cd buenavista-streaming
+# Create your .env from the example
+cp .env.example .env
+```
+
+Fill the Neon lines of `.env`; the pace variables already have the production values:
+
+```bash
+# Owner: only the one-shot neon-migrate uses it, to create the ledger tables
+NEON_OWNER_URL=postgresql://hospedaplus_owner:<password>@<endpoint>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# app_writer: used by the consumers that write each event
+NEON_DATABASE_URL=postgresql://app_writer:<password>@<endpoint>-pooler.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# true = each event is also applied to the F3 inventory (bookings, cancellations)
+NEON_APPLY_OPERATION=true
+```
+
+```bash
+# Start Kafka, create the topic, run the migration, then the producer and 2 consumers
+docker compose up -d --build
+# Follow the producer: every hour it prints the peak of 15 ev/s
+docker compose logs -f producer
+```
+
+Compose starts things in the right order by itself: `kafka-init` creates the topic and `neon-migrate` creates the ledger, and the producer and consumers wait for both to finish.
+
+**Check:** `SELECT count(*), max(received_at) FROM streaming.reservation_event_ledger;` grows every minute.
+
 ## What it contains
 
 Each message has `event_id`, `schema_version`, `event_type`, `occurred_at`, `hotel_id`, `reservation_id`, `reservation_version` and a `data` block with the stay: check-in, check-out, room type, guests, `guest_ref` (pseudonymous, the same as in F3), loyalty tier, nightly rate, total, currency, channel and refundable flag. Event types:
