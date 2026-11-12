@@ -959,8 +959,8 @@
   display: flex;
   align-items: center;
   flex: none;
-  width: 4.4rem;
-  margin-right: -5rem;
+  width: 2.6rem;
+  margin-right: -3rem;
 }
 
 /* Column 3 gets more room so both EC2 fit side by side next to Neon */
@@ -979,4 +979,8 @@
 /* Power BI sits at the height of the arrow coming out of Athena */
 .landscape .analytics .stack {
   margin-top: 5.2rem;
+}
+
+.landscape .analytics .stack {
+  padding-left: 2.2rem;
 }
