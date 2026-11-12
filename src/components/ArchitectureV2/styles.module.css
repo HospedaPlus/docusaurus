@@ -879,3 +879,15 @@
 :global(html[data-theme='dark']) .figure {
   --hp-kafka: #fff;
 }
+
+/* ---------- Landscape canvas (Architecture v2) ---------- */
+
+.landscape {
+  overflow-x: auto;
+  margin: 1.5rem 0 2rem;
+}
+
+.landscape .figureWide {
+  width: 1900px;
+  margin: 0;
+}
