@@ -891,3 +891,49 @@
   width: 1900px;
   margin: 0;
 }
+
+/* Neon beside the VPC, and Athena / Glue / layers in rows, as in the draw.io reference */
+.athenaToGold {
+  display: none;
+}
+
+.landscape .procGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.landscape .catalog,
+.landscape .layers {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.landscape .catalog > .link,
+.landscape .layers > .link {
+  transform: none;
+}
+
+.landscape .catalog > .link.left {
+  transform: rotate(180deg);
+}
+
+.landscape .catalog > .node,
+.landscape .layers > .layer {
+  flex: 1 1 0;
+}
+
+.landscape .athenaToGold {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 15%;
+  margin: -0.6rem 0;
+}
+
+
+
+.landscape .lake .columnBody {
+  justify-content: flex-start;
+  gap: 0.9rem;
+}

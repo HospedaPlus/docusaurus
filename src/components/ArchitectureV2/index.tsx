@@ -162,6 +162,8 @@ function Entry({s}: {s: Strings}): ReactNode {
 function Processing({s}: {s: Strings}): ReactNode {
   return (
     <Column title={s.col3} className={styles.processing}>
+      {/* VPC on the left, Neon (external SaaS) beside it on the right */}
+      <div className={styles.procGrid}>
       <Zone label={s.vpc} tone="vpc" icon="cloud">
         <Node logo={<IgwLogo />} title="Internet Gateway" caption={s.igwCaption} />
         <Zone label={s.sourcesEc2} tone="realtimeZone" icon="zap">
@@ -254,6 +256,7 @@ function Processing({s}: {s: Strings}): ReactNode {
           edges={<Edge kind="batch" to={s.workerBronze} label={s.edge.bronzeExtract} />}
         />
       </Zone>
+      </div>
     </Column>
   );
 }
@@ -315,6 +318,10 @@ function DataLake({s}: {s: Strings}): ReactNode {
           caption={s.athenaCaption}
           edges={<Edge kind="gold" to="Power BI" />}
         />
+      </div>
+      {/* Athena reads gold/: the arrow goes down from Athena to the gold layer */}
+      <div className={styles.athenaToGold}>
+        <Link kind="gold" direction="down" />
       </div>
       <div className={styles.bucket}>
         <div className={styles.ec2Head}>
