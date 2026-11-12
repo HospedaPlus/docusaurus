@@ -937,3 +937,46 @@
   justify-content: flex-start;
   gap: 0.9rem;
 }
+
+/* Core and workers EC2 side by side; Power BI arrow leaves column 4 outward */
+.landscape .batchRow {
+  flex-wrap: nowrap;
+}
+
+.toPowerBi {
+  display: none;
+}
+
+.landscape .catalog {
+  position: relative;
+}
+
+.landscape .athenaEdge {
+  display: none;
+}
+
+.landscape .toPowerBi {
+  display: flex;
+  align-items: center;
+  flex: none;
+  width: 4.4rem;
+  margin-right: -5rem;
+}
+
+/* Column 3 gets more room so both EC2 fit side by side next to Neon */
+.landscape .cloud {
+  grid-template-columns: 0.75fr 3.3fr 1.7fr;
+}
+
+.landscape .procGrid {
+  grid-template-columns: minmax(0, 1fr) 13rem;
+}
+
+.landscape .toPowerBi > * {
+  flex: 1;
+}
+
+/* Power BI sits at the height of the arrow coming out of Athena */
+.landscape .analytics .stack {
+  margin-top: 5.2rem;
+}

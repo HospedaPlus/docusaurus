@@ -316,8 +316,12 @@ function DataLake({s}: {s: Strings}): ReactNode {
           logo={<AthenaLogo size={30} />}
           title="Amazon Athena"
           caption={s.athenaCaption}
-          edges={<Edge kind="gold" to="Power BI" />}
+          edges={<span className={styles.athenaEdge}><Edge kind="gold" to="Power BI" /></span>}
         />
+        {/* Landscape: the arrow leaves column 4 towards Power BI in column 5 */}
+        <div className={styles.toPowerBi}>
+          <Link kind="gold" />
+        </div>
       </div>
       {/* Athena reads gold/: the arrow goes down from Athena to the gold layer */}
       <div className={styles.athenaToGold}>
