@@ -368,7 +368,9 @@ export function ArchitectureV2(): ReactNode {
   const s = useStrings();
   const legendKinds = Object.keys(s.legend) as FlowKind[];
   return (
-    <figure className={styles.figure} aria-label={s.ariaLabel}>
+    // Landscape canvas like the draw.io reference; scrolls sideways on narrow screens
+    <div className={styles.landscape}>
+    <figure className={clsx(styles.figure, styles.figureWide)} aria-label={s.ariaLabel}>
       <div className={styles.header}>
         <div>
           <div className={styles.title}>{s.title}</div>
@@ -418,5 +420,6 @@ export function ArchitectureV2(): ReactNode {
         ))}
       </div>
     </figure>
+    </div>
   );
 }
