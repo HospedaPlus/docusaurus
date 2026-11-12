@@ -67,6 +67,41 @@ Cada cliente usa seu próprio papel. Peça à equipe as strings de conexão: ela
 | `app_writer` | Consumidor F2, simulador F3, carregador F4, escrita de volta do pipeline | Ler e gravar dados; não altera o esquema. |
 | `etl_reader` | Worker bronze do Airflow, equipe (DBeaver, psql) | Somente leitura. |
 
+## Como colocar para rodar
+
+Você precisa do Docker e do banco Neon com os esquemas e roles de [Conexão com o Neon](../data-engineering-pipeline/neon-connection.mdx). Rode o F3 **antes** do F2: o consumidor do F2 grava nas tabelas de `operation` que o seed do F3 cria.
+
+```bash
+# Baixa o repositório F3 e entra na pasta dele
+git clone https://github.com/HospedaPlus/db_simulated.git && cd db_simulated
+# Cria seu .env a partir do exemplo
+cp .env.example .env
+```
+
+Preencha estas duas linhas do `.env` (copie de *Neon → Connect*; use só letras, números, `-` e `_` nas senhas, porque `@` ou `#` quebram a URL):
+
+```bash
+# Dono, host direto (sem -pooler): cria as tabelas e carrega o seed
+NEON_OWNER_URL=postgresql://hospedaplus_owner:<password>@<endpoint>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# app_writer, host com pool (-pooler): usado pelo simulador contínuo
+NEON_APP_URL=postgresql://app_writer:<password>@<endpoint>-pooler.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+```
+
+```bash
+# 1. Cria as tabelas e carrega catálogo, inventário, hóspedes e histórico (uma vez; substitui os dados)
+docker compose --profile neon run --rm --build neon-seed
+# 2. Carrega os 33 eventos locais (F6b) em operation.local_events
+docker compose --profile neon run --rm --build neon-check events
+# 3. Roda as 24 verificações de integridade: todas devem passar
+docker compose --profile neon run --rm neon-check
+# 4. Inicia o simulador em segundo plano (1 reserva por minuto com SIM_BOOKINGS_PER_MIN=1)
+docker compose --profile neon up -d --build neon-simulator
+```
+
+**Verificação:** `SELECT count(*) FROM operation.hotels;` devolve 28, e depois de alguns minutos `SELECT max(created_at) FROM operation.reservations;` continua avançando.
+
+Para testar sem o Neon, `docker compose up -d postgres && docker compose run --rm seed all` usa um PostgreSQL local. Como a imagem e os perfis são montados: [Docker](../devops/docker.mdx).
+
 ## O que contém
 
 | Tabela | Conteúdo |

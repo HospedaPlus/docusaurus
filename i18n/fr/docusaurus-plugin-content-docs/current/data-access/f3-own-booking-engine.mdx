@@ -67,6 +67,41 @@ Chaque client utilise son propre rôle. Demandez les chaînes de connexion à l'
 | `app_writer` | Consommateur F2, simulateur F3, chargeur F4, réécriture du pipeline | Lire et écrire les données ; ne modifie pas le schéma. |
 | `etl_reader` | Worker bronze d'Airflow, équipe (DBeaver, psql) | Lecture seule. |
 
+## Le mettre en marche
+
+Il faut Docker et la base Neon avec les schémas et rôles de [Connexion à Neon](../data-engineering-pipeline/neon-connection.mdx). Lancez F3 **avant** F2 : le consommateur F2 écrit dans les tables `operation` que le seed F3 crée.
+
+```bash
+# Télécharge le dépôt F3 et entre dans son dossier
+git clone https://github.com/HospedaPlus/db_simulated.git && cd db_simulated
+# Crée ton .env à partir de l'exemple
+cp .env.example .env
+```
+
+Remplissez ces deux lignes du `.env` (copiez-les depuis *Neon → Connect* ; utilisez seulement lettres, chiffres, `-` et `_` dans les mots de passe, car `@` ou `#` cassent l'URL) :
+
+```bash
+# Propriétaire, hôte direct (sans -pooler) : crée les tables et charge le seed
+NEON_OWNER_URL=postgresql://hospedaplus_owner:<password>@<endpoint>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# app_writer, hôte avec pool (-pooler) : utilisé par le simulateur continu
+NEON_APP_URL=postgresql://app_writer:<password>@<endpoint>-pooler.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+```
+
+```bash
+# 1. Crée les tables et charge catalogue, inventaire, clients et historique (une fois ; remplace les données)
+docker compose --profile neon run --rm --build neon-seed
+# 2. Charge les 33 événements locaux (F6b) dans operation.local_events
+docker compose --profile neon run --rm --build neon-check events
+# 3. Lance les 24 contrôles d'intégrité : tous doivent passer
+docker compose --profile neon run --rm neon-check
+# 4. Démarre le simulateur en arrière-plan (1 réservation par minute avec SIM_BOOKINGS_PER_MIN=1)
+docker compose --profile neon up -d --build neon-simulator
+```
+
+**Vérification :** `SELECT count(*) FROM operation.hotels;` renvoie 28, et après quelques minutes `SELECT max(created_at) FROM operation.reservations;` continue d'avancer.
+
+Pour essayer sans Neon, `docker compose up -d postgres && docker compose run --rm seed all` utilise un PostgreSQL local. Comment l'image et les profils sont construits : [Docker](../devops/docker.mdx).
+
 ## Contenu
 
 | Table | Contenu |

@@ -49,6 +49,39 @@ O ritmo é definido com variáveis de ambiente, assim cumpre o requisito sem enc
 - **Primeira parada, Neon.** O consumidor grava cada evento no ledger (uma linha por `event_id`, então repetir não causa dano) e, na mesma transação, o aplica ao inventário da F3: `created` → `operation.reservar()`, `updated` → `modificar()`, `cancelled` → `cancelar()`, `no_show` → `liberar()`. As reservas de OTA ocupam quartos do mesmo inventário que os outros canais, então o overbooking fica em 0. O offset do Kafka só é confirmado depois que o Neon confirma, então nenhum evento se perde.
 - **Depois, S3.** O Kafka não grava no S3. A cada hora o DAG do Airflow `bronze_neon_f2_f3` copia as linhas novas do ledger para `s3://…/bronze/f2_ledger/`, em JSON Lines.
 
+## Como colocar para rodar
+
+Você precisa do Docker e do F3 já semeado no Neon (veja [F3 · Como colocar para rodar](./f3-own-booking-engine.mdx#como-colocar-para-rodar)), porque cada evento é aplicado ao inventário do F3.
+
+```bash
+# Baixa o repositório F2 e entra na pasta dele
+git clone https://github.com/HospedaPlus/buenavista-streaming.git && cd buenavista-streaming
+# Cria seu .env a partir do exemplo
+cp .env.example .env
+```
+
+Preencha as linhas do Neon no `.env`; as variáveis de ritmo já vêm com os valores de produção:
+
+```bash
+# Dono: só o neon-migrate de uma vez o usa, para criar as tabelas do ledger
+NEON_OWNER_URL=postgresql://hospedaplus_owner:<password>@<endpoint>.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# app_writer: usado pelos consumidores que gravam cada evento
+NEON_DATABASE_URL=postgresql://app_writer:<password>@<endpoint>-pooler.us-east-2.aws.neon.tech/hospedaplus?sslmode=require
+# true = cada evento também é aplicado ao inventário do F3 (reservas, cancelamentos)
+NEON_APPLY_OPERATION=true
+```
+
+```bash
+# Inicia o Kafka, cria o tópico, roda a migração, depois o produtor e 2 consumidores
+docker compose up -d --build
+# Acompanha o produtor: a cada hora imprime o pico de 15 ev/s
+docker compose logs -f producer
+```
+
+O Compose inicia tudo na ordem certa sozinho: `kafka-init` cria o tópico e `neon-migrate` cria o ledger, e o produtor e os consumidores esperam os dois terminarem.
+
+**Verificação:** `SELECT count(*), max(received_at) FROM streaming.reservation_event_ledger;` cresce a cada minuto.
+
 ## O que contém
 
 Cada mensagem traz `event_id`, `schema_version`, `event_type`, `occurred_at`, `hotel_id`, `reservation_id`, `reservation_version` e um bloco `data` com a estadia: check-in, check-out, tipo de quarto, hóspedes, `guest_ref` (pseudônimo, o mesmo da F3), nível de fidelidade, tarifa por noite, total, moeda, canal e indicador de reembolsável. Tipos de evento:
