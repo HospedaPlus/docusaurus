@@ -11,8 +11,9 @@ Todas as medidas estão na tabela `_Medidas` do modelo, agrupadas em pastas: Ocu
 | KPI (medida) | Fórmula | Fonte gold |
 | --- | --- | --- |
 | **Occupancy %** | Quartos vendidos ÷ quartos disponíveis | `fact_ocupacion_diaria` |
-| **ADR** (diária média) | Receita de quartos ÷ quartos vendidos | `fact_ocupacion_diaria` |
-| **RevPAR** | Receita de quartos ÷ quartos disponíveis | `fact_ocupacion_diaria` |
+| **ADR** (diária média, líquida) | Receita líquida de quartos ÷ quartos vendidos | `fact_ocupacion_diaria` (`ingreso_neto_cop`) · `mart_p3_revenue` (`adr_neto_cop`) |
+| **RevPAR** (líquido) | Receita líquida de quartos ÷ quartos disponíveis | `fact_ocupacion_diaria` (`ingreso_neto_cop`) · `mart_p3_revenue` (`revpar_neto_cop`) |
+| **ADR bruto** / **RevPAR bruto** | O mesmo com a receita bruta, antes da comissão | `fact_ocupacion_diaria` (`ingreso_cop`) · `mart_p3_revenue` (`adr_cop`, `revpar_cop`) |
 | **Cancellation Rate** | Reservas canceladas ÷ reservas | `fact_reservas` |
 | **Lost Revenue** | Σ max(0, total − multa) das reservas canceladas | `fact_reservas` |
 | **Rejected Rooms** / **Rejection Rate** | Quartos recusados por falta de disponibilidade ÷ (vendidos + recusados) | `fact_ocupacion_diaria` |
@@ -33,6 +34,7 @@ Os hotéis se medem com alguns números padrão. Em palavras simples:
 - **Ocupação %**: de cada 100 quartos que o hotel podia vender numa noite, quantos vendeu. 80 vendidos de 100 = 80 %.
 - **ADR (Average Daily Rate, diária média)**: o preço médio pago por quarto vendido por noite. Se 10 quartos renderam COP 2.000.000, o ADR é COP 200.000. Diz *quão caro* você vende.
 - **RevPAR (Revenue Per Available Room, receita por quarto disponível)**: a receita de quartos dividida por *todos* os quartos, vendidos ou vazios. Une preço e ocupação num só número (RevPAR = ADR × Ocupação). Um hotel pode subir o ADR e ainda perder RevPAR se deixar quartos demais vazios; por isso o RevPAR é o principal KPI de receita.
+- **ADR líquido / RevPAR líquido**: os mesmos dois números, mas com a receita que fica para o hotel depois de pagar a comissão do canal. Veja [Bruto vs. líquido](#gross-vs-net).
 - **Taxa de cancelamento**: de cada 100 reservas, quantas foram canceladas ou foram no-show.
 - **Receita perdida**: o dinheiro que as reservas canceladas teriam trazido, menos a multa paga pelo hóspede.
 - **Quartos rejeitados / Taxa de rejeição**: quartos que os hóspedes queriam mas não conseguiram reservar porque o hotel estava cheio. Mede a demanda que o hotel deixou passar.
@@ -42,6 +44,23 @@ Os hotéis se medem com alguns números padrão. Em palavras simples:
 - **Preço sugerido / Tarifa atual**: o preço que o pipeline recomenda para uma noite futura frente ao preço publicado hoje. **Sugerido vs atual %** diz quão distantes estão.
 - **Pickup %**: quão rápido os quartos estão sendo reservados comparado com o ano passado. Positivo significa que a demanda está à frente do ano passado no mesmo momento.
 - **Nota dos hóspedes**: nota média que os hóspedes dão nas avaliações (1 a 5). **% positivas**: parte das avaliações com nota 4 ou 5.
+
+## Bruto vs. líquido (ADR e RevPAR) \{#gross-vs-net}
+
+O gold guarda as duas versões da receita de quartos, do ADR e do RevPAR:
+
+| | Bruto | Líquido |
+| --- | --- | --- |
+| Receita | `ingreso_cop`: o que o hóspede pagou (`total_cop`) | `ingreso_neto_cop`: `total_cop` − `comision_cop` |
+| ADR | `adr_cop` | `adr_neto_cop` |
+| RevPAR | `revpar_cop` | `revpar_neto_cop` |
+| Uso | Comparar com outros hotéis e com as referências da indústria, que são sempre brutas | Decidir preços e canais com o dinheiro que o hotel realmente fica |
+
+A comissão vem de `dim_canal[comision_pct]` (Neon `operation.channels`): **OTA 18 %**, **agências 10 %**, **web direta e corporativo 0 %**. O silver calcula para cada reserva `comision_cop = total_cop × comision_pct ÷ 100` e `neto_cop = total_cop − comision_cop`, e o `gold_modelo_daily` reparte isso por noite em `fact_ocupacion_diaria` e `mart_p3_revenue`.
+
+**As medidas de receita, ADR e RevPAR do relatório usam as colunas líquidas**; as brutas continuam disponíveis para comparar com a indústria. As medidas dividem somas (Σ `ingreso_neto_cop` ÷ Σ `vendidas` para o ADR, ÷ Σ `habitaciones` para o RevPAR); não fazem a média do `adr_neto_cop` diário, porque uma média de razões dá um número errado quando os hotéis têm tamanhos diferentes.
+
+**Exemplo.** Numa noite, um hotel vende 3 quartos a COP 400.000: um direto (0 %), um por agência (10 %) e um por OTA (18 %). ADR bruto = COP 400.000. Receita líquida = 400.000 + 360.000 + 328.000 = COP 1.088.000, então o ADR líquido é COP 362.667. Com 10 quartos, o RevPAR bruto é COP 120.000 e o líquido COP 108.800. Quanto mais o hotel vende por OTA, mais os dois se afastam.
 
 ## Por que "só datas passadas"
 

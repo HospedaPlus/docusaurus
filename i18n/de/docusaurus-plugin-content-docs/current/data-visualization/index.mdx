@@ -11,6 +11,8 @@ import {PowerBiFlow} from '@site/src/components/Flows';
 
 **HospedaPlus Revenue** ist der Power-BI-Bericht, mit dem der Revenue Manager und die Hoteldirektoren über Preise, Auslastung und Vertriebskanäle entscheiden. Er ist der letzte Schritt der Plattform: Er **liest nur die Gold-Schicht** des S3-Lakehouse über Amazon Athena und schreibt nichts zurück.
 
+Umsatz, ADR und RevPAR werden **netto nach Kanalprovision** gezeigt (Gold-Spalten `ingreso_neto_cop`, `adr_neto_cop`, `revpar_neto_cop`), also das Geld, das das Hotel wirklich behält. Die Bruttowerte bleiben in Gold für Branchenvergleiche. Siehe [Brutto vs. netto](./kpis.mdx#gross-vs-net).
+
 | | |
 | --- | --- |
 | Bericht | `HospedaPlus_Revenue` (Power-BI-Projekt, Format `.pbip`) |
@@ -38,9 +40,9 @@ Der Bericht unten ist im Web veröffentlicht, daher kann ihn jeder ohne Anmeldun
 | --- | --- | --- | --- |
 | **P1** Stornierungen | Welche Kanäle und Vorlaufzeiten bündeln die Stornierungen, und wie viel Umsatz geht verloren? | Stornoquote · Entgangener Umsatz | Management-Zusammenfassung |
 | **P2** Überbuchung | Wie viele Zimmer werden mangels Verfügbarkeit abgelehnt oder umgebucht? | Ablehnungsquote · Umgebuchte Zimmer | Management-Zusammenfassung · Leistung pro Hotel |
-| **P3** Preis und Nachfrage | Welcher Preis je nach Pickup, Saison und Events in der Stadt? | Preisvorschlag vs. aktueller Tarif · Pickup vs. Vorjahr | Preise und Nachfrage |
+| **P3** Preis und Nachfrage | Welcher Preis je nach Pickup, Saison und Events in der Stadt? | Preisvorschlag vs. aktueller Tarif · Pickup vs. Vorjahr · Netto-ADR und -RevPAR | Preise und Nachfrage |
 | **P4** Kanäle | Was kostet jeder Kanal und welcher bringt den meisten Nettoumsatz? | Effektive Provision · Nettoumsatz | Management-Zusammenfassung · Kosten pro Kanal |
-| **P5** Reputation | Wie ist die Reputation jedes Hotels und wie hängt sie mit Auslastung und RevPAR zusammen? | Note (RN-10) · % positive Bewertungen | Management-Zusammenfassung · Leistung pro Hotel |
+| **P5** Reputation | Wie ist die Reputation jedes Hotels und wie hängt sie mit Auslastung und Netto-RevPAR zusammen? | Note (RN-10) · % positive Bewertungen | Management-Zusammenfassung · Leistung pro Hotel |
 
 Wie jedes Problemfeld in den Daten gelöst wird, steht unter [Wie jedes Problemfeld gelöst wird](../pain-resolution.mdx).
 
