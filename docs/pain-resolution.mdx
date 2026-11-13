@@ -11,7 +11,7 @@ This page takes each business pain from [The Pains](./the-pains.mdx), says in pl
 | --- | --- | --- | --- |
 | P1 | 37 % of bookings are cancelled | Measure the cancellation rate by channel, lead time and refundable/non-refundable, and send those rates back to the operation | `mart_p1_cancelacion`, `mart_p1_historico_f1`, Neon `operation.cancellation_rate_by_lead` |
 | P2 | Uncontrolled overbooking | Every booking from every channel goes through one function that locks the inventory and respects a calculated overbooking limit | Neon `operation.reservar()`, `mart_p2_sobreventa` |
-| P3 | Prices adjusted by hand, a week late | Occupancy, ADR, RevPAR and pickup are calculated every night, together with a suggested price for the next 90 nights | `mart_p3_revenue`, `mart_p3_precio_sugerido` |
+| P3 | Prices adjusted by hand, a week late | Occupancy, ADR and RevPAR (gross and net of commission) and pickup are calculated every night, together with a suggested price for the next 90 nights | `mart_p3_revenue`, `mart_p3_precio_sugerido` |
 | P4 | Commissions not deducted | The commission is deducted from every booking in silver, so gross, commission and net revenue are known per channel | `mart_p4_comisiones` |
 | P5 | Negative reviews not analysed | Reviews are deduplicated across platforms, classified by sentiment and turned into one reputation score per hotel and day | `mart_p5_reputacion`, `fact_resenas` |
 | – | No single view of bookings | All channels (own engine, OTA, agencies) book through Neon, and silver keeps one row per booking | `fact_reservas`, `fact_ocupacion_diaria` |
@@ -84,10 +84,26 @@ ORDER BY fecha DESC;
 
 **The solution.**
 1. Every night gold calculates, per hotel and night, **occupancy %**, **ADR** (revenue ÷ rooms sold), **RevPAR** (revenue ÷ rooms available) and **pickup**: the rooms already booked 14 days before the night, compared with the same weekday a year earlier (`mart_p3_revenue`). Holidays (F6 Nager) and local events (F6) come as flags.
-2. For the next 90 nights it suggests a price (`mart_p3_precio_sugerido`). The formula is the base rate × the pickup factor (1.10 when pickup is more than 15 % above last year, 0.92 when it is more than 15 % below) × 1.15 on holidays and event nights. The result always stays between 0.75 and 1.60 of the base rate (rules RN-05 and RN-06), and it is also shown in COP.
-3. It is ready every night before 06:00 local time in every hotel, instead of a week later.
+2. ADR and RevPAR come **gross** (`adr_cop`, `revpar_cop`) and **net** of the channel commission (`adr_neto_cop`, `revpar_neto_cop`). Net uses `neto_cop` = total − commission (OTA 18 %, agencies 10 %, direct and corporate 0 %), so it shows what each night really leaves the hotel. Power BI shows the net values; the gross ones stay for comparing with the industry.
+3. For the next 90 nights it suggests a price (`mart_p3_precio_sugerido`). The formula is the base rate × the pickup factor (1.10 when pickup is more than 15 % above last year, 0.92 when it is more than 15 % below) × 1.15 on holidays and event nights. The result always stays between 0.75 and 1.60 of the base rate (rules RN-05 and RN-06), and it is also shown in COP.
+4. It is ready every night before 06:00 local time in every hotel, instead of a week later.
 
 **Where to see it.**
+
+```sql
+-- Gross vs. net ADR and RevPAR per hotel, last 30 nights
+SELECT hotel_code,
+       ROUND(SUM(ingreso_cop) / NULLIF(SUM(vendidas), 0), 2)      AS adr_bruto,
+       ROUND(SUM(ingreso_neto_cop) / NULLIF(SUM(vendidas), 0), 2) AS adr_neto,
+       ROUND(SUM(ingreso_cop) / NULLIF(SUM(habitaciones), 0), 2)      AS revpar_bruto,
+       ROUND(SUM(ingreso_neto_cop) / NULLIF(SUM(habitaciones), 0), 2) AS revpar_neto
+-- From the P3 revenue mart
+FROM hospedaplus_gold.mart_p3_revenue
+WHERE fecha BETWEEN current_date - INTERVAL '30' DAY AND current_date - INTERVAL '1' DAY
+GROUP BY hotel_code
+-- Hotels that lose the most to commissions first
+ORDER BY revpar_bruto - revpar_neto DESC;
+```
 
 ```sql
 -- Current rate, pickup and event factors, and the suggested price
@@ -210,8 +226,18 @@ def mart_p1_cancelacion(fr):
 | --- | --- | --- | --- |
 | Bronze | `bronze_f6_holidays`, `bronze_f6_events`, `bronze_f7_fx`, `bronze_neon_dims` | `dags/bronze_f6_*.py`, `dags/bronze_f7_fx.py`, `dags/bronze_neon_dims.py` | Holidays, local events, exchange rates and base rates |
 | Silver | `silver_calendario_daily`, `silver_fx_daily`, `silver_ocupacion_daily` | `spark_jobs/silver_calendario.py`, `silver_fx.py`, `silver_ocupacion.py` | Calendar per hotel with holiday/event flags, one rate per currency and day, occupancy per night |
-| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p3_revenue()`, `on_the_books()` | Occupancy, ADR, RevPAR and pickup vs. the same weekday a year earlier |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `fact_ocupacion()`, `mart_p3_revenue()`, `on_the_books()` | Occupancy, gross and net ADR/RevPAR (`adr_neto_cop`, `revpar_neto_cop`) and pickup vs. the same weekday a year earlier |
 | Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p3_precio_sugerido()` | Suggested price for the next 90 nights; `check()` fails the run if a price leaves the RN-06 band |
+
+```python
+# spark_jobs/gold_modelo.py · mart_p3_revenue()
+# Net ADR = revenue after the channel commission / rooms sold
+.withColumn("adr_neto_cop", F.round(F.when(F.col("vendidas") > 0,
+                                           F.col("ingreso_neto_cop") / F.col("vendidas")), 2))
+# Net RevPAR = revenue after the channel commission / rooms available
+.withColumn("revpar_neto_cop", F.round(F.when(F.col("habitaciones") > 0,
+                                              F.col("ingreso_neto_cop") / F.col("habitaciones")), 2))
+```
 
 ```python
 # spark_jobs/gold_modelo.py · mart_p3_precio_sugerido()
@@ -224,7 +250,7 @@ def mart_p1_cancelacion(fr):
                        F.col("tarifa") * F.col("factor_pickup") * F.col("factor_evento"))), 2))
 ```
 
-**Example.** A Deluxe room has a base rate of 560,000 COP. For a night with a local event, 14 days before it 20 % more rooms are booked than last year. The suggestion is 560,000 × 1.10 × 1.15 = 708,400 COP, which is inside the band (420,000 to 896,000).
+**Example.** A Deluxe room has a base rate of 560,000 COP. For a night with a local event, 14 days before it 20 % more rooms are booked than last year. The suggestion is 560,000 × 1.10 × 1.15 = 708,400 COP, which is inside the band (420,000 to 896,000). If that room is sold through an OTA (18 % commission), the night adds 708,400 to gross revenue but 580,888 to net revenue, and that is the figure the net ADR and RevPAR use.
 
 ### P4 · Commissions
 

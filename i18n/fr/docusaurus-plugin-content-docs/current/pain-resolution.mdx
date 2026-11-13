@@ -11,7 +11,7 @@ Cette page reprend chaque point de friction de [Les points de friction](./the-pa
 | --- | --- | --- | --- |
 | P1 | 37 % des réservations sont annulées | Mesurer le taux d'annulation par canal, anticipation et remboursable/non remboursable, et renvoyer ces taux à l'exploitation | `mart_p1_cancelacion`, `mart_p1_historico_f1`, Neon `operation.cancellation_rate_by_lead` |
 | P2 | Surréservation incontrôlée | Chaque réservation de chaque canal passe par une seule fonction qui verrouille l'inventaire et respecte une limite de surréservation calculée | Neon `operation.reservar()`, `mart_p2_sobreventa` |
-| P3 | Prix ajustés à la main, avec une semaine de retard | Occupation, ADR, RevPAR et pickup sont calculés chaque nuit, avec un prix suggéré pour les 90 prochaines nuits | `mart_p3_revenue`, `mart_p3_precio_sugerido` |
+| P3 | Prix ajustés à la main, avec une semaine de retard | Occupation, ADR et RevPAR (bruts et nets de commission) et pickup sont calculés chaque nuit, avec un prix suggéré pour les 90 prochaines nuits | `mart_p3_revenue`, `mart_p3_precio_sugerido` |
 | P4 | Commissions non déduites | La commission est déduite de chaque réservation en silver : revenu brut, commission et net sont connus par canal | `mart_p4_comisiones` |
 | P5 | Avis négatifs non analysés | Les avis sont dédoublonnés entre plateformes, classés par sentiment et transformés en une note de réputation par hôtel et par jour | `mart_p5_reputacion`, `fact_resenas` |
 | – | Pas de vue unique des réservations | Tous les canaux (moteur propre, OTA, agences) réservent via Neon, et silver garde une ligne par réservation | `fact_reservas`, `fact_ocupacion_diaria` |
@@ -84,10 +84,26 @@ ORDER BY fecha DESC;
 
 **La solution.**
 1. Chaque nuit, gold calcule par hôtel et par nuit le **taux d'occupation**, l'**ADR** (revenu ÷ chambres vendues), le **RevPAR** (revenu ÷ chambres disponibles) et le **pickup** : les chambres déjà réservées 14 jours avant la nuit, comparées au même jour de la semaine un an plus tôt (`mart_p3_revenue`). Les jours fériés (F6 Nager) et les événements locaux (F6) arrivent sous forme d'indicateurs.
-2. Pour les 90 prochaines nuits, il suggère un prix (`mart_p3_precio_sugerido`). La formule est le tarif de base × le facteur de pickup (1,10 quand le pickup dépasse l'an dernier de plus de 15 %, 0,92 quand il est inférieur de plus de 15 %) × 1,15 les jours fériés et les nuits d'événement. Le résultat reste toujours entre 0,75 et 1,60 du tarif de base (règles RN-05 et RN-06), et il est aussi affiché en COP.
-3. C'est prêt chaque nuit avant 6 h heure locale dans chaque hôtel, au lieu d'une semaine plus tard.
+2. L'ADR et le RevPAR sortent **bruts** (`adr_cop`, `revpar_cop`) et **nets** de la commission du canal (`adr_neto_cop`, `revpar_neto_cop`). Le net utilise `neto_cop` = total − commission (OTA 18 %, agences 10 %, direct et entreprises 0 %) : il montre ce que chaque nuit rapporte vraiment à l'hôtel. Power BI affiche les valeurs nettes ; les brutes restent pour se comparer au secteur.
+3. Pour les 90 prochaines nuits, il suggère un prix (`mart_p3_precio_sugerido`). La formule est le tarif de base × le facteur de pickup (1,10 quand le pickup dépasse l'an dernier de plus de 15 %, 0,92 quand il est inférieur de plus de 15 %) × 1,15 les jours fériés et les nuits d'événement. Le résultat reste toujours entre 0,75 et 1,60 du tarif de base (règles RN-05 et RN-06), et il est aussi affiché en COP.
+4. C'est prêt chaque nuit avant 6 h heure locale dans chaque hôtel, au lieu d'une semaine plus tard.
 
 **Où la voir.**
+
+```sql
+-- ADR et RevPAR bruts vs. nets par hôtel, 30 dernières nuits
+SELECT hotel_code,
+       ROUND(SUM(ingreso_cop) / NULLIF(SUM(vendidas), 0), 2)      AS adr_bruto,
+       ROUND(SUM(ingreso_neto_cop) / NULLIF(SUM(vendidas), 0), 2) AS adr_neto,
+       ROUND(SUM(ingreso_cop) / NULLIF(SUM(habitaciones), 0), 2)      AS revpar_bruto,
+       ROUND(SUM(ingreso_neto_cop) / NULLIF(SUM(habitaciones), 0), 2) AS revpar_neto
+-- Depuis le mart P3 de revenu
+FROM hospedaplus_gold.mart_p3_revenue
+WHERE fecha BETWEEN current_date - INTERVAL '30' DAY AND current_date - INTERVAL '1' DAY
+GROUP BY hotel_code
+-- D'abord les hôtels qui perdent le plus en commissions
+ORDER BY revpar_bruto - revpar_neto DESC;
+```
 
 ```sql
 -- Tarif actuel, facteurs de pickup et d'événement, et le prix suggéré
@@ -210,8 +226,18 @@ def mart_p1_cancelacion(fr):
 | --- | --- | --- | --- |
 | Bronze | `bronze_f6_holidays`, `bronze_f6_events`, `bronze_f7_fx`, `bronze_neon_dims` | `dags/bronze_f6_*.py`, `dags/bronze_f7_fx.py`, `dags/bronze_neon_dims.py` | Jours fériés, événements locaux, taux de change et tarifs de base |
 | Silver | `silver_calendario_daily`, `silver_fx_daily`, `silver_ocupacion_daily` | `spark_jobs/silver_calendario.py`, `silver_fx.py`, `silver_ocupacion.py` | Calendrier par hôtel avec marqueurs férié/événement, un taux par devise et par jour, occupation par nuit |
-| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p3_revenue()`, `on_the_books()` | Occupation, ADR, RevPAR et pickup par rapport au même jour de la semaine l'an dernier |
+| Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `fact_ocupacion()`, `mart_p3_revenue()`, `on_the_books()` | Occupation, ADR/RevPAR bruts et nets (`adr_neto_cop`, `revpar_neto_cop`) et pickup par rapport au même jour de la semaine l'an dernier |
 | Gold | `gold_modelo_daily` | `spark_jobs/gold_modelo.py` · `mart_p3_precio_sugerido()` | Prix suggéré pour les 90 prochaines nuits ; `check()` fait échouer l'exécution si un prix sort de la bande RN-06 |
+
+```python
+# spark_jobs/gold_modelo.py · mart_p3_revenue()
+# ADR net = revenu après la commission du canal / chambres vendues
+.withColumn("adr_neto_cop", F.round(F.when(F.col("vendidas") > 0,
+                                           F.col("ingreso_neto_cop") / F.col("vendidas")), 2))
+# RevPAR net = revenu après la commission du canal / chambres disponibles
+.withColumn("revpar_neto_cop", F.round(F.when(F.col("habitaciones") > 0,
+                                              F.col("ingreso_neto_cop") / F.col("habitaciones")), 2))
+```
 
 ```python
 # spark_jobs/gold_modelo.py · mart_p3_precio_sugerido()
@@ -224,7 +250,7 @@ def mart_p1_cancelacion(fr):
                        F.col("tarifa") * F.col("factor_pickup") * F.col("factor_evento"))), 2))
 ```
 
-**Exemple.** Une chambre Deluxe a un tarif de base de 560 000 COP. Pour une nuit avec un événement local, 14 jours avant, il y a 20 % de chambres réservées de plus que l'an dernier. La suggestion est 560 000 × 1,10 × 1,15 = 708 400 COP, dans la bande (420 000 à 896 000).
+**Exemple.** Une chambre Deluxe a un tarif de base de 560 000 COP. Pour une nuit avec un événement local, 14 jours avant, il y a 20 % de chambres réservées de plus que l'an dernier. La suggestion est 560 000 × 1,10 × 1,15 = 708 400 COP, dans la bande (420 000 à 896 000). Si cette chambre est vendue par une OTA (18 % de commission), la nuit ajoute 708 400 au revenu brut mais 580 888 au revenu net, et c'est ce chiffre qu'utilisent l'ADR et le RevPAR nets.
 
 ### P4 · Commissions
 

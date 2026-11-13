@@ -11,6 +11,8 @@ import {PowerBiFlow} from '@site/src/components/Flows';
 
 **HospedaPlus Revenue** é o relatório do Power BI que o Revenue Manager e os gerentes de hotel usam para decidir preços, ocupação e canais de venda. É o último passo da plataforma: **só lê a camada gold** do lakehouse no S3 pelo Amazon Athena e não grava nada de volta.
 
+A receita, o ADR e o RevPAR aparecem **líquidos da comissão do canal** (colunas do gold `ingreso_neto_cop`, `adr_neto_cop`, `revpar_neto_cop`), ou seja, o dinheiro que o hotel realmente fica. Os valores brutos continuam no gold para comparar com a indústria. Veja [Bruto vs. líquido](./kpis.mdx#gross-vs-net).
+
 | | |
 | --- | --- |
 | Relatório | `HospedaPlus_Revenue` (projeto do Power BI, formato `.pbip`) |
@@ -38,9 +40,9 @@ O relatório abaixo está publicado na web, então qualquer pessoa pode explorá
 | --- | --- | --- | --- |
 | **P1** Cancelamentos | Quais canais e antecedências concentram os cancelamentos e quanta receita se perde? | Taxa de cancelamento · Receita perdida | Resumo executivo |
 | **P2** Overbooking | Quantos quartos são recusados ou realocados por falta de disponibilidade? | Taxa de recusa · Quartos realocados | Resumo executivo · Desempenho por hotel |
-| **P3** Preço e demanda | Que preço cobrar segundo o pickup, a temporada e os eventos da cidade? | Preço sugerido vs. tarifa atual · Pickup vs. ano anterior | Preços e demanda |
+| **P3** Preço e demanda | Que preço cobrar segundo o pickup, a temporada e os eventos da cidade? | Preço sugerido vs. tarifa atual · Pickup vs. ano anterior · ADR e RevPAR líquidos | Preços e demanda |
 | **P4** Canais | Quanto custa cada canal e qual deixa mais receita líquida? | Comissão efetiva · Receita líquida | Resumo executivo · Custo por canal |
-| **P5** Reputação | Como está a reputação de cada hotel e como se relaciona com sua ocupação e RevPAR? | Nota (RN-10) · % avaliações positivas | Resumo executivo · Desempenho por hotel |
+| **P5** Reputação | Como está a reputação de cada hotel e como se relaciona com sua ocupação e RevPAR líquido? | Nota (RN-10) · % avaliações positivas | Resumo executivo · Desempenho por hotel |
 
 Como cada dor é resolvida nos dados está em [Como cada dor é resolvida](../pain-resolution.mdx).
 

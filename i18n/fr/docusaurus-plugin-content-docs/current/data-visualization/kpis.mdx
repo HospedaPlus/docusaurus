@@ -11,8 +11,9 @@ Toutes les mesures se trouvent dans la table `_Medidas` du modèle, regroupées 
 | KPI (mesure) | Formule | Source gold |
 | --- | --- | --- |
 | **Occupancy %** | Chambres vendues ÷ chambres disponibles | `fact_ocupacion_diaria` |
-| **ADR** (prix moyen par nuit) | Revenu des chambres ÷ chambres vendues | `fact_ocupacion_diaria` |
-| **RevPAR** | Revenu des chambres ÷ chambres disponibles | `fact_ocupacion_diaria` |
+| **ADR** (prix moyen par chambre, net) | Revenu net des chambres ÷ chambres vendues | `fact_ocupacion_diaria` (`ingreso_neto_cop`) · `mart_p3_revenue` (`adr_neto_cop`) |
+| **RevPAR** (net) | Revenu net des chambres ÷ chambres disponibles | `fact_ocupacion_diaria` (`ingreso_neto_cop`) · `mart_p3_revenue` (`revpar_neto_cop`) |
+| **ADR brut** / **RevPAR brut** | La même chose avec le revenu brut, avant commission | `fact_ocupacion_diaria` (`ingreso_cop`) · `mart_p3_revenue` (`adr_cop`, `revpar_cop`) |
 | **Cancellation Rate** | Réservations annulées ÷ réservations | `fact_reservas` |
 | **Lost Revenue** | Σ max(0, total − pénalité) des réservations annulées | `fact_reservas` |
 | **Rejected Rooms** / **Rejection Rate** | Chambres refusées faute de disponibilité ÷ (vendues + refusées) | `fact_ocupacion_diaria` |
@@ -33,6 +34,7 @@ Les hôtels se mesurent avec quelques chiffres standard. En termes simples :
 - **Taux d'occupation %** : sur 100 chambres que l'hôtel pouvait vendre une nuit, combien il en a vendu. 80 vendues sur 100 = 80 %.
 - **ADR (Average Daily Rate, prix moyen par chambre)** : le prix moyen payé par chambre vendue et par nuit. Si 10 chambres ont rapporté 2 000 000 COP, l'ADR est de 200 000 COP. Il dit *à quel prix* vous vendez.
 - **RevPAR (Revenue Per Available Room, revenu par chambre disponible)** : le revenu des chambres divisé par *toutes* les chambres, vendues ou vides. Il réunit prix et occupation en un seul chiffre (RevPAR = ADR × Occupation). Un hôtel peut augmenter son ADR et perdre du RevPAR s'il laisse trop de chambres vides ; c'est pourquoi le RevPAR est le KPI principal du revenue management.
+- **ADR net / RevPAR net** : les deux mêmes chiffres, mais avec le revenu qui reste à l'hôtel après avoir payé la commission du canal. Voir [Brut ou net](#gross-vs-net).
 - **Taux d'annulation** : sur 100 réservations, combien ont été annulées ou sont des no-shows.
 - **Revenu perdu** : l'argent qu'auraient rapporté les réservations annulées, moins la pénalité payée par le client.
 - **Chambres refusées / Taux de refus** : chambres que les clients voulaient mais n'ont pas pu réserver car l'hôtel était complet. Mesure la demande que l'hôtel a laissé passer.
@@ -42,6 +44,23 @@ Les hôtels se mesurent avec quelques chiffres standard. En termes simples :
 - **Prix suggéré / Tarif actuel** : le prix que le pipeline recommande pour une nuit à venir face au prix publié aujourd'hui. **Suggéré vs actuel %** indique l'écart.
 - **Pickup %** : la vitesse à laquelle les chambres se réservent par rapport à l'an dernier. Positif signifie que la demande est en avance sur l'an dernier au même moment.
 - **Note des clients** : note moyenne donnée dans les avis (1 à 5). **% positifs** : part des avis avec une note de 4 ou 5.
+
+## Brut ou net (ADR et RevPAR) \{#gross-vs-net}
+
+Gold garde les deux versions du revenu des chambres, de l'ADR et du RevPAR :
+
+| | Brut | Net |
+| --- | --- | --- |
+| Revenu | `ingreso_cop` : ce que le client a payé (`total_cop`) | `ingreso_neto_cop` : `total_cop` − `comision_cop` |
+| ADR | `adr_cop` | `adr_neto_cop` |
+| RevPAR | `revpar_cop` | `revpar_neto_cop` |
+| Usage | Se comparer aux autres hôtels et aux références du secteur, toujours brutes | Décider des prix et des canaux avec l'argent que l'hôtel garde vraiment |
+
+La commission vient de `dim_canal[comision_pct]` (Neon `operation.channels`) : **OTA 18 %**, **agences 10 %**, **web direct et entreprises 0 %**. Silver calcule pour chaque réservation `comision_cop = total_cop × comision_pct ÷ 100` et `neto_cop = total_cop − comision_cop`, et `gold_modelo_daily` le répartit par nuit dans `fact_ocupacion_diaria` et `mart_p3_revenue`.
+
+**Les mesures de revenu, d'ADR et de RevPAR du rapport utilisent les colonnes nettes** ; les brutes restent disponibles pour se comparer au secteur. Les mesures divisent des sommes (Σ `ingreso_neto_cop` ÷ Σ `vendidas` pour l'ADR, ÷ Σ `habitaciones` pour le RevPAR) ; elles ne font pas la moyenne de l'`adr_neto_cop` quotidien, car une moyenne de ratios donne un chiffre faux quand les hôtels ont des tailles différentes.
+
+**Exemple.** Une nuit, un hôtel vend 3 chambres à 400 000 COP : une en direct (0 %), une par une agence (10 %) et une par une OTA (18 %). ADR brut = 400 000 COP. Revenu net = 400 000 + 360 000 + 328 000 = 1 088 000 COP, donc l'ADR net est de 362 667 COP. Avec 10 chambres, le RevPAR brut est de 120 000 COP et le net de 108 800 COP. Plus l'hôtel vend par les OTA, plus l'écart entre les deux grandit.
 
 ## Pourquoi « dates passées uniquement »
 
