@@ -11,6 +11,8 @@ import {PowerBiFlow} from '@site/src/components/Flows';
 
 **HospedaPlus Revenue** est le rapport Power BI que le Revenue Manager et les directeurs d'hôtel utilisent pour décider des prix, de l'occupation et des canaux de vente. C'est la dernière étape de la plateforme : il **lit seulement la couche gold** du lakehouse S3 via Amazon Athena et n'écrit rien en retour.
 
+Le revenu, l'ADR et le RevPAR sont affichés **nets de la commission du canal** (colonnes gold `ingreso_neto_cop`, `adr_neto_cop`, `revpar_neto_cop`), c'est-à-dire l'argent que l'hôtel garde vraiment. Les chiffres bruts restent dans gold pour se comparer au secteur. Voir [Brut ou net](./kpis.mdx#gross-vs-net).
+
 | | |
 | --- | --- |
 | Rapport | `HospedaPlus_Revenue` (projet Power BI, format `.pbip`) |
@@ -38,9 +40,9 @@ Le rapport ci-dessous est publié sur le web : tout le monde peut l'explorer san
 | --- | --- | --- | --- |
 | **P1** Annulations | Quels canaux et délais d'anticipation concentrent les annulations, et combien de revenu est perdu ? | Taux d'annulation · Revenu perdu | Résumé exécutif |
 | **P2** Surréservation | Combien de chambres sont refusées ou relogées faute de disponibilité ? | Taux de refus · Chambres relogées | Résumé exécutif · Performance par hôtel |
-| **P3** Prix et demande | Quel prix appliquer selon le pickup, la saison et les événements de la ville ? | Prix suggéré vs. tarif actuel · Pickup vs. année précédente | Prix et demande |
+| **P3** Prix et demande | Quel prix appliquer selon le pickup, la saison et les événements de la ville ? | Prix suggéré vs. tarif actuel · Pickup vs. année précédente · ADR et RevPAR nets | Prix et demande |
 | **P4** Canaux | Combien coûte chaque canal et lequel laisse le plus de revenu net ? | Commission effective · Revenu net | Résumé exécutif · Coût par canal |
-| **P5** Réputation | Quelle est la réputation de chaque hôtel et quel lien avec son occupation et son RevPAR ? | Note (RN-10) · % d'avis positifs | Résumé exécutif · Performance par hôtel |
+| **P5** Réputation | Quelle est la réputation de chaque hôtel et quel lien avec son occupation et son RevPAR net ? | Note (RN-10) · % d'avis positifs | Résumé exécutif · Performance par hôtel |
 
 La résolution de chaque point de friction dans les données est expliquée dans [Comment chaque point de friction est résolu](../pain-resolution.mdx).
 

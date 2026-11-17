@@ -11,8 +11,9 @@ All measures live in the `_Medidas` table of the model, grouped in folders: Occu
 | KPI (measure) | Formula | Gold source |
 | --- | --- | --- |
 | **Occupancy %** | Rooms sold ÷ rooms available | `fact_ocupacion_diaria` |
-| **ADR** (average daily rate) | Room revenue ÷ rooms sold | `fact_ocupacion_diaria` |
-| **RevPAR** | Room revenue ÷ rooms available | `fact_ocupacion_diaria` |
+| **ADR** (average daily rate, net) | Net room revenue ÷ rooms sold | `fact_ocupacion_diaria` (`ingreso_neto_cop`) · `mart_p3_revenue` (`adr_neto_cop`) |
+| **RevPAR** (net) | Net room revenue ÷ rooms available | `fact_ocupacion_diaria` (`ingreso_neto_cop`) · `mart_p3_revenue` (`revpar_neto_cop`) |
+| **Gross ADR** / **Gross RevPAR** | The same with gross revenue, before commission | `fact_ocupacion_diaria` (`ingreso_cop`) · `mart_p3_revenue` (`adr_cop`, `revpar_cop`) |
 | **Cancellation Rate** | Cancelled bookings ÷ bookings | `fact_reservas` |
 | **Lost Revenue** | Σ max(0, total − penalty) over cancelled bookings | `fact_reservas` |
 | **Rejected Rooms** / **Rejection Rate** | Rooms rejected for lack of availability ÷ (sold + rejected) | `fact_ocupacion_diaria` |
@@ -33,6 +34,7 @@ Hotels measure themselves with a few standard numbers. In plain words:
 - **Occupancy %**: out of every 100 rooms the hotel could sell on a night, how many it actually sold. 80 rooms sold of 100 = 80 %.
 - **ADR (Average Daily Rate)**: the average price paid per room sold per night. If 10 rooms brought COP 2,000,000, the ADR is COP 200,000. It tells you *how expensive* you sell.
 - **RevPAR (Revenue Per Available Room)**: room revenue divided by *all* rooms, sold or empty. It joins price and occupancy in one number (RevPAR = ADR × Occupancy). A hotel can raise ADR and still lose RevPAR if it empties too many rooms; that is why RevPAR is the main revenue KPI.
+- **Net ADR / Net RevPAR**: the same two numbers, but with the revenue the hotel keeps after paying the channel's commission. See [Gross vs. net](#gross-vs-net).
 - **Cancellation Rate**: out of every 100 bookings, how many were cancelled or were no-shows.
 - **Lost Revenue**: money that cancelled bookings would have brought, minus any penalty the guest paid.
 - **Rejected Rooms / Rejection Rate**: rooms guests wanted but could not book because the hotel was full. It measures demand the hotel turned away.
@@ -42,6 +44,23 @@ Hotels measure themselves with a few standard numbers. In plain words:
 - **Suggested Price / Current Rate**: the price the pipeline recommends for an upcoming night versus the price published today. **Suggested vs Current %** says how far apart they are.
 - **Pickup %**: how fast rooms are being booked compared with last year. Positive means demand is ahead of last year at the same point in time.
 - **Guest Rating**: average score that guests give in reviews (1 to 5). **% Positive**: share of reviews with a score of 4 or 5.
+
+## Gross vs. net (ADR and RevPAR) \{#gross-vs-net}
+
+Gold keeps both versions of room revenue, ADR and RevPAR:
+
+| | Gross | Net |
+| --- | --- | --- |
+| Revenue | `ingreso_cop`: what the guest paid (`total_cop`) | `ingreso_neto_cop`: `total_cop` − `comision_cop` |
+| ADR | `adr_cop` | `adr_neto_cop` |
+| RevPAR | `revpar_cop` | `revpar_neto_cop` |
+| Use | Compare with other hotels and industry benchmarks, which are always gross | Decide prices and channels with the money the hotel really keeps |
+
+The commission comes from `dim_canal[comision_pct]` (Neon `operation.channels`): **OTA 18 %**, **agencies 10 %**, **direct web and corporate 0 %**. Silver calculates `comision_cop = total_cop × comision_pct ÷ 100` and `neto_cop = total_cop − comision_cop` for every booking, and `gold_modelo_daily` splits it per night into `fact_ocupacion_diaria` and `mart_p3_revenue`.
+
+**The report's revenue, ADR and RevPAR measures use the net columns**; the gross ones stay available for benchmarks. The measures divide sums (Σ `ingreso_neto_cop` ÷ Σ `vendidas` for ADR, ÷ Σ `habitaciones` for RevPAR); they do not average the daily `adr_neto_cop`, because an average of ratios gives a wrong number when hotels have different sizes.
+
+**Example.** One night, a hotel sells 3 rooms at COP 400,000: one direct (0 %), one through an agency (10 %) and one through an OTA (18 %). Gross ADR = COP 400,000. Net revenue = 400,000 + 360,000 + 328,000 = COP 1,088,000, so the net ADR is COP 362,667. With 10 rooms, gross RevPAR is COP 120,000 and net RevPAR COP 108,800. The more the hotel sells through OTAs, the wider the gap between the two.
 
 ## Why "past dates only"
 

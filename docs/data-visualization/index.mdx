@@ -11,6 +11,8 @@ import {PowerBiFlow} from '@site/src/components/Flows';
 
 **HospedaPlus Revenue** is the Power BI report the Revenue Manager and the hotel managers use to decide on prices, occupancy and sales channels. It is the last step of the platform: it **only reads the gold layer** of the S3 lakehouse through Amazon Athena, and writes nothing back.
 
+Revenue, ADR and RevPAR are shown **net of the channel commission** (gold columns `ingreso_neto_cop`, `adr_neto_cop`, `revpar_neto_cop`), that is, the money the hotel really keeps. The gross figures stay in gold for comparisons with the industry. See [Gross vs. net](./kpis.mdx#gross-vs-net).
+
 | | |
 | --- | --- |
 | Report | `HospedaPlus_Revenue` (Power BI project, `.pbip` format) |
@@ -38,9 +40,9 @@ The report below is published to the web, so anyone can explore it without signi
 | --- | --- | --- | --- |
 | **P1** Cancellations | Which channels and lead times concentrate cancellations, and how much revenue is lost? | Cancellation rate · Lost revenue | Executive summary |
 | **P2** Overbooking | How many rooms are rejected or relocated for lack of availability? | Rejection rate · Relocated rooms | Executive summary · Performance by hotel |
-| **P3** Price and demand | What price to charge based on pickup, season and city events? | Suggested price vs. current rate · Pickup vs. last year | Prices and demand |
+| **P3** Price and demand | What price to charge based on pickup, season and city events? | Suggested price vs. current rate · Pickup vs. last year · Net ADR and RevPAR | Prices and demand |
 | **P4** Channels | How much does each channel cost and which leaves the most net revenue? | Effective commission · Net revenue | Executive summary · Cost by channel |
-| **P5** Reputation | How is each hotel's reputation and how does it relate to occupancy and RevPAR? | Rating (RN-10) · % positive reviews | Executive summary · Performance by hotel |
+| **P5** Reputation | How is each hotel's reputation and how does it relate to occupancy and net RevPAR? | Rating (RN-10) · % positive reviews | Executive summary · Performance by hotel |
 
 How each pain is solved in the data is explained in [How each pain is solved](../pain-resolution.mdx).
 

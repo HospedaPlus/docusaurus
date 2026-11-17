@@ -48,7 +48,7 @@ Relações (todas um para muitos, da dimensão para o fato):
 | --- | --- | --- | --- |
 | `fact_reservas` | uma reserva (`code`), sem duplicados | `hotel_code`, `channel_code`, `room_type`, `fecha_reserva`, `check_in`, `check_out` | `noches`, `habitaciones`, `huespedes`, `lead_time_dias`, `total_cop`, `comision_cop`, `neto_cop`, `penalidad_cop`; indicadores `es_cancelada`, `reembolsable`, `fx_estimada`; `rango_anticipacion`, `status`, `source` |
 | `fact_cancelaciones` | uma reserva cancelada / no-show | `hotel_code`, `channel_code`, `room_type`, `check_in`, `fecha_cancelacion` | `horas_antes_checkin`, `total_cop`, `penalidad_cop`, `ingreso_perdido_cop` (total − multa); `rango_anticipacion` |
-| `fact_ocupacion_diaria` | hotel × tipo de quarto × noite | `hotel_code`, `room_type`, `fecha` | `habitaciones`, `vendidas`, `limite_sobreventa`, `disponibles`, `sobrevendidas`, `reubicadas`, `habitaciones_rechazadas`, `ocupacion_pct`, `ingreso_cop`; `es_festivo`, `nombre_festivo`, `hay_evento`, `evento`, `categoria_evento` |
+| `fact_ocupacion_diaria` | hotel × tipo de quarto × noite | `hotel_code`, `room_type`, `fecha` | `habitaciones`, `vendidas`, `limite_sobreventa`, `disponibles`, `sobrevendidas`, `reubicadas`, `habitaciones_rechazadas`, `ocupacion_pct`, `ingreso_cop` (bruto), `ingreso_neto_cop` (líquido da comissão do canal); `es_festivo`, `nombre_festivo`, `hay_evento`, `evento`, `categoria_evento` |
 | `fact_resenas` | uma avaliação (só originais) | `hotel_code`, `fecha_publicacion`, `fecha_estadia` | `puntaje`, `sentimiento`, `duplicados`; `plataforma`, `idioma`, `pais_huesped` |
 
 ### Marts (um por pain do negócio)
@@ -60,7 +60,7 @@ Os marts são respostas já agregadas a partir dos fatos, então cada página do
 | `mart_p1_cancelacion` | P1 cancelamentos | canal × faixa de antecedência × reembolsável × mês de check-in | reservas, canceladas, `tasa_cancelacion`, multa e receita perdida em COP |
 | `mart_p1_historico_f1` | P1 (histórico) | tipo de hotel × tipo de canal × faixa de antecedência × tipo de depósito | taxa de cancelamento da F1 2015–2017 |
 | `mart_p2_sobreventa` | P2 overbooking | hotel × noite | quartos, vendidos, limite de overbooking, vendidos a mais, realocados, recusados, `% realocação` |
-| `mart_p3_revenue` | P3 receita | hotel × noite | ocupação %, **ADR**, **RevPAR**, quartos em carteira 14 dias antes vs o ano anterior (**pickup %**), indicadores de feriado e evento |
+| `mart_p3_revenue` | P3 receita | hotel × noite | ocupação %, receita bruta e líquida, **ADR** e **RevPAR** brutos (`adr_cop`, `revpar_cop`) e líquidos de comissão (`adr_neto_cop`, `revpar_neto_cop`), quartos em carteira 14 dias antes vs o ano anterior (**pickup %**), indicadores de feriado e evento |
 | `mart_p3_precio_sugerido` | P3 preços | hotel × tipo de quarto × noite, próximas 90 noites | preço sugerido = tarifa × fator de pickup (1,10 / 0,92 quando o pickup passa de ±15 %) × fator de evento (1,15 em feriado ou evento), entre 0,75 e 1,60 da tarifa base (RN-05/RN-06), também em COP |
 | `mart_p4_comisiones` | P4 custo de canal | canal × hotel × mês | receita bruta, comissão e líquida em COP, % de comissão efetiva |
 | `mart_p5_reputacion` | P5 reputação | hotel × dia | nota RN-10 dos últimos 90 dias com os últimos 30 valendo o dobro, avaliações em 90 dias, % positivas, % negativas |
@@ -172,15 +172,17 @@ def _nights(fact_res: DataFrame) -> DataFrame:
         "hotel_code", "room_type", "habitaciones", "fecha_reserva", "es_cancelada",
         # Dia do cancelamento (se houver)
         F.to_date(F.col("_cancelada_en")).alias("fecha_cancelacion"),
-        # Receita de uma noite, e a data da noite
-        (F.col("total_cop") / F.col("noches")).alias("ingreso_noche_cop"), night.alias("fecha"))
+        # Receita bruta e líquida (depois da comissão) de uma noite, e a data da noite
+        (F.col("total_cop") / F.col("noches")).alias("ingreso_noche_cop"),
+        (F.col("neto_cop") / F.col("noches")).alias("ingreso_neto_noche_cop"), night.alias("fecha"))
 
 
 # Fato de ocupação diária: quartos, vendidos, receita e calendário por dia
 def fact_ocupacion(ocupacion: DataFrame, n: DataFrame, calendario: DataFrame) -> DataFrame:
-    # Receita por hotel, tipo de quarto e dia, sem reservas canceladas
+    # Receita bruta e líquida por hotel, tipo de quarto e dia, sem reservas canceladas
     ingreso = (n.filter("NOT es_cancelada").groupBy("hotel_code", "room_type", "fecha")
-               .agg(F.round(F.sum(F.col("ingreso_noche_cop") * 1.0), 2).alias("ingreso_cop")))
+               .agg(F.round(F.sum(F.col("ingreso_noche_cop") * 1.0), 2).alias("ingreso_cop"),
+                    F.round(F.sum(F.col("ingreso_neto_noche_cop") * 1.0), 2).alias("ingreso_neto_cop")))
     # Feriados e eventos de cada hotel e dia
     cal = calendario.select("hotel_code", "fecha", "es_festivo", "nombre_festivo", "hay_evento", "evento",
                             "categoria_evento")
@@ -189,12 +191,12 @@ def fact_ocupacion(ocupacion: DataFrame, n: DataFrame, calendario: DataFrame) ->
             # + calendário
             .join(cal, ["hotel_code", "fecha"], "left")
             # Dias sem receita ou eventos ficam com 0 / false em vez de vazios
-            .fillna({"ingreso_cop": 0.0, "es_festivo": False, "hay_evento": False}))
+            .fillna({"ingreso_cop": 0.0, "ingreso_neto_cop": 0.0, "es_festivo": False, "hay_evento": False}))
 ```
 
 ### 4. Construir: marts, prontos para análise
 
-Um mart é um fato já agrupado no nível que uma página do painel precisa. Por exemplo o P3 (ocupação, ADR, RevPAR por hotel e noite):
+Um mart é um fato já agrupado no nível que uma página do painel precisa. Por exemplo o P3 (ocupação, ADR, RevPAR por hotel e noite). O ADR e o RevPAR saem duas vezes: **brutos** (`adr_cop`, `revpar_cop`, o padrão da indústria para comparar com outros hotéis) e **líquidos** da comissão do canal (`adr_neto_cop`, `revpar_neto_cop`, o que o hotel realmente fica):
 
 ```python
 # Mart P3: indicadores de receita por hotel e dia
@@ -203,7 +205,8 @@ def mart_p3_revenue(fo: DataFrame, otb: DataFrame) -> DataFrame:
     # Soma os tipos de quarto de cada hotel e dia
     return (fo.groupBy("hotel_code", "fecha")
             .agg(F.sum("habitaciones").alias("habitaciones"), F.sum("vendidas").alias("vendidas"),
-                 F.round(F.sum("ingreso_cop"), 2).alias("ingreso_cop"), …)
+                 F.round(F.sum("ingreso_cop"), 2).alias("ingreso_cop"),
+                 F.round(F.sum("ingreso_neto_cop"), 2).alias("ingreso_neto_cop"), …)
             # Adiciona os dados de pickup (p)
             .join(p, ["hotel_code", "fecha"], "left")
             # % de ocupação = vendidos / quartos
@@ -214,6 +217,11 @@ def mart_p3_revenue(fo: DataFrame, otb: DataFrame) -> DataFrame:
             # RevPAR = receita / quartos disponíveis
             .withColumn("revpar_cop", F.round(F.when(F.col("habitaciones") > 0,
                                                      F.col("ingreso_cop") / F.col("habitaciones")), 2))
+            # ADR líquido e RevPAR líquido: o mesmo, com a receita depois da comissão do canal
+            .withColumn("adr_neto_cop", F.round(F.when(F.col("vendidas") > 0,
+                                                       F.col("ingreso_neto_cop") / F.col("vendidas")), 2))
+            .withColumn("revpar_neto_cop", F.round(F.when(F.col("habitaciones") > 0,
+                                                          F.col("ingreso_neto_cop") / F.col("habitaciones")), 2))
             # % de pickup comparado com os dias anteriores
             .withColumn("pickup_pct", _pickup_pct()))
 ```

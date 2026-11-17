@@ -11,8 +11,9 @@ Alle Measures liegen in der Tabelle `_Medidas` des Modells, gruppiert in Ordner:
 | KPI (Measure) | Formel | Gold-Quelle |
 | --- | --- | --- |
 | **Occupancy %** | Verkaufte Zimmer ÷ verfügbare Zimmer | `fact_ocupacion_diaria` |
-| **ADR** (durchschnittlicher Tagespreis) | Zimmerumsatz ÷ verkaufte Zimmer | `fact_ocupacion_diaria` |
-| **RevPAR** | Zimmerumsatz ÷ verfügbare Zimmer | `fact_ocupacion_diaria` |
+| **ADR** (durchschnittlicher Zimmerpreis, netto) | Netto-Zimmerumsatz ÷ verkaufte Zimmer | `fact_ocupacion_diaria` (`ingreso_neto_cop`) · `mart_p3_revenue` (`adr_neto_cop`) |
+| **RevPAR** (netto) | Netto-Zimmerumsatz ÷ verfügbare Zimmer | `fact_ocupacion_diaria` (`ingreso_neto_cop`) · `mart_p3_revenue` (`revpar_neto_cop`) |
+| **Brutto-ADR** / **Brutto-RevPAR** | Dasselbe mit dem Bruttoumsatz, vor Provision | `fact_ocupacion_diaria` (`ingreso_cop`) · `mart_p3_revenue` (`adr_cop`, `revpar_cop`) |
 | **Cancellation Rate** | Stornierte Buchungen ÷ Buchungen | `fact_reservas` |
 | **Lost Revenue** | Σ max(0, Gesamt − Gebühr) der stornierten Buchungen | `fact_reservas` |
 | **Rejected Rooms** / **Rejection Rate** | Mangels Verfügbarkeit abgelehnte Zimmer ÷ (verkauft + abgelehnt) | `fact_ocupacion_diaria` |
@@ -33,6 +34,7 @@ Hotels messen sich mit wenigen Standardzahlen. In einfachen Worten:
 - **Belegung %**: von 100 Zimmern, die das Hotel in einer Nacht verkaufen konnte, wie viele es verkauft hat. 80 von 100 verkauft = 80 %.
 - **ADR (Average Daily Rate, durchschnittlicher Zimmerpreis)**: der durchschnittliche Preis pro verkauftem Zimmer und Nacht. Brachten 10 Zimmer COP 2.000.000, ist der ADR COP 200.000. Er zeigt, *wie teuer* verkauft wird.
 - **RevPAR (Revenue Per Available Room, Umsatz pro verfügbarem Zimmer)**: Zimmerumsatz geteilt durch *alle* Zimmer, verkauft oder leer. Er verbindet Preis und Belegung in einer Zahl (RevPAR = ADR × Belegung). Ein Hotel kann den ADR erhöhen und trotzdem RevPAR verlieren, wenn zu viele Zimmer leer bleiben; deshalb ist RevPAR die wichtigste Revenue-KPI.
+- **Netto-ADR / Netto-RevPAR**: dieselben zwei Zahlen, aber mit dem Umsatz, der dem Hotel nach der Kanalprovision bleibt. Siehe [Brutto vs. netto](#gross-vs-net).
 - **Stornoquote**: von 100 Buchungen, wie viele storniert wurden oder No-Shows waren.
 - **Entgangener Umsatz**: das Geld, das stornierte Buchungen gebracht hätten, abzüglich einer gezahlten Strafe.
 - **Abgelehnte Zimmer / Ablehnungsquote**: Zimmer, die Gäste wollten, aber nicht buchen konnten, weil das Hotel voll war. Misst die abgewiesene Nachfrage.
@@ -42,6 +44,23 @@ Hotels messen sich mit wenigen Standardzahlen. In einfachen Worten:
 - **Preisvorschlag / Aktueller Tarif**: der Preis, den die Pipeline für eine kommende Nacht empfiehlt, gegenüber dem heute veröffentlichten Preis. **Vorschlag vs. aktuell %** zeigt den Abstand.
 - **Pickup %**: wie schnell Zimmer im Vergleich zum Vorjahr gebucht werden. Positiv heißt, die Nachfrage liegt zum gleichen Zeitpunkt vor dem Vorjahr.
 - **Gästebewertung**: Durchschnittsnote der Gäste in Bewertungen (1 bis 5). **% positiv**: Anteil der Bewertungen mit Note 4 oder 5.
+
+## Brutto vs. netto (ADR und RevPAR) \{#gross-vs-net}
+
+Gold speichert beide Versionen von Zimmerumsatz, ADR und RevPAR:
+
+| | Brutto | Netto |
+| --- | --- | --- |
+| Umsatz | `ingreso_cop`: was der Gast bezahlt hat (`total_cop`) | `ingreso_neto_cop`: `total_cop` − `comision_cop` |
+| ADR | `adr_cop` | `adr_neto_cop` |
+| RevPAR | `revpar_cop` | `revpar_neto_cop` |
+| Zweck | Vergleich mit anderen Hotels und Branchenwerten, die immer brutto sind | Preise und Kanäle nach dem Geld entscheiden, das das Hotel wirklich behält |
+
+Die Provision kommt aus `dim_canal[comision_pct]` (Neon `operation.channels`): **OTA 18 %**, **Agenturen 10 %**, **Direkt-Web und Firmenkunden 0 %**. Silver berechnet für jede Buchung `comision_cop = total_cop × comision_pct ÷ 100` und `neto_cop = total_cop − comision_cop`, und `gold_modelo_daily` verteilt das pro Nacht auf `fact_ocupacion_diaria` und `mart_p3_revenue`.
+
+**Die Umsatz-, ADR- und RevPAR-Measures des Berichts nutzen die Netto-Spalten**; die Brutto-Spalten bleiben für Branchenvergleiche verfügbar. Die Measures teilen Summen (Σ `ingreso_neto_cop` ÷ Σ `vendidas` für den ADR, ÷ Σ `habitaciones` für den RevPAR); sie mitteln nicht den täglichen `adr_neto_cop`, weil ein Mittelwert von Quoten bei unterschiedlich großen Hotels eine falsche Zahl ergibt.
+
+**Beispiel.** In einer Nacht verkauft ein Hotel 3 Zimmer zu je COP 400.000: eines direkt (0 %), eines über eine Agentur (10 %) und eines über eine OTA (18 %). Brutto-ADR = COP 400.000. Nettoumsatz = 400.000 + 360.000 + 328.000 = COP 1.088.000, also ist der Netto-ADR COP 362.667. Bei 10 Zimmern ist der Brutto-RevPAR COP 120.000 und der Netto-RevPAR COP 108.800. Je mehr das Hotel über OTAs verkauft, desto größer der Abstand.
 
 ## Warum „nur vergangene Daten“
 
